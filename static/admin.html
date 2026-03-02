@@ -1,0 +1,624 @@
+﻿<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CampusRAG Admin</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #f6f1e7;
+            --panel: #fffcf7;
+            --ink: #1e2b2d;
+            --dim: #617073;
+            --line: #d9d2c3;
+            --brand: #116d7c;
+            --ok: #1f855a;
+            --warn: #9b6800;
+            --bad: #b33f2f;
+            --radius: 16px;
+            --shadow: 0 8px 28px rgba(24, 35, 37, 0.08);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: "Manrope", sans-serif;
+            background:
+                radial-gradient(circle at 5% 10%, #dcf0ea 0%, transparent 35%),
+                radial-gradient(circle at 95% 90%, #f8e7cd 0%, transparent 40%),
+                var(--bg);
+            color: var(--ink);
+        }
+
+        .container {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 14px 16px;
+            gap: 10px;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 20px;
+        }
+
+        .header small {
+            color: var(--dim);
+            font-size: 12px;
+        }
+
+        .links {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .links a {
+            text-decoration: none;
+            color: var(--brand);
+            font-weight: 700;
+            font-size: 13px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(12, minmax(0, 1fr));
+            gap: 14px;
+            width: 100%;
+        }
+
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 14px;
+            min-height: 120px;
+        }
+
+        .span-12 {
+            grid-column: span 12;
+        }
+
+        .span-8 {
+            grid-column: span 8;
+        }
+
+        .span-6 {
+            grid-column: span 6;
+        }
+
+        .span-4 {
+            grid-column: span 4;
+        }
+
+        .card h2 {
+            margin: 0 0 12px;
+            font-size: 15px;
+            color: var(--ink);
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .stat {
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 10px;
+            background: #fff;
+        }
+
+        .stat .value {
+            font-size: 25px;
+            font-weight: 800;
+            color: var(--brand);
+            line-height: 1;
+        }
+
+        .stat .label {
+            margin-top: 4px;
+            font-size: 12px;
+            color: var(--dim);
+        }
+
+        .upload {
+            border: 2px dashed var(--line);
+            border-radius: 14px;
+            padding: 20px;
+            text-align: center;
+            position: relative;
+            background: #fff;
+        }
+
+        .upload.drag {
+            border-color: var(--brand);
+            background: #f3fbfd;
+        }
+
+        .upload input[type=file] {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .upload p {
+            margin: 6px 0;
+            color: var(--dim);
+            font-size: 13px;
+        }
+
+        .btn-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        button {
+            border: none;
+            border-radius: 10px;
+            padding: 9px 12px;
+            font-family: inherit;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .btn-main {
+            background: linear-gradient(135deg, var(--brand), #0a8f9d);
+            color: #fff;
+        }
+
+        .btn-muted {
+            background: #ece6dc;
+            color: #445154;
+        }
+
+        .btn-danger {
+            background: #fbe4df;
+            color: var(--bad);
+        }
+
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .table th,
+        .table td {
+            border-bottom: 1px solid var(--line);
+            padding: 9px 8px;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        .table th {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+            color: var(--dim);
+        }
+
+        .status {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        .status.uploaded,
+        .status.queued,
+        .status.running,
+        .status.ingesting {
+            background: #fff2d9;
+            color: var(--warn);
+        }
+
+        .status.ingested,
+        .status.done {
+            background: #ddf4e7;
+            color: var(--ok);
+        }
+
+        .status.failed,
+        .status.error,
+        .status.fallback {
+            background: #fbe1dc;
+            color: var(--bad);
+        }
+
+        .status.answer {
+            background: #ddf4e7;
+            color: var(--ok);
+        }
+
+        .status.clarify {
+            background: #fff2d9;
+            color: var(--warn);
+        }
+
+        .mono {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 12px;
+        }
+
+        .scroll {
+            max-height: 320px;
+            overflow: auto;
+        }
+
+        .note {
+            color: var(--dim);
+            font-size: 12px;
+            margin-top: 8px;
+        }
+
+        .toast {
+            position: fixed;
+            right: 18px;
+            bottom: 18px;
+            z-index: 99;
+            border-radius: 10px;
+            padding: 10px 14px;
+            color: #fff;
+            font-weight: 700;
+            font-size: 13px;
+            animation: in .2s ease;
+        }
+
+        .toast.ok {
+            background: var(--ok);
+        }
+
+        .toast.err {
+            background: var(--bad);
+        }
+
+        @keyframes in {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @media (max-width: 1024px) {
+            .span-8,
+            .span-6,
+            .span-4 {
+                grid-column: span 12;
+            }
+
+            .stats {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header class="header">
+            <div>
+                <h1>CampusRAG Admin</h1>
+                <small>Upload, ingest, monitor logs, and inspect runtime configuration</small>
+            </div>
+            <div class="links">
+                <a href="/chat">Chat</a>
+                <a href="/docs">API Docs</a>
+                <a href="/health">Health</a>
+            </div>
+        </header>
+
+        <section class="card">
+            <h2>Knowledge Base Stats</h2>
+            <div class="stats">
+                <div class="stat"><div class="value" id="s-files">-</div><div class="label">Files</div></div>
+                <div class="stat"><div class="value" id="s-ingested">-</div><div class="label">Ingested</div></div>
+                <div class="stat"><div class="value" id="s-vectors">-</div><div class="label">Vectors</div></div>
+                <div class="stat"><div class="value" id="s-cache">-</div><div class="label">Cache MB</div></div>
+                <div class="stat"><div class="value" id="s-provider">-</div><div class="label">Active LLM</div></div>
+            </div>
+        </section>
+
+        <div class="grid">
+            <section class="card span-4">
+                <h2>Upload Documents</h2>
+                <div class="upload" id="uploadZone">
+                    <input type="file" id="fileInput" multiple accept=".pdf,.txt,.md,.html,.htm,.csv,.xlsx,.xls">
+                    <strong>Drop files or click to upload</strong>
+                    <p>PDF, TXT, MD, HTML, CSV, XLSX/XLS</p>
+                    <p>Max size follows <code>RAG_MAX_UPLOAD_SIZE_MB</code></p>
+                </div>
+                <div class="btn-row">
+                    <button class="btn-main" id="btnIngestAll">Ingest All Pending</button>
+                    <button class="btn-muted" id="btnRefresh">Refresh</button>
+                    <button class="btn-danger" id="btnClearCache">Clear Cache</button>
+                </div>
+                <div class="note" id="jobSummary">No background job yet.</div>
+            </section>
+
+            <section class="card span-8">
+                <h2>Documents</h2>
+                <div class="scroll">
+                    <table class="table" id="docsTable">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>Status</th>
+                                <th>Rows/Pages</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="card span-6">
+                <h2>Recent Chat Logs</h2>
+                <div class="scroll">
+                    <table class="table" id="logsTable">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Mode</th>
+                                <th>Score</th>
+                                <th>Latency</th>
+                                <th>Question</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="card span-6">
+                <h2>Runtime System</h2>
+                <div class="scroll">
+                    <pre class="mono" id="systemDump" style="margin:0;"></pre>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <script>
+        const activeJobs = new Set();
+
+        function toast(msg, ok = true) {
+            const node = document.createElement('div');
+            node.className = `toast ${ok ? 'ok' : 'err'}`;
+            node.textContent = msg;
+            document.body.appendChild(node);
+            setTimeout(() => node.remove(), 3200);
+        }
+
+        async function fetchJson(url, options = undefined) {
+            const res = await fetch(url, options);
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+            return data;
+        }
+
+        async function refreshStatsAndSystem() {
+            const [kb, cache, system] = await Promise.all([
+                fetchJson('/api/kb/stats'),
+                fetchJson('/api/cache/stats'),
+                fetchJson('/api/system'),
+            ]);
+
+            document.getElementById('s-files').textContent = kb.total_files;
+            document.getElementById('s-ingested').textContent = kb.ingested_files;
+            document.getElementById('s-vectors').textContent = kb.total_vectors;
+            document.getElementById('s-cache').textContent = cache.size_mb;
+            document.getElementById('s-provider').textContent = system.llm_provider_active || '-';
+            document.getElementById('systemDump').textContent = JSON.stringify(system, null, 2);
+        }
+
+        async function refreshDocuments() {
+            const docs = await fetchJson('/api/files');
+            const tbody = document.querySelector('#docsTable tbody');
+            if (!docs.length) {
+                tbody.innerHTML = '<tr><td colspan="6">No files uploaded.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = docs.map((doc) => {
+                const canIngest = doc.status === 'uploaded' || doc.status === 'failed' || doc.status === 'ingested';
+                return `
+                    <tr>
+                        <td>${doc.id}</td>
+                        <td>${doc.original_name}</td>
+                        <td><span class="status ${doc.status}">${doc.status}</span></td>
+                        <td>${doc.pages_or_rows ?? '-'}</td>
+                        <td>${doc.created_at || '-'}</td>
+                        <td>
+                            ${canIngest ? `<button class="btn-main" data-ingest="${doc.id}">${doc.status === 'ingested' ? 'Reindex' : 'Ingest'}</button>` : ''}
+                            <button class="btn-danger" data-del="${doc.id}">Delete</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function refreshLogs() {
+            const logs = await fetchJson('/api/admin/chat-logs?limit=50');
+            const tbody = document.querySelector('#logsTable tbody');
+            if (!logs.length) {
+                tbody.innerHTML = '<tr><td colspan="5">No chat logs yet.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = logs.map((log) => `
+                <tr>
+                    <td>${log.created_at || '-'}</td>
+                    <td><span class="status ${log.mode}">${log.mode}</span></td>
+                    <td>${log.top_score ?? '-'}</td>
+                    <td>${log.latency_ms ?? '-'} ms</td>
+                    <td>${(log.user_message || '').slice(0, 110)}</td>
+                </tr>
+            `).join('');
+        }
+
+        async function refreshAll() {
+            await Promise.all([
+                refreshStatsAndSystem(),
+                refreshDocuments(),
+                refreshLogs(),
+            ]);
+            renderJobSummary();
+        }
+
+        function renderJobSummary() {
+            const el = document.getElementById('jobSummary');
+            if (!activeJobs.size) {
+                el.textContent = 'No active ingest job.';
+                return;
+            }
+            el.textContent = `Tracking ${activeJobs.size} ingest job(s): ${Array.from(activeJobs).join(', ')}`;
+        }
+
+        async function pollJob(jobId) {
+            activeJobs.add(jobId);
+            renderJobSummary();
+
+            const check = async () => {
+                try {
+                    const job = await fetchJson(`/api/jobs/${jobId}`);
+                    if (job.status === 'done') {
+                        activeJobs.delete(jobId);
+                        renderJobSummary();
+                        toast(`Job ${jobId} done`);
+                        await refreshAll();
+                        return;
+                    }
+                    if (job.status === 'failed') {
+                        activeJobs.delete(jobId);
+                        renderJobSummary();
+                        toast(`Job ${jobId} failed: ${job.error_message || ''}`, false);
+                        await refreshAll();
+                        return;
+                    }
+                } catch (_) {
+                    // keep polling
+                }
+                setTimeout(check, 2000);
+            };
+            check();
+        }
+
+        async function handleUpload(files) {
+            for (const file of files) {
+                const body = new FormData();
+                body.append('file', file);
+                try {
+                    await fetchJson('/api/upload', { method: 'POST', body });
+                    toast(`Uploaded: ${file.name}`);
+                } catch (err) {
+                    toast(`Upload failed: ${file.name} (${err.message})`, false);
+                }
+            }
+            await refreshAll();
+        }
+
+        async function ingestOne(fileId) {
+            const data = await fetchJson(`/api/ingest/${fileId}`, { method: 'POST' });
+            toast(`Ingest queued: ${data.job_id}`);
+            pollJob(data.job_id);
+            await refreshAll();
+        }
+
+        async function ingestAll() {
+            const data = await fetchJson('/api/ingest/all', { method: 'POST' });
+            toast(data.message || 'Queued');
+            (data.jobs || []).forEach((job) => pollJob(job.job_id));
+            await refreshAll();
+        }
+
+        async function deleteFile(fileId) {
+            if (!confirm('Delete this file and its vectors?')) return;
+            await fetchJson(`/api/files/${fileId}`, { method: 'DELETE' });
+            toast(`Deleted file ${fileId}`);
+            await refreshAll();
+        }
+
+        async function clearCache() {
+            await fetchJson('/api/cache/clear', { method: 'POST' });
+            toast('Cache cleared');
+            await refreshAll();
+        }
+
+        document.getElementById('btnIngestAll').addEventListener('click', () => ingestAll().catch((e) => toast(e.message, false)));
+        document.getElementById('btnRefresh').addEventListener('click', () => refreshAll().catch((e) => toast(e.message, false)));
+        document.getElementById('btnClearCache').addEventListener('click', () => clearCache().catch((e) => toast(e.message, false)));
+
+        document.querySelector('#docsTable tbody').addEventListener('click', (event) => {
+            const ingestBtn = event.target.closest('[data-ingest]');
+            if (ingestBtn) {
+                ingestOne(Number(ingestBtn.dataset.ingest)).catch((e) => toast(e.message, false));
+                return;
+            }
+            const delBtn = event.target.closest('[data-del]');
+            if (delBtn) {
+                deleteFile(Number(delBtn.dataset.del)).catch((e) => toast(e.message, false));
+            }
+        });
+
+        const uploadZone = document.getElementById('uploadZone');
+        const fileInput = document.getElementById('fileInput');
+
+        uploadZone.addEventListener('dragover', (event) => {
+            event.preventDefault();
+            uploadZone.classList.add('drag');
+        });
+        uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag'));
+        uploadZone.addEventListener('drop', (event) => {
+            event.preventDefault();
+            uploadZone.classList.remove('drag');
+            handleUpload(event.dataTransfer.files).catch((e) => toast(e.message, false));
+        });
+        fileInput.addEventListener('change', () => {
+            handleUpload(fileInput.files).catch((e) => toast(e.message, false));
+            fileInput.value = '';
+        });
+
+        refreshAll().catch((e) => toast(e.message, false));
+        setInterval(() => refreshStatsAndSystem().catch(() => {}), 15000);
+        setInterval(() => refreshLogs().catch(() => {}), 12000);
+    </script>
+</body>
+
+</html>

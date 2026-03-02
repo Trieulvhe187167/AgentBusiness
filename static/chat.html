@@ -1,0 +1,682 @@
+﻿<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CampusRAG Chat</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #f3efe7;
+            --bg-elev: #fffdf9;
+            --panel: #ffffff;
+            --line: #d9d2c6;
+            --ink: #1f2d2f;
+            --ink-dim: #5a6a6c;
+            --brand: #0e7c66;
+            --brand-2: #f5a623;
+            --danger: #b54639;
+            --answer: #d9f3ec;
+            --clarify: #fff2d8;
+            --fallback: #ffe1dc;
+            --radius: 16px;
+            --shadow: 0 8px 28px rgba(17, 31, 33, 0.08);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            height: 100%;
+        }
+
+        body {
+            margin: 0;
+            font-family: "Manrope", sans-serif;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at 0% 0%, #d9efe7 0%, transparent 40%),
+                radial-gradient(circle at 100% 100%, #fde8c9 0%, transparent 45%),
+                var(--bg);
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        .app {
+            max-width: 1300px;
+            margin: 0 auto;
+            height: 100vh;
+            min-height: 100vh;
+            display: grid;
+            grid-template-rows: auto 1fr auto;
+            padding: 18px;
+            gap: 14px;
+            overflow: hidden;
+        }
+
+        .header {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 14px 18px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        .title-wrap {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .dot {
+            width: 11px;
+            height: 11px;
+            border-radius: 50%;
+            background: var(--brand);
+            box-shadow: 0 0 0 6px rgba(14, 124, 102, 0.12);
+        }
+
+        .title h1 {
+            font-size: 18px;
+            line-height: 1;
+            margin: 0;
+        }
+
+        .title p {
+            margin: 4px 0 0;
+            font-size: 12px;
+            color: var(--ink-dim);
+        }
+
+        .header-tools {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .chip {
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            padding: 7px 11px;
+            font-size: 12px;
+            background: #fff;
+            color: var(--ink-dim);
+        }
+
+        .chip strong {
+            color: var(--ink);
+        }
+
+        .link-btn {
+            text-decoration: none;
+            color: var(--brand);
+            font-weight: 700;
+            font-size: 13px;
+        }
+
+        .body {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 340px;
+            gap: 14px;
+            min-height: 0;
+            overflow: hidden;
+        }
+
+        .chat-card,
+        .cite-card {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            min-height: 0;
+            overflow: hidden;
+        }
+
+        .chat-card {
+            display: flex;
+        }
+
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            overscroll-behavior: contain;
+        }
+
+        .welcome {
+            border: 1px dashed var(--line);
+            border-radius: 14px;
+            background: #fffdf8;
+            padding: 18px;
+            color: var(--ink-dim);
+            animation: fadeIn 0.35s ease;
+        }
+
+        .message {
+            max-width: 85%;
+            border-radius: 14px;
+            padding: 11px 13px;
+            line-height: 1.55;
+            font-size: 14px;
+            animation: rise 0.2s ease;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .message.user {
+            margin-left: auto;
+            background: #deefe9;
+            border: 1px solid #c9e5dc;
+        }
+
+        .message.bot {
+            background: #fff;
+            border: 1px solid var(--line);
+        }
+
+        .meta {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            margin-bottom: 8px;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+            color: var(--ink-dim);
+        }
+
+        .mode {
+            border-radius: 999px;
+            padding: 2px 8px;
+            font-weight: 700;
+        }
+
+        .mode.answer {
+            background: var(--answer);
+            color: #116651;
+        }
+
+        .mode.clarify {
+            background: var(--clarify);
+            color: #8f6200;
+        }
+
+        .mode.fallback {
+            background: var(--fallback);
+            color: var(--danger);
+        }
+
+        .typing {
+            display: inline-flex;
+            gap: 5px;
+        }
+
+        .typing span {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--brand);
+            animation: pulse 1s ease-in-out infinite;
+        }
+
+        .typing span:nth-child(2) {
+            animation-delay: .15s;
+        }
+
+        .typing span:nth-child(3) {
+            animation-delay: .3s;
+        }
+
+        .cite-head {
+            border-bottom: 1px solid var(--line);
+            padding: 14px 14px 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .cite-head h3 {
+            margin: 0;
+            font-size: 13px;
+            letter-spacing: .03em;
+            text-transform: uppercase;
+            color: var(--ink-dim);
+        }
+
+        .cite-list {
+            height: calc(100% - 50px);
+            overflow: auto;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 9px;
+        }
+
+        .cite-item {
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            background: #fff;
+            padding: 10px;
+            cursor: pointer;
+        }
+
+        .cite-item:hover {
+            border-color: #98c7bc;
+            background: #f5fcf9;
+        }
+
+        .cite-source {
+            font-size: 12px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .cite-score {
+            font-size: 11px;
+            color: var(--ink-dim);
+            margin-bottom: 6px;
+        }
+
+        .cite-preview {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height .25s ease;
+            font-size: 12px;
+            color: var(--ink-dim);
+            line-height: 1.5;
+        }
+
+        .cite-item.open .cite-preview {
+            max-height: 170px;
+        }
+
+        .input-card {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 12px;
+            display: grid;
+            grid-template-columns: 130px minmax(0, 1fr) auto;
+            gap: 10px;
+        }
+
+        select,
+        input,
+        button {
+            font: inherit;
+        }
+
+        select,
+        input {
+            border: 1px solid var(--line);
+            border-radius: 11px;
+            padding: 12px;
+            background: #fff;
+            color: var(--ink);
+        }
+
+        input:focus,
+        select:focus {
+            outline: 2px solid rgba(14, 124, 102, 0.18);
+            border-color: var(--brand);
+        }
+
+        .send {
+            border: none;
+            border-radius: 11px;
+            padding: 0 18px;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--brand), #0f6b86);
+            color: #fff;
+            cursor: pointer;
+        }
+
+        .send:disabled {
+            opacity: .55;
+            cursor: not-allowed;
+        }
+
+        .muted {
+            color: var(--ink-dim);
+            font-size: 13px;
+            padding: 6px;
+        }
+
+        @keyframes rise {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                transform: translateY(0);
+                opacity: 0.35;
+            }
+
+            50% {
+                transform: translateY(-3px);
+                opacity: 1;
+            }
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
+        @media (max-width: 980px) {
+            .app {
+                padding: 10px;
+            }
+
+            .body {
+                grid-template-columns: 1fr;
+            }
+
+            .cite-card {
+                min-height: 180px;
+            }
+
+            .input-card {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app">
+        <header class="header">
+            <div class="title-wrap">
+                <span class="dot"></span>
+                <div class="title">
+                    <h1>CampusRAG Assistant</h1>
+                    <p>Grounded answers with citations and clarify/fallback guardrails</p>
+                </div>
+            </div>
+            <div class="header-tools">
+                <div class="chip">Session: <strong id="sessionLabel">-</strong></div>
+                <div class="chip">Provider: <strong id="providerLabel">-</strong></div>
+                <a class="link-btn" href="/admin">Admin</a>
+            </div>
+        </header>
+
+        <main class="body">
+            <section class="chat-card">
+                <div class="messages" id="messages">
+                    <div class="welcome">
+                        <strong>Xin chào / Hello</strong>
+                        <div style="margin-top:8px;">
+                            Mình chỉ trả lời dựa trên dữ liệu đã upload. Nếu điểm tương đồng thấp, hệ thống sẽ tự chuyển sang
+                            chế độ <b>clarify</b> hoặc <b>fallback</b> để tránh hallucination.
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <aside class="cite-card">
+                <div class="cite-head">
+                    <h3>Citations</h3>
+                </div>
+                <div class="cite-list" id="citationList">
+                    <div class="muted">No citations yet.</div>
+                </div>
+            </aside>
+        </main>
+
+        <footer class="input-card">
+            <select id="langSelect">
+                <option value="">Auto language</option>
+                <option value="vi">Vietnamese</option>
+                <option value="en">English</option>
+            </select>
+            <input id="chatInput" type="text" placeholder="Nhập câu hỏi... / Ask your question..." autocomplete="off">
+            <button class="send" id="sendBtn">Send</button>
+        </footer>
+    </div>
+
+    <script>
+        const messagesEl = document.getElementById('messages');
+        const inputEl = document.getElementById('chatInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const langSelect = document.getElementById('langSelect');
+        const citationListEl = document.getElementById('citationList');
+        const sessionLabel = document.getElementById('sessionLabel');
+        const providerLabel = document.getElementById('providerLabel');
+
+        let isBusy = false;
+        let sessionId = localStorage.getItem('campusrag_session') || null;
+        updateSessionLabel();
+
+        function updateSessionLabel() {
+            sessionLabel.textContent = sessionId ? sessionId.slice(0, 10) + '…' : 'new';
+        }
+
+        function focusInputWithoutScroll() {
+            try {
+                inputEl.focus({ preventScroll: true });
+            } catch {
+                inputEl.focus();
+            }
+        }
+
+        function addMessage(text, type, meta = null) {
+            const welcome = messagesEl.querySelector('.welcome');
+            if (welcome) welcome.remove();
+
+            const node = document.createElement('div');
+            node.className = `message ${type}`;
+
+            if (type === 'bot') {
+                const header = document.createElement('div');
+                header.className = 'meta';
+                header.innerHTML = '<span>Assistant</span>';
+                if (meta && meta.mode) {
+                    const mode = document.createElement('span');
+                    mode.className = `mode ${meta.mode}`;
+                    mode.textContent = `${meta.mode}${meta.score !== undefined ? ` · ${meta.score}` : ''}`;
+                    header.appendChild(mode);
+                }
+                node.appendChild(header);
+
+                const content = document.createElement('div');
+                content.className = 'content';
+                content.textContent = text;
+                node.appendChild(content);
+            } else {
+                node.textContent = text;
+            }
+
+            messagesEl.appendChild(node);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+            return node;
+        }
+
+        function addTyping() {
+            const node = document.createElement('div');
+            node.className = 'message bot';
+            node.id = 'typing';
+            node.innerHTML = '<div class="meta"><span>Assistant</span></div><div class="typing"><span></span><span></span><span></span></div>';
+            messagesEl.appendChild(node);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        function removeTyping() {
+            const node = document.getElementById('typing');
+            if (node) node.remove();
+        }
+
+        function renderCitations(items) {
+            if (!items || !items.length) {
+                citationListEl.innerHTML = '<div class="muted">No citations for this response.</div>';
+                return;
+            }
+
+            citationListEl.innerHTML = '';
+            for (const [i, item] of items.entries()) {
+                let source = item.filename || 'source';
+                if (item.page_num) source += ` · p.${item.page_num}`;
+                if (item.sheet_name) source += ` · ${item.sheet_name}`;
+                if (item.row_range) source += ` · row ${item.row_range}`;
+
+                const card = document.createElement('div');
+                card.className = 'cite-item';
+                card.innerHTML = `
+                    <div class="cite-source">[${i + 1}] ${source}</div>
+                    <div class="cite-score">score: ${item.score ?? '-'}</div>
+                    <div class="cite-preview">${item.content_preview || ''}</div>
+                `;
+                card.addEventListener('click', () => card.classList.toggle('open'));
+                citationListEl.appendChild(card);
+            }
+        }
+
+        async function sendMessage() {
+            const text = inputEl.value.trim();
+            if (!text || isBusy) return;
+
+            inputEl.value = '';
+            addMessage(text, 'user');
+            addTyping();
+
+            isBusy = true;
+            sendBtn.disabled = true;
+
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message: text,
+                        session_id: sessionId,
+                        lang: langSelect.value || null,
+                    }),
+                });
+
+                if (!response.ok || !response.body) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                removeTyping();
+                const botNode = addMessage('', 'bot');
+                const contentNode = botNode.querySelector('.content');
+                const metaNode = botNode.querySelector('.meta');
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                let buffer = '';
+                let currentEvent = '';
+                let fullText = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const rawLine of lines) {
+                        const line = rawLine.trimEnd();
+
+                        if (line.startsWith('event:')) {
+                            currentEvent = line.slice(6).trim();
+                            continue;
+                        }
+
+                        if (!line.startsWith('data:')) continue;
+
+                        const payload = line.slice(5).trim();
+                        if (!payload) continue;
+
+                        let data;
+                        try {
+                            data = JSON.parse(payload);
+                        } catch {
+                            continue;
+                        }
+
+                        if (currentEvent === 'start') {
+                            if (data.session_id) {
+                                sessionId = data.session_id;
+                                localStorage.setItem('campusrag_session', sessionId);
+                                updateSessionLabel();
+                            }
+
+                            providerLabel.textContent = data.llm_provider || '-';
+
+                            if (metaNode) {
+                                const label = document.createElement('span');
+                                label.className = `mode ${data.mode}`;
+                                label.textContent = `${data.mode} · ${data.score ?? '-'}`;
+                                metaNode.appendChild(label);
+                            }
+                        }
+
+                        if (currentEvent === 'token') {
+                            fullText += data.text || '';
+                            contentNode.textContent = fullText;
+                            messagesEl.scrollTop = messagesEl.scrollHeight;
+                        }
+
+                        if (currentEvent === 'citations') {
+                            renderCitations(data.items || []);
+                        }
+
+                        if (currentEvent === 'error') {
+                            contentNode.textContent = `Error: ${data.message || 'unknown error'}`;
+                        }
+                    }
+                }
+            } catch (err) {
+                removeTyping();
+                addMessage(`Connection error: ${err.message}`, 'bot', { mode: 'fallback', score: 0 });
+            } finally {
+                isBusy = false;
+                sendBtn.disabled = false;
+                focusInputWithoutScroll();
+            }
+        }
+
+        sendBtn.addEventListener('click', sendMessage);
+        inputEl.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                event.stopPropagation();
+                sendMessage();
+                return false;
+            }
+        });
+    </script>
+</body>
+
+</html>
