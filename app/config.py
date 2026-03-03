@@ -25,7 +25,14 @@ class Settings(BaseSettings):
 
     # Upload security
     max_upload_size_mb: int = 50
-    allowed_extensions: list[str] = [".xlsx", ".xls", ".csv", ".pdf", ".html", ".htm", ".txt", ".md"]
+    allowed_extensions: list[str] = [
+        ".xlsx", ".xls", ".csv", ".pdf", ".html", ".htm",
+        ".txt", ".md", ".docx", ".json", ".jsonl",
+    ]
+
+    # Custom column overrides for CSV/Excel (empty = auto-detect)
+    kb_text_columns: list[str] = []
+    kb_meta_columns: list[str] = []
 
     # Chunking
     chunk_size: int = 1000
@@ -55,8 +62,8 @@ class Settings(BaseSettings):
     max_answer_chunks: int = 5
     debug_show_retrieval: bool = False
 
-    # Embeddings
-    embedding_model: str = "all-MiniLM-L6-v2"
+    # Embeddings — multilingual model supports both VI and EN
+    embedding_model: str = "paraphrase-multilingual-MiniLM-L12-v2"
     embedding_batch_size: int = 64
     embedding_model_path: str = ""
     # Optional manual prefixes. Leave empty to auto-detect by model family.
@@ -66,8 +73,14 @@ class Settings(BaseSettings):
     embedding_passage_prefix: str = ""
 
     # LLM provider switch
-    llm_provider: str = "auto"  # auto|openai|gemini|ollama|llama_cpp|none
+    llm_provider: str = "auto"  # auto|openai|gemini|ollama|llama_cpp|openai_compatible|none
     answer_mode: str = "auto"   # auto|extractive|generative
+
+    # OpenAI Compatible
+    llm_base_url: str = "http://localhost:11434/v1"
+    llm_api_key: str = "ollama"
+    llm_model: str = "qwen3.5:0.8b"
+    llm_timeout_seconds: int = 120
 
     # OpenAI
     openai_api_key: str = ""
@@ -165,7 +178,7 @@ class Settings(BaseSettings):
     @property
     def normalized_llm_provider(self) -> str:
         provider = self.llm_provider.strip().lower()
-        valid = {"auto", "openai", "gemini", "ollama", "llama_cpp", "none"}
+        valid = {"auto", "openai", "gemini", "ollama", "llama_cpp", "openai_compatible", "none"}
         return provider if provider in valid else "auto"
 
 

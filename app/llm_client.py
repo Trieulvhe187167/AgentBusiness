@@ -201,10 +201,58 @@ def _gemini_stream(prompt: str, system_prompt: str = "") -> Generator[str, None,
         yield chunk
 
 
+def _openai_compatible_stream(prompt: str, system_prompt: str = "") -> Generator[str, None, None]:
+    base = settings.llm_base_url.rstrip("/")
+    if not base:
+        raise RuntimeError("RAG_LLM_BASE_URL is not configured for openai_compatible")
+
+    url = f"{base}/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    if settings.llm_api_key and settings.llm_api_key.upper() != "EMPTY":
+        headers["Authorization"] = f"Bearer {settings.llm_api_key}"
+
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+
+    body = {
+        "model": settings.llm_model,
+        "messages": messages,
+        "temperature": settings.llm_temperature,
+        "max_tokens": settings.llm_max_tokens,
+        "stream": True,
+    }
+
+    timeout = httpx.Timeout(settings.llm_timeout_seconds)
+    with httpx.stream("POST", url, headers=headers, json=body, timeout=timeout) as resp:
+        resp.raise_for_status()
+        for line in resp.iter_lines():
+            if not line:
+                continue
+            line = line.strip()
+            if line.startswith("data: "):
+                data_str = line[6:]
+                if data_str == "[DONE]":
+                    break
+                try:
+                    data = json.loads(data_str)
+                    choices = data.get("choices", [])
+                    if choices:
+                        delta = choices[0].get("delta", {})
+                        token = delta.get("content", "")
+                        if token:
+                            yield token
+                except json.JSONDecodeError:
+                    continue
+
+
 def provider_available(provider: str) -> bool:
     provider = provider.lower().strip()
     if provider == "openai":
         return bool(settings.openai_api_key)
+    if provider == "openai_compatible":
+        return bool(settings.llm_base_url)
     if provider == "gemini":
         return bool(settings.gemini_api_key)
     if provider == "ollama":
@@ -221,7 +269,7 @@ def choose_provider() -> str:
     if configured != "auto":
         return configured if provider_available(configured) else "none"
 
-    for candidate in ("openai", "gemini", "ollama", "llama_cpp"):
+    for candidate in ("openai", "gemini", "ollama", "llama_cpp", "openai_compatible"):
         if provider_available(candidate):
             return candidate
     return "none"
@@ -232,6 +280,9 @@ def generate_stream(prompt: str, system_prompt: str = "", provider: str | None =
 
     if selected == "openai":
         yield from _openai_stream(prompt, system_prompt)
+        return
+    if selected == "openai_compatible":
+        yield from _openai_compatible_stream(prompt, system_prompt)
         return
     if selected == "gemini":
         yield from _gemini_stream(prompt, system_prompt)
