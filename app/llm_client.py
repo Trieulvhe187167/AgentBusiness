@@ -104,6 +104,7 @@ def _ollama_stream(prompt: str, system_prompt: str = "") -> Generator[str, None,
         "options": {
             "temperature": settings.llm_temperature,
             "top_p": settings.llm_top_p,
+            "repeat_penalty": settings.llm_repeat_penalty,
             "num_predict": settings.llm_max_tokens,
         },
     }
@@ -153,6 +154,8 @@ def _openai_stream(prompt: str, system_prompt: str = "") -> Generator[str, None,
         "model": settings.openai_model,
         "input": input_items,
         "temperature": settings.llm_temperature,
+        "top_p": settings.llm_top_p,
+        "frequency_penalty": max(0.0, settings.llm_repeat_penalty - 1.0),
         "max_output_tokens": settings.llm_max_tokens,
         "stream": False,
     }
@@ -220,6 +223,8 @@ def _openai_compatible_stream(prompt: str, system_prompt: str = "") -> Generator
         "model": settings.llm_model,
         "messages": messages,
         "temperature": settings.llm_temperature,
+        "top_p": settings.llm_top_p,
+        "frequency_penalty": max(0.0, settings.llm_repeat_penalty - 1.0),
         "max_tokens": settings.llm_max_tokens,
         "stream": True,
     }

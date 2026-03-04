@@ -238,6 +238,33 @@ class NumpyVectorStore:
         with self._lock:
             return sorted({meta.get("filename", "") for meta in self._metadatas if meta.get("filename")})
 
+    def get_source_stats(self) -> list[dict[str, Any]]:
+        stats = {}
+        with self._lock:
+            for meta in self._metadatas:
+                src = meta.get("filename")
+                if not src:
+                    continue
+                if src not in stats:
+                    stats[src] = {"filename": src, "chunks": 0, "vi": 0, "en": 0, "other": 0}
+                stats[src]["chunks"] += 1
+                lang = meta.get("lang", "")
+                if lang == "vi":
+                    stats[src]["vi"] += 1
+                elif lang == "en":
+                    stats[src]["en"] += 1
+                else:
+                    stats[src]["other"] += 1
+
+        out = []
+        for s in stats.values():
+            total = s["chunks"]
+            s["vi_pct"] = round(s["vi"] / total * 100) if total else 0
+            s["en_pct"] = round(s["en"] / total * 100) if total else 0
+            s["other_pct"] = round(s["other"] / total * 100) if total else 0
+            out.append(s)
+        return sorted(out, key=lambda x: x["filename"])
+
 
 class ChromaVectorStore:
     """Chroma vector backend with persistence support."""
@@ -376,6 +403,43 @@ class ChromaVectorStore:
             }
         )
 
+    def get_source_stats(self) -> list[dict[str, Any]]:
+        if not self._collection:
+            return []
+        count = self._collection.count()
+        if count == 0:
+            return []
+
+        payload = self._collection.get(include=["metadatas"], limit=count)
+        metadatas = payload.get("metadatas") or []
+
+        stats = {}
+        for meta in metadatas:
+            if not isinstance(meta, dict):
+                continue
+            src = meta.get("filename")
+            if not src:
+                continue
+            if src not in stats:
+                stats[src] = {"filename": src, "chunks": 0, "vi": 0, "en": 0, "other": 0}
+            stats[src]["chunks"] += 1
+            lang = meta.get("lang", "")
+            if lang == "vi":
+                stats[src]["vi"] += 1
+            elif lang == "en":
+                stats[src]["en"] += 1
+            else:
+                stats[src]["other"] += 1
+
+        out = []
+        for s in stats.values():
+            total = s["chunks"]
+            s["vi_pct"] = round(s["vi"] / total * 100) if total else 0
+            s["en_pct"] = round(s["en"] / total * 100) if total else 0
+            s["other_pct"] = round(s["other"] / total * 100) if total else 0
+            out.append(s)
+        return sorted(out, key=lambda x: x["filename"])
+
 
 class VectorStoreFacade:
     """Facade that switches backend based on settings."""
@@ -424,6 +488,9 @@ class VectorStoreFacade:
 
     def get_sources(self) -> list[str]:
         return self._backend.get_sources()
+
+    def get_source_stats(self) -> list[dict[str, Any]]:
+        return self._backend.get_source_stats()
 
     def get_index_fingerprint(self) -> str:
         stats = self.get_stats()

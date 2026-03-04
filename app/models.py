@@ -90,6 +90,8 @@ class HealthResponse(BaseModel):
     status: str = "ok"
     llm_loaded: bool = False
     embeddings_loaded: bool = False
+    embeddings_backend: str = "hashing"   # "sentence-transformers" | "hashing"
+    embeddings_ready: bool = False        # True only after warm-up completes
     vector_store_ready: bool = False
     timestamp: str
 

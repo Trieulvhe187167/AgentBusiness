@@ -120,6 +120,8 @@ async def upload_file(file: UploadFile = File(...)):
         ".pdf": "pdf",
         ".html": "html", ".htm": "html",
         ".txt": "text", ".md": "text",
+        ".docx": "docx",
+        ".json": "json", ".jsonl": "jsonl",
     }
     parser_type = parser_map.get(ext, "unknown")
 

@@ -31,6 +31,9 @@ _HASH_SENTINEL = object()
 _HASH_DIM = 384
 _TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 
+# Readiness flag — True only after warm_up_model() completes successfully
+_embeddings_ready: bool = False
+
 
 def _normalize(vec: np.ndarray) -> np.ndarray:
     norm = np.linalg.norm(vec)
@@ -91,7 +94,10 @@ def get_model() -> Any | None:
         return None if _model is _HASH_SENTINEL else _model
 
     if not _has_sentence_transformers():
-        logger.warning("sentence-transformers not installed. Using hashing embedding fallback.")
+        logger.warning(
+            "sentence-transformers not installed. Using hashing embedding fallback. "
+            "Install sentence-transformers for much better retrieval quality."
+        )
         _model = _HASH_SENTINEL
         return None
 
@@ -103,7 +109,11 @@ def get_model() -> Any | None:
 
     try:
         _model = SentenceTransformer(source)
-        logger.info("Embedding model loaded. dim=%s", _model.get_sentence_embedding_dimension())
+        logger.info(
+            "Embedding model loaded. backend=sentence-transformers dim=%s model=%s",
+            _model.get_sentence_embedding_dimension(),
+            source,
+        )
         return _model
     except Exception as err:
         logger.warning(
@@ -113,6 +123,29 @@ def get_model() -> Any | None:
         )
         _model = _HASH_SENTINEL
         return None
+
+
+def warm_up_model() -> None:
+    """
+    Eagerly load the model and run a test embed to JIT-warm all internal caches.
+    Call this from lifespan via asyncio.to_thread() to avoid blocking the event loop.
+    """
+    global _embeddings_ready
+    logger.info("Embedding warm-up starting...")
+    try:
+        get_model()                                      # load weights
+        embed_texts(["warmup"], is_query=True)           # JIT / cache nóng
+        _embeddings_ready = True
+        backend = "hashing" if using_hashing_fallback() else "sentence-transformers"
+        logger.info("Embedding warm-up complete. backend=%s", backend)
+    except Exception as err:
+        logger.error("Embedding warm-up failed: %s", err, exc_info=True)
+        _embeddings_ready = False
+
+
+def is_embeddings_ready() -> bool:
+    """True only after warm_up_model() has completed (success or partial)."""
+    return _embeddings_ready
 
 
 def get_dimension() -> int:

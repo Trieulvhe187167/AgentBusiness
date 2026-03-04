@@ -20,8 +20,11 @@ aiosqlite==0.20.0
 # Utilities
 pydantic-settings==2.7.1
 
-# Optional: better embeddings (requires torch runtime)
-# sentence-transformers==3.3.1
+# Embeddings (sentence-transformers; install torch separately: pip install torch)
+sentence-transformers==3.3.1
+
+# DOCX parsing
+python-docx>=1.1.0
 
 # Optional: Chroma vector DB backend
 # chromadb==0.5.20

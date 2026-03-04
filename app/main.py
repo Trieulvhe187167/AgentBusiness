@@ -4,6 +4,7 @@ FastAPI application entrypoint.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import sys
@@ -46,13 +47,12 @@ async def lifespan(app: FastAPI):
     settings.ensure_dirs()
     await init_db()
 
-    app.state.embeddings_loaded = False
+    # ── Vector store (needs embedding dim first via hashing estimate) ──────────
     try:
         from app.embeddings import get_dimension
         from app.vector_store import vector_store
 
         dim = get_dimension()
-        app.state.embeddings_loaded = True
         vector_store.initialize(expected_dim=dim)
         app.state.vector_store_ready = True
         logger.info("Vector store ready: backend=%s dim=%s", vector_store.backend_name, dim)
@@ -60,9 +60,14 @@ async def lifespan(app: FastAPI):
         app.state.vector_store_ready = False
         logger.error("Vector store init failed: %s", err, exc_info=True)
 
+    # ── Embedding model warm-up (async, non-blocking) ─────────────────────────
+    from app.embeddings import warm_up_model
+    asyncio.create_task(asyncio.to_thread(warm_up_model))
+    logger.info("Embedding warm-up started in background thread")
+
+    # ── LLM readiness ─────────────────────────────────────────────────────────
     try:
         from app.llm_client import is_llm_ready
-
         app.state.llm_loaded = is_llm_ready()
     except Exception:
         app.state.llm_loaded = False
@@ -100,10 +105,15 @@ app.include_router(ingest_router)
 
 @app.get("/health", response_model=HealthResponse)
 async def health(request: Request):
+    from app.embeddings import is_embeddings_ready, using_hashing_fallback
+
+    hashing = using_hashing_fallback()
     return HealthResponse(
         status="ok",
         llm_loaded=getattr(request.app.state, "llm_loaded", False),
-        embeddings_loaded=getattr(request.app.state, "embeddings_loaded", False),
+        embeddings_loaded=not hashing,
+        embeddings_backend="hashing" if hashing else "sentence-transformers",
+        embeddings_ready=is_embeddings_ready(),
         vector_store_ready=getattr(request.app.state, "vector_store_ready", False),
         timestamp=datetime.now(timezone.utc).isoformat(),
     )
@@ -160,6 +170,13 @@ async def kb_sources():
         )
         for row in rows
     ]
+
+
+@app.get("/api/sources/stats")
+async def api_sources_stats():
+    from app.vector_store import vector_store
+
+    return vector_store.get_source_stats()
 
 
 @app.get("/api/documents", response_model=list[DocumentSummary])
@@ -230,7 +247,7 @@ async def cache_stats_endpoint():
 async def system_info(request: Request):
     from app.cache import get_stats as get_cache_stats
     from app.llm_client import active_provider_name
-    from app.embeddings import using_hashing_fallback
+    from app.embeddings import using_hashing_fallback, is_embeddings_ready
     from app.vector_store import vector_store
 
     cache = get_cache_stats()
@@ -265,11 +282,13 @@ async def system_info(request: Request):
         "answer_mode_config": settings.normalized_answer_mode,
         "llm_provider_config": settings.normalized_llm_provider,
         "llm_provider_active": active_provider_name(),
+        "llm_model": getattr(settings, f"{settings.normalized_llm_provider}_model", getattr(settings, "llm_model", "")),
         "llm_loaded": getattr(request.app.state, "llm_loaded", False),
         "cache_entries": cache.get("total_entries", 0),
         "cache_size_mb": cache.get("size_mb", 0),
         "vector_store_ready": getattr(request.app.state, "vector_store_ready", False),
         "embeddings_loaded": getattr(request.app.state, "embeddings_loaded", False),
+        "embeddings_ready": is_embeddings_ready(),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -293,7 +312,47 @@ async def debug_similarity(query: str, top_k: int = 10):
                 "filename": item.get("filename", ""),
                 "row_num": item.get("row_num"),
                 "category": item.get("category", ""),
+                "lang": item.get("lang", ""),
                 "preview": item.get("text", "")[:200],
+            }
+            for idx, item in enumerate(results)
+        ],
+    }
+
+
+@app.get("/api/debug/retrieval")
+async def debug_retrieval(query: str, top_k: int = 10):
+    """
+    Rich retrieval debug: returns top_k results with score, lang, category,
+    source, bm25_score, and content snippet. Useful for threshold calibration.
+    """
+    from app.rag import decide_mode, retrieve
+    from app.lang import detect_language
+
+    results = retrieve(query, top_k=top_k)
+    top_score = float(results[0].get("similarity", 0.0)) if results else 0.0
+    detected_lang = detect_language(query)
+
+    return {
+        "query": query,
+        "detected_lang": detected_lang,
+        "top_score": round(top_score, 4),
+        "predicted_mode": decide_mode(top_score),
+        "thresholds": {
+            "good": settings.threshold_good,
+            "low": settings.threshold_low,
+            "min": settings.min_similarity_threshold,
+        },
+        "results": [
+            {
+                "rank": idx + 1,
+                "similarity": round(float(item.get("similarity", 0.0)), 4),
+                "bm25_score": round(float(item.get("bm25_score", 0.0)), 4),
+                "lang": item.get("lang", ""),
+                "category": item.get("category", ""),
+                "filename": item.get("filename", ""),
+                "source": f"{item.get('filename', '')} row {item.get('row_num', '')}".strip(),
+                "snippet": (item.get("text") or "")[:300],
             }
             for idx, item in enumerate(results)
         ],
