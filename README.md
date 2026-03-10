@@ -16,7 +16,6 @@ CSV/XLSX schema tips:
 ## 1) Quick start (local)
 
 ```powershell
-cd C:\Users\dmx\Projects\Agent_for_business
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install --upgrade pip
@@ -24,6 +23,8 @@ pip install -r requirements.txt
 copy .env.example .env
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8080
 ```
+.\.venv_new\Scripts\activate
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8080
 
 Recommended Python on Windows: `3.13` (or `3.9` as stable fallback).  
 If your default Python is `3.14`, create venv with:

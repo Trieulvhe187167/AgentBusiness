@@ -167,7 +167,7 @@ def embed_texts(texts: list[str], is_query: bool = False) -> list[list[float]]:
     embeddings = model.encode(
         prepared_texts,
         batch_size=settings.embedding_batch_size,
-        show_progress_bar=len(texts) > 100,
+        show_progress_bar=False,
         normalize_embeddings=True,
     )
 

@@ -79,7 +79,7 @@ class Settings(BaseSettings):
     # OpenAI Compatible
     llm_base_url: str = "http://localhost:11434/v1"
     llm_api_key: str = "ollama"
-    llm_model: str = "qwen2.5:0.5b"
+    llm_model: str = "llama3.2" # qwen2.5:0.5b or qwen3.5:0.8b
     llm_timeout_seconds: int = 120
 
     # OpenAI

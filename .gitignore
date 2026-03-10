@@ -23,6 +23,7 @@ venv/
 env/
 ENV/
 .env_backup
+.venv311/
 
 # ============================================================
 # Environment / secrets
@@ -59,6 +60,7 @@ uploads/
 *.log
 logs/
 chat_output.txt
+uvicorn_out.txt
 
 # ============================================================
 # OS / editor artifacts
