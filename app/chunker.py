@@ -83,10 +83,10 @@ def _split_by_sentences(text: str, max_chars: int) -> list[str]:
     return _split_text(text, max_chars, max_chars // 5, [". ", "\n", " ", ""])
 
 
-def make_chunk_id(source_id: str, offset: int, content: str) -> str:
-    """Stable hash-based chunk ID."""
-    raw = f"{source_id}:{offset}:{content[:100]}"
-    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+def make_chunk_id(kb_id: int, file_hash: str, offset: int, ingest_signature: str) -> str:
+    """Stable hash-based chunk ID scoped to KB + ingest signature."""
+    raw = f"{kb_id}:{file_hash}:{offset}:{ingest_signature}"
+    return hashlib.sha1(raw.encode()).hexdigest()[:20]
 
 
 def _strategy_for_file_type(file_type: str) -> str:
@@ -100,10 +100,13 @@ def _strategy_for_file_type(file_type: str) -> str:
 
 def chunk_records(
     records: list[dict[str, Any]],
+    kb_id: int,
     source_id: str,
     filename: str,
     file_type: str,
+    file_hash: str,
     kb_version: str,
+    ingest_signature: str,
     chunk_size: int = 1000,
     chunk_overlap: int = 100,
     chunk_strategy: str | None = None,
@@ -138,14 +141,18 @@ def chunk_records(
             piece = piece.strip()
             if not piece:
                 continue
-            chunk_id = make_chunk_id(source_id, offset, piece)
+            chunk_id = make_chunk_id(kb_id, file_hash, offset, ingest_signature)
             chunk = {
                 "chunk_id": chunk_id,
                 "text": piece,
+                "kb_id": kb_id,
                 "source_id": source_id,
+                "file_id": int(source_id),
                 "filename": filename,
                 "file_type": file_type,
                 "kb_version": kb_version,
+                "file_hash": file_hash,
+                "ingest_signature": ingest_signature,
                 "content_preview": piece[:150].replace("\n", " "),
                 # Parser-specific metadata
                 "page_num": meta.get("page_num"),

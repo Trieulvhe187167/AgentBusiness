@@ -151,6 +151,52 @@ FALLBACK_TEXT = {
 _NUMBER_RE = re.compile(r"\b\d[\d,\.\s]*\d|\b\d\b")
 
 
+def _resolve_kb_scope(kb_id: int | None = None, kb_key: str | None = None) -> dict[str, Any]:
+    if kb_id is not None:
+        row = fetch_one_sync(
+            """
+            SELECT id, key, name, kb_version, is_default
+            FROM knowledge_bases
+            WHERE id = ?
+            """,
+            (kb_id,),
+        )
+    elif kb_key:
+        row = fetch_one_sync(
+            """
+            SELECT id, key, name, kb_version, is_default
+            FROM knowledge_bases
+            WHERE key = ?
+            """,
+            (kb_key.strip().lower(),),
+        )
+    else:
+        row = fetch_one_sync(
+            """
+            SELECT id, key, name, kb_version, is_default
+            FROM knowledge_bases
+            WHERE is_default = 1
+            LIMIT 1
+            """
+        )
+
+    if not row:
+        target = f"id={kb_id}" if kb_id is not None else f"key={kb_key}" if kb_key else "default"
+        raise ValueError(f"Knowledge Base not found for {target}")
+
+    return {
+        "id": int(row["id"]),
+        "key": row["key"],
+        "name": row["name"],
+        "kb_version": row["kb_version"],
+        "is_default": bool(row.get("is_default")),
+    }
+
+
+def _scoped_session_id(session_id: str, kb_id: int) -> str:
+    return f"{session_id}::kb:{kb_id}"
+
+
 def _normalize_query(query: str) -> str:
     return " ".join(query.strip().split())
 
@@ -446,7 +492,22 @@ def _log_chat(
 
 # ── Core retrieve ─────────────────────────────────────────────────────────────
 
-def _retrieve_single(query: str, top_k: int) -> list[dict[str, Any]]:
+def _build_retrieval_scope(kb_scope: dict[str, Any], top_k: int, where: dict[str, Any] | None = None) -> str:
+    where_parts: list[str] = []
+    if where:
+        where_parts = [f"{key}={where[key]}" for key in sorted(where)]
+    return ":".join(
+        [
+            f"kb:{kb_scope['id']}",
+            f"v:{kb_scope['kb_version']}",
+            f"k:{top_k}",
+            f"backend:{vector_store.backend_name}",
+            f"where:{'|'.join(where_parts)}",
+        ]
+    )
+
+
+def _retrieve_single(query: str, top_k: int, where: dict[str, Any], cache_scope: str) -> list[dict[str, Any]]:
     """Retrieve for a single query string (with embedding cache)."""
     normalized = _normalize_query(query)
     cached_emb = get_cached_embedding(normalized)
@@ -454,27 +515,35 @@ def _retrieve_single(query: str, top_k: int) -> list[dict[str, Any]]:
     if cached_emb is None:
         set_cached_embedding(normalized, query_embedding)
 
-    fingerprint = f"{vector_store.get_index_fingerprint()}:k{top_k}"
-    cached_results = get_cached_retrieval(normalized, fingerprint)
+    cached_results = get_cached_retrieval(normalized, cache_scope)
     if cached_results is not None:
         return cached_results
 
-    raw = vector_store.query(query_embedding, top_k=top_k)
-    set_cached_retrieval(normalized, fingerprint, raw)
+    raw = vector_store.query(query_embedding, top_k=top_k, where=where)
+    set_cached_retrieval(normalized, cache_scope, raw)
     return raw or []
 
 
-def retrieve(query: str, top_k: int | None = None) -> list[dict[str, Any]]:
+def retrieve(
+    query: str,
+    top_k: int | None = None,
+    *,
+    kb_id: int | None = None,
+    kb_key: str | None = None,
+) -> list[dict[str, Any]]:
     """
     Multi-query retrieval: query original + expanded variants.
     Results are merged, deduplicated, filtered by min_similarity, and reranked.
     """
     k = top_k or settings.top_k
+    kb_scope = _resolve_kb_scope(kb_id=kb_id, kb_key=kb_key)
+    where = {"kb_id": kb_scope["id"]}
+    cache_scope = _build_retrieval_scope(kb_scope, k, where=where)
     variants = expand_query(query)
 
     all_raw: list[dict[str, Any]] = []
     for variant in variants:
-        all_raw.extend(_retrieve_single(variant, k))
+        all_raw.extend(_retrieve_single(variant, k, where=where, cache_scope=cache_scope))
 
     floor = settings.min_similarity_threshold
     if using_hashing_fallback():
@@ -512,6 +581,8 @@ def rag_stream(
     query: str,
     session_id: str | None = None,
     lang: str | None = None,
+    kb_id: int | None = None,
+    kb_key: str | None = None,
 ) -> Generator[dict[str, Any], None, None]:
     start_time = time.perf_counter()
     user_query = _normalize_query(query)
@@ -520,10 +591,7 @@ def rag_stream(
 
     merged_query = user_query
     followup = False
-    pending = _load_pending_session(sid)
-    if pending and pending.get("pending_clarify_query"):
-        merged_query = f"{pending['pending_clarify_query']} | {user_query}"
-        followup = True
+    scoped_sid = sid
 
     llm_provider = active_provider_name()
     mode = "fallback"
@@ -532,7 +600,14 @@ def rag_stream(
     citations: list[dict[str, Any]] = []
 
     try:
-        results = retrieve(merged_query)
+        kb_scope = _resolve_kb_scope(kb_id=kb_id, kb_key=kb_key)
+        scoped_sid = _scoped_session_id(sid, kb_scope["id"])
+        pending = _load_pending_session(scoped_sid)
+        if pending and pending.get("pending_clarify_query"):
+            merged_query = f"{pending['pending_clarify_query']} | {user_query}"
+            followup = True
+
+        results = retrieve(merged_query, kb_id=kb_scope["id"])
         results = _apply_lang_boost(results, resolved_lang)
         top_score = float(results[0].get("similarity", 0.0)) if results else 0.0
 
@@ -549,18 +624,22 @@ def rag_stream(
                 "session_id": sid,
                 "llm_provider": llm_provider,
                 "lang": resolved_lang,
+                "kb_id": kb_scope["id"],
+                "kb_key": kb_scope["key"],
+                "kb_name": kb_scope["name"],
+                "kb_version": kb_scope["kb_version"],
             },
         }
 
         if mode == "answer":
-            _clear_pending_session(sid)
+            _clear_pending_session(scoped_sid)
 
             use_llm = settings.normalized_answer_mode != "extractive" and is_llm_ready()
             if use_llm:
                 context = _context_for_llm(results)
 
                 # Build prompt with optional conversational memory
-                recent_turns = _load_recent_turns(sid)
+                recent_turns = _load_recent_turns(scoped_sid)
                 memory = _build_memory_summary(recent_turns)
                 full_prompt = (
                     f"{memory}\n\n{CONTEXT_TEMPLATE.format(context=context, question=merged_query)}"
@@ -597,7 +676,7 @@ def rag_stream(
             use_llm = settings.normalized_answer_mode != "extractive" and is_llm_ready()
             if use_llm and results:
                 context = _context_for_llm(results)
-                recent_turns = _load_recent_turns(sid)
+                recent_turns = _load_recent_turns(scoped_sid)
                 memory = _build_memory_summary(recent_turns)
                 full_prompt = (
                     f"{memory}\n\n{CONTEXT_TEMPLATE.format(context=context, question=merged_query)}"
@@ -630,11 +709,11 @@ def rag_stream(
                 citations = _build_citations(results)
 
             category = str(results[0].get("category", "")) if results else ""
-            _save_pending_session(sid, merged_query, category, resolved_lang)
+            _save_pending_session(scoped_sid, merged_query, category, resolved_lang)
             yield {"event": "citations", "data": {"items": citations}}
 
         else:
-            _clear_pending_session(sid)
+            _clear_pending_session(scoped_sid)
             answer_text = _fallback_text(results, resolved_lang)
             yield {"event": "token", "data": {"text": answer_text}}
             # Even in fallback, show whatever partial citations exist
@@ -643,7 +722,7 @@ def rag_stream(
 
         latency_ms = int((time.perf_counter() - start_time) * 1000)
         _log_chat(
-            session_id=sid,
+            session_id=scoped_sid,
             user_message=user_query,
             merged_query=merged_query,
             mode=mode,
@@ -660,7 +739,7 @@ def rag_stream(
         latency_ms = int((time.perf_counter() - start_time) * 1000)
         try:
             _log_chat(
-                session_id=sid,
+                session_id=scoped_sid,
                 user_message=user_query,
                 merged_query=merged_query,
                 mode="error",

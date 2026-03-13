@@ -150,10 +150,13 @@ class NumpyVectorStore:
     def _chunk_metadata(self, chunk: dict[str, Any]) -> dict[str, Any]:
         metadata = {
             "chunk_id": chunk["chunk_id"],
+            "kb_id": int(chunk["kb_id"]),
             "source_id": str(chunk["source_id"]),
+            "file_id": int(chunk.get("file_id", chunk["source_id"])),
             "filename": chunk["filename"],
             "file_type": chunk["file_type"],
             "kb_version": chunk["kb_version"],
+            "ingest_signature": chunk.get("ingest_signature", ""),
             "content_preview": chunk.get("content_preview", ""),
         }
         for key in (
@@ -168,24 +171,35 @@ class NumpyVectorStore:
                 metadata[key] = value
         return metadata
 
+    def _delete_where_locked(self, where: dict[str, Any]) -> bool:
+        keep_idx = [
+            i for i, meta in enumerate(self._metadatas)
+            if not all(meta.get(key) == value for key, value in where.items())
+        ]
+        if len(keep_idx) == len(self._ids):
+            return False
+
+        if keep_idx and self._vectors is not None:
+            self._vectors = self._vectors[keep_idx]
+            self._metadatas = [self._metadatas[i] for i in keep_idx]
+            self._documents = [self._documents[i] for i in keep_idx]
+            self._ids = [self._ids[i] for i in keep_idx]
+        else:
+            self._reset_locked()
+        self._save_locked()
+        return True
+
     def delete_by_source(self, source_id: str):
+        self.delete_by_where({"source_id": str(source_id)})
+        logger.info("Deleted vectors for source_id=%s", source_id)
+
+    def delete_by_where(self, where: dict[str, Any]):
         with self._lock:
             if not self._ids:
                 return
-
-            keep_idx = [i for i, meta in enumerate(self._metadatas) if str(meta.get("source_id")) != str(source_id)]
-            if len(keep_idx) == len(self._ids):
-                return
-
-            if keep_idx and self._vectors is not None:
-                self._vectors = self._vectors[keep_idx]
-                self._metadatas = [self._metadatas[i] for i in keep_idx]
-                self._documents = [self._documents[i] for i in keep_idx]
-                self._ids = [self._ids[i] for i in keep_idx]
-            else:
-                self._reset_locked()
-            self._save_locked()
-        logger.info("Deleted vectors for source_id=%s", source_id)
+            deleted = self._delete_where_locked(where)
+        if deleted:
+            logger.info("Deleted numpy vectors where=%s", where)
 
     def query(self, query_embedding: list[float], top_k: int | None = None, where: dict | None = None) -> list[dict[str, Any]]:
         k = top_k or settings.top_k
@@ -234,14 +248,32 @@ class NumpyVectorStore:
                 "collection_name": "numpy-local",
             }
 
-    def get_sources(self) -> list[str]:
+    def count_by_where(self, where: dict[str, Any] | None = None) -> int:
         with self._lock:
-            return sorted({meta.get("filename", "") for meta in self._metadatas if meta.get("filename")})
+            if not where:
+                return len(self._ids)
+            return sum(
+                1 for meta in self._metadatas
+                if all(meta.get(key) == value for key, value in where.items())
+            )
 
-    def get_source_stats(self) -> list[dict[str, Any]]:
+    def get_sources(self, where: dict[str, Any] | None = None) -> list[str]:
+        with self._lock:
+            return sorted(
+                {
+                    meta.get("filename", "")
+                    for meta in self._metadatas
+                    if meta.get("filename")
+                    and (not where or all(meta.get(key) == value for key, value in where.items()))
+                }
+            )
+
+    def get_source_stats(self, where: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         stats = {}
         with self._lock:
             for meta in self._metadatas:
+                if where and not all(meta.get(key) == value for key, value in where.items()):
+                    continue
                 src = meta.get("filename")
                 if not src:
                     continue
@@ -306,10 +338,13 @@ class ChromaVectorStore:
     def _chunk_metadata(self, chunk: dict[str, Any]) -> dict[str, Any]:
         metadata = {
             "chunk_id": chunk["chunk_id"],
+            "kb_id": int(chunk["kb_id"]),
             "source_id": str(chunk["source_id"]),
+            "file_id": int(chunk.get("file_id", chunk["source_id"])),
             "filename": chunk["filename"],
             "file_type": chunk["file_type"],
             "kb_version": chunk["kb_version"],
+            "ingest_signature": chunk.get("ingest_signature", ""),
             "content_preview": chunk.get("content_preview", ""),
         }
         for key in (
@@ -345,6 +380,11 @@ class ChromaVectorStore:
         with self._lock:
             self._collection.delete(where={"source_id": str(source_id)})
         logger.info("Deleted Chroma vectors for source_id=%s", source_id)
+
+    def delete_by_where(self, where: dict[str, Any]):
+        with self._lock:
+            self._collection.delete(where=where)
+        logger.info("Deleted Chroma vectors where=%s", where)
 
     def query(self, query_embedding: list[float], top_k: int | None = None, where: dict | None = None) -> list[dict[str, Any]]:
         k = top_k or settings.top_k
@@ -386,14 +426,18 @@ class ChromaVectorStore:
             "collection_name": settings.chroma_collection_name,
         }
 
-    def get_sources(self) -> list[str]:
+    def count_by_where(self, where: dict[str, Any] | None = None) -> int:
+        if not self._collection:
+            return 0
+
+        payload = self._collection.get(where=where, include=["metadatas"])
+        return len(payload.get("metadatas") or [])
+
+    def get_sources(self, where: dict[str, Any] | None = None) -> list[str]:
         if not self._collection:
             return []
-        count = self._collection.count()
-        if count == 0:
-            return []
 
-        payload = self._collection.get(include=["metadatas"], limit=count)
+        payload = self._collection.get(where=where, include=["metadatas"])
         metadatas = payload.get("metadatas") or []
         return sorted(
             {
@@ -403,15 +447,14 @@ class ChromaVectorStore:
             }
         )
 
-    def get_source_stats(self) -> list[dict[str, Any]]:
+    def get_source_stats(self, where: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         if not self._collection:
             return []
-        count = self._collection.count()
-        if count == 0:
-            return []
 
-        payload = self._collection.get(include=["metadatas"], limit=count)
+        payload = self._collection.get(where=where, include=["metadatas"])
         metadatas = payload.get("metadatas") or []
+        if not metadatas:
+            return []
 
         stats = {}
         for meta in metadatas:
@@ -478,6 +521,15 @@ class VectorStoreFacade:
     def delete_by_source(self, source_id: str):
         self._backend.delete_by_source(source_id)
 
+    def delete_by_where(self, where: dict[str, Any]):
+        self._backend.delete_by_where(where)
+
+    def delete_by_kb(self, kb_id: int):
+        self.delete_by_where({"kb_id": int(kb_id)})
+
+    def delete_by_kb_and_file(self, kb_id: int, file_id: int):
+        self.delete_by_where({"kb_id": int(kb_id), "file_id": int(file_id)})
+
     def query(self, query_embedding: list[float], top_k: int | None = None, where: dict | None = None) -> list[dict[str, Any]]:
         return self._backend.query(query_embedding, top_k=top_k, where=where)
 
@@ -486,11 +538,14 @@ class VectorStoreFacade:
         stats["backend"] = self._backend_name
         return stats
 
-    def get_sources(self) -> list[str]:
-        return self._backend.get_sources()
+    def count_by_where(self, where: dict[str, Any] | None = None) -> int:
+        return self._backend.count_by_where(where)
 
-    def get_source_stats(self) -> list[dict[str, Any]]:
-        return self._backend.get_source_stats()
+    def get_sources(self, where: dict[str, Any] | None = None) -> list[str]:
+        return self._backend.get_sources(where)
+
+    def get_source_stats(self, where: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        return self._backend.get_source_stats(where)
 
     def get_index_fingerprint(self) -> str:
         stats = self.get_stats()

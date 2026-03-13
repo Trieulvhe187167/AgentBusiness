@@ -14,7 +14,8 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from app.config import settings
-from app.database import execute_with_retry, fetch_all, fetch_one
+from app.database import execute_with_retry, fetch_all, fetch_one, get_db
+from app.kb_service import bump_kb_version
 from app.models import FileInfo, UploadResponse
 
 router = APIRouter(prefix="/api", tags=["upload"])
@@ -137,6 +138,25 @@ async def upload_file(file: UploadFile = File(...)):
     row = await fetch_one("SELECT * FROM uploaded_files WHERE id = ?",
                           (cursor.lastrowid,))
 
+    db = await get_db()
+    try:
+        kb_cursor = await db.execute(
+            "SELECT id FROM knowledge_bases WHERE is_default = 1 LIMIT 1"
+        )
+        default_kb = await kb_cursor.fetchone()
+        if default_kb:
+            await db.execute(
+                """
+                INSERT OR IGNORE INTO kb_files (
+                    kb_id, file_id, status, chunk_count, attached_at
+                ) VALUES (?, ?, 'attached', 0, datetime('now'))
+                """,
+                (default_kb["id"], row["id"]),
+            )
+            await db.commit()
+    finally:
+        await db.close()
+
     return UploadResponse(
         message=f"File '{original_name}' uploaded successfully",
         file=file_row_to_info(row)
@@ -159,11 +179,22 @@ async def list_files():
 
 
 @router.delete("/files/{file_id}")
-async def delete_file(file_id: int):
-    """Delete a file and its chunks/vectors."""
+async def delete_file(file_id: int, force: bool = False):
+    """Delete a source file and remove it from any attached Knowledge Bases."""
     row = await fetch_one("SELECT * FROM uploaded_files WHERE id = ?", (file_id,))
     if not row:
         raise HTTPException(404, "File not found")
+
+    mappings = await fetch_all(
+        "SELECT kb_id FROM kb_files WHERE file_id = ? ORDER BY kb_id ASC",
+        (file_id,),
+    )
+    affected_kb_ids = [int(item["kb_id"]) for item in mappings]
+    if len(affected_kb_ids) > 1 and not force:
+        raise HTTPException(
+            409,
+            "File is attached to multiple Knowledge Bases. Detach it from other KBs first, or retry with force=true.",
+        )
 
     # Delete raw file
     file_path = settings.raw_upload_dir / row["filename"]
@@ -177,8 +208,19 @@ async def delete_file(file_id: int):
     except Exception:
         pass  # Vector store may not be initialized
 
-    # Delete from database
-    await execute_with_retry("DELETE FROM ingest_jobs WHERE file_id = ?", (file_id,))
-    await execute_with_retry("DELETE FROM uploaded_files WHERE id = ?", (file_id,))
+    db = await get_db()
+    try:
+        for kb_id in affected_kb_ids:
+            await bump_kb_version(db, kb_id)
+        await db.execute("DELETE FROM ingest_jobs WHERE file_id = ?", (file_id,))
+        await db.execute("DELETE FROM uploaded_files WHERE id = ?", (file_id,))
+        await db.commit()
+    finally:
+        await db.close()
 
-    return {"message": f"File {file_id} deleted", "filename": row["original_name"]}
+    return {
+        "message": f"File {file_id} deleted",
+        "filename": row["original_name"],
+        "force": force,
+        "detached_kb_ids": affected_kb_ids,
+    }

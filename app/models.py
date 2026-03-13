@@ -7,6 +7,60 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
+class KnowledgeBaseCreate(BaseModel):
+    key: str = Field(..., min_length=1, max_length=80)
+    name: str = Field(..., min_length=1, max_length=160)
+    description: str | None = Field(default=None, max_length=1000)
+    is_default: bool = False
+
+
+class KnowledgeBaseUpdate(BaseModel):
+    key: str | None = Field(default=None, min_length=1, max_length=80)
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    description: str | None = Field(default=None, max_length=1000)
+    status: str | None = Field(default=None, max_length=40)
+    is_default: bool | None = None
+
+
+class KnowledgeBaseSummary(BaseModel):
+    id: int
+    key: str
+    name: str
+    description: str | None = None
+    status: str
+    is_default: bool
+    kb_version: str
+    file_count: int = 0
+    ingested_file_count: int = 0
+    created_at: str
+    updated_at: str
+
+
+class KnowledgeBaseDeleteResponse(BaseModel):
+    message: str
+    id: int
+    key: str
+
+
+class KBFileSummary(BaseModel):
+    kb_id: int
+    file_id: int
+    mapping_id: int
+    filename: str
+    original_name: str
+    file_type: str
+    file_size: int
+    file_hash: str
+    upload_status: str
+    kb_status: str
+    chunk_count: int = 0
+    ingest_signature: str | None = None
+    last_job_id: str | None = None
+    attached_at: str
+    last_ingest_at: str | None = None
+    created_at: str
+
+
 class FileInfo(BaseModel):
     id: int
     filename: str
@@ -30,12 +84,14 @@ class UploadResponse(BaseModel):
 class IngestJobResponse(BaseModel):
     job_id: str
     file_id: int
+    kb_id: int | None = None
     status: str
 
 
 class JobStatus(BaseModel):
     job_id: str
     file_id: int
+    kb_id: int | None = None
     status: str
     progress: float = 0.0
     error_message: str | None = None
@@ -48,6 +104,8 @@ class ChatRequest(BaseModel):
     session_id: str | None = None
     conversation_id: str | None = None  # backward compatibility
     lang: str | None = Field(default=None, description="Optional language hint: vi or en")
+    kb_id: int | None = Field(default=None, ge=1)
+    kb_key: str | None = Field(default=None, min_length=1, max_length=80)
 
     @property
     def resolved_session_id(self) -> str | None:
@@ -71,6 +129,12 @@ class KBStats(BaseModel):
     total_chunks: int
     total_vectors: int
     sources: list[str]
+    scope: str = "global"
+    kb_id: int | None = None
+    kb_key: str | None = None
+    kb_name: str | None = None
+    kb_version: str | None = None
+    is_default: bool | None = None
 
 
 class KBSource(BaseModel):
@@ -119,6 +183,7 @@ class ChatLogItem(BaseModel):
 
 
 class SystemRuntime(BaseModel):
+    scope: dict[str, str | int | bool | None]
     vector_backend: str
     llm_provider_active: str
     llm_provider_config: str
@@ -129,6 +194,24 @@ class SystemRuntime(BaseModel):
     min_similarity_threshold: float
     embedding_model: str
     embedding_source: str
+    total_files: int
+    ingested_files: int
+    source_count: int
     total_vectors: int
     cache_entries: int
     cache_size_mb: float
+    collection_name: str | None = None
+    embedding_backend: str
+    vector_backend_config: str
+    vector_backend_active: str
+    effective_threshold_good: float
+    effective_threshold_low: float
+    effective_min_similarity_threshold: float
+    chunk_size: int
+    chunk_overlap: int
+    llm_model: str
+    llm_loaded: bool
+    vector_store_ready: bool
+    embeddings_loaded: bool
+    embeddings_ready: bool
+    timestamp: str

@@ -7,12 +7,18 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="RAG_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+    )
+
     # Paths
     data_dir: Path = BASE_DIR / "data"
     raw_upload_dir: Path = BASE_DIR / "data" / "raw"
@@ -120,11 +126,6 @@ class Settings(BaseSettings):
 
     # Logging
     log_level: str = "INFO"
-
-    class Config:
-        env_prefix = "RAG_"
-        env_file = ".env"
-        env_file_encoding = "utf-8"
 
     def ensure_dirs(self):
         for directory in [

@@ -12,14 +12,16 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 
 from app.config import settings
-from app.database import fetch_all, init_db
+from app.database import fetch_all, fetch_one, init_db
 from app.ingest import router as ingest_router
+from app.kb import router as kb_router
+from app.kb_service import open_db, resolve_kb_scope
 from app.models import (
     CacheStats,
     ChatLogItem,
@@ -28,8 +30,13 @@ from app.models import (
     HealthResponse,
     KBSource,
     KBStats,
+    SystemRuntime,
 )
 from app.upload import router as upload_router
+
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure"):
+        stream.reconfigure(encoding="utf-8", errors="backslashreplace")
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
@@ -101,6 +108,75 @@ async def add_request_id(request: Request, call_next):
 
 app.include_router(upload_router)
 app.include_router(ingest_router)
+app.include_router(kb_router)
+
+
+async def _resolve_optional_kb_scope(
+    kb_id: int | None = None,
+    kb_key: str | None = None,
+):
+    if kb_id is None and not kb_key:
+        return None
+
+    db = await open_db()
+    try:
+        return await resolve_kb_scope(db, kb_id=kb_id, kb_key=kb_key)
+    finally:
+        await db.close()
+
+
+async def _build_stats_response(
+    kb_id: int | None = None,
+    kb_key: str | None = None,
+) -> KBStats:
+    from app.vector_store import vector_store
+
+    kb_scope = await _resolve_optional_kb_scope(kb_id=kb_id, kb_key=kb_key)
+    if kb_scope:
+        row = await fetch_one(
+            """
+            SELECT
+                COUNT(*) AS total_files,
+                COALESCE(SUM(CASE WHEN status = 'ingested' THEN 1 ELSE 0 END), 0) AS ingested_files
+            FROM kb_files
+            WHERE kb_id = ?
+            """,
+            (kb_scope.id,),
+        )
+        where = {"kb_id": kb_scope.id}
+        total_vectors = vector_store.count_by_where(where)
+        return KBStats(
+            total_files=int((row or {}).get("total_files") or 0),
+            ingested_files=int((row or {}).get("ingested_files") or 0),
+            total_chunks=total_vectors,
+            total_vectors=total_vectors,
+            sources=vector_store.get_sources(where),
+            scope="kb",
+            kb_id=kb_scope.id,
+            kb_key=kb_scope.key,
+            kb_name=kb_scope.name,
+            kb_version=kb_scope.kb_version,
+            is_default=kb_scope.is_default,
+        )
+
+    row = await fetch_one(
+        """
+        SELECT
+            COUNT(*) AS total_files,
+            COALESCE(SUM(CASE WHEN status = 'ingested' THEN 1 ELSE 0 END), 0) AS ingested_files
+        FROM uploaded_files
+        """
+    )
+    vs_stats = vector_store.get_stats()
+    return KBStats(
+        total_files=int((row or {}).get("total_files") or 0),
+        ingested_files=int((row or {}).get("ingested_files") or 0),
+        total_chunks=int(vs_stats["total_vectors"]),
+        total_vectors=int(vs_stats["total_vectors"]),
+        sources=vector_store.get_sources(),
+        scope="global",
+        is_default=None,
+    )
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -128,6 +204,8 @@ async def chat(req: ChatRequest):
             query=req.message,
             session_id=req.resolved_session_id,
             lang=req.lang,
+            kb_id=req.kb_id,
+            kb_key=req.kb_key,
         ):
             yield {
                 "event": event["event"],
@@ -138,27 +216,46 @@ async def chat(req: ChatRequest):
 
 
 @app.get("/api/kb/stats", response_model=KBStats)
-async def kb_stats():
-    from app.vector_store import vector_store
-
-    files = await fetch_all("SELECT * FROM uploaded_files")
-    total_files = len(files)
-    ingested_files = len([item for item in files if item["status"] == "ingested"])
-
-    vs_stats = vector_store.get_stats()
-    sources = vector_store.get_sources()
-
-    return KBStats(
-        total_files=total_files,
-        ingested_files=ingested_files,
-        total_chunks=vs_stats["total_vectors"],
-        total_vectors=vs_stats["total_vectors"],
-        sources=sources,
-    )
+async def kb_stats(
+    kb_id: int | None = Query(default=None, ge=1),
+    kb_key: str | None = Query(default=None),
+):
+    return await _build_stats_response(kb_id=kb_id, kb_key=kb_key)
 
 
 @app.get("/api/kb/sources", response_model=list[KBSource])
-async def kb_sources():
+async def kb_sources(
+    kb_id: int | None = Query(default=None, ge=1),
+    kb_key: str | None = Query(default=None),
+):
+    kb_scope = await _resolve_optional_kb_scope(kb_id=kb_id, kb_key=kb_key)
+    if kb_scope:
+        rows = await fetch_all(
+            """
+            SELECT
+                uf.id,
+                uf.original_name,
+                uf.file_type,
+                kf.chunk_count,
+                kf.last_ingest_at
+            FROM kb_files kf
+            JOIN uploaded_files uf ON uf.id = kf.file_id
+            WHERE kf.kb_id = ? AND kf.status = 'ingested'
+            ORDER BY kf.last_ingest_at DESC
+            """,
+            (kb_scope.id,),
+        )
+        return [
+            KBSource(
+                source_id=row["id"],
+                filename=row["original_name"],
+                file_type=row["file_type"],
+                chunk_count=int(row.get("chunk_count") or 0),
+                ingested_at=row.get("last_ingest_at"),
+            )
+            for row in rows
+        ]
+
     rows = await fetch_all("SELECT * FROM uploaded_files WHERE status='ingested' ORDER BY ingested_at DESC")
     return [
         KBSource(
@@ -173,9 +270,15 @@ async def kb_sources():
 
 
 @app.get("/api/sources/stats")
-async def api_sources_stats():
+async def api_sources_stats(
+    kb_id: int | None = Query(default=None, ge=1),
+    kb_key: str | None = Query(default=None),
+):
     from app.vector_store import vector_store
 
+    kb_scope = await _resolve_optional_kb_scope(kb_id=kb_id, kb_key=kb_key)
+    if kb_scope:
+        return vector_store.get_source_stats({"kb_id": kb_scope.id})
     return vector_store.get_source_stats()
 
 
@@ -243,13 +346,18 @@ async def cache_stats_endpoint():
     return CacheStats(**stats)
 
 
-@app.get("/api/system")
-async def system_info(request: Request):
+@app.get("/api/system", response_model=SystemRuntime)
+async def system_info(
+    request: Request,
+    kb_id: int | None = Query(default=None, ge=1),
+    kb_key: str | None = Query(default=None),
+):
     from app.cache import get_stats as get_cache_stats
     from app.llm_client import active_provider_name
     from app.embeddings import using_hashing_fallback, is_embeddings_ready
     from app.vector_store import vector_store
 
+    stats = await _build_stats_response(kb_id=kb_id, kb_key=kb_key)
     cache = get_cache_stats()
     vs = vector_store.get_stats()
     hashing = using_hashing_fallback()
@@ -263,13 +371,25 @@ async def system_info(request: Request):
         effective_min_similarity = min(effective_min_similarity, settings.hashing_min_similarity_threshold)
 
     return {
+        "scope": {
+            "type": stats.scope,
+            "kb_id": stats.kb_id,
+            "kb_key": stats.kb_key,
+            "kb_name": stats.kb_name,
+            "kb_version": stats.kb_version,
+            "is_default": stats.is_default,
+        },
         "embedding_model": settings.embedding_model,
         "embedding_source": settings.effective_embedding_source,
         "embedding_backend": "hashing" if hashing else "sentence-transformers",
+        "vector_backend": vs.get("backend"),
         "vector_backend_config": settings.normalized_vector_backend,
         "vector_backend_active": vs.get("backend"),
         "collection_name": vs.get("collection_name"),
-        "total_vectors": vs.get("total_vectors"),
+        "total_files": stats.total_files,
+        "ingested_files": stats.ingested_files,
+        "source_count": len(stats.sources),
+        "total_vectors": stats.total_vectors,
         "top_k": settings.top_k,
         "threshold_good": settings.threshold_good,
         "threshold_low": settings.threshold_low,
@@ -294,13 +414,23 @@ async def system_info(request: Request):
 
 
 @app.get("/api/debug/similarity")
-async def debug_similarity(query: str, top_k: int = 10):
-    from app.rag import decide_mode, retrieve
+async def debug_similarity(
+    query: str,
+    top_k: int = 10,
+    kb_id: int | None = Query(default=None, ge=1),
+    kb_key: str | None = Query(default=None),
+):
+    from app.rag import _resolve_kb_scope, decide_mode, retrieve
 
-    results = retrieve(query, top_k=top_k)
+    try:
+        kb_scope = _resolve_kb_scope(kb_id=kb_id, kb_key=kb_key)
+    except ValueError as err:
+        raise HTTPException(404, str(err)) from err
+    results = retrieve(query, top_k=top_k, kb_id=kb_scope["id"])
     top_score = float(results[0].get("similarity", 0.0)) if results else 0.0
     return {
         "query": query,
+        "kb": kb_scope,
         "top_score": round(top_score, 4),
         "predicted_mode": decide_mode(top_score),
         "threshold_good": settings.threshold_good,
@@ -321,20 +451,30 @@ async def debug_similarity(query: str, top_k: int = 10):
 
 
 @app.get("/api/debug/retrieval")
-async def debug_retrieval(query: str, top_k: int = 10):
+async def debug_retrieval(
+    query: str,
+    top_k: int = 10,
+    kb_id: int | None = Query(default=None, ge=1),
+    kb_key: str | None = Query(default=None),
+):
     """
     Rich retrieval debug: returns top_k results with score, lang, category,
     source, bm25_score, and content snippet. Useful for threshold calibration.
     """
-    from app.rag import decide_mode, retrieve
+    from app.rag import _resolve_kb_scope, decide_mode, retrieve
     from app.lang import detect_language
 
-    results = retrieve(query, top_k=top_k)
+    try:
+        kb_scope = _resolve_kb_scope(kb_id=kb_id, kb_key=kb_key)
+    except ValueError as err:
+        raise HTTPException(404, str(err)) from err
+    results = retrieve(query, top_k=top_k, kb_id=kb_scope["id"])
     top_score = float(results[0].get("similarity", 0.0)) if results else 0.0
     detected_lang = detect_language(query)
 
     return {
         "query": query,
+        "kb": kb_scope,
         "detected_lang": detected_lang,
         "top_score": round(top_score, 4),
         "predicted_mode": decide_mode(top_score),

@@ -310,7 +310,7 @@
             box-shadow: var(--shadow);
             padding: 12px;
             display: grid;
-            grid-template-columns: 130px minmax(0, 1fr) auto;
+            grid-template-columns: 210px 130px minmax(0, 1fr) auto;
             gap: 10px;
         }
 
@@ -424,6 +424,7 @@
             </div>
             <div class="header-tools">
                 <div class="chip">Session: <strong id="sessionLabel">-</strong></div>
+                <div class="chip">KB: <strong id="kbLabel">-</strong></div>
                 <div class="chip">Provider: <strong id="providerLabel">-</strong></div>
                 <a class="link-btn" href="/admin">Admin</a>
             </div>
@@ -453,6 +454,7 @@
         </main>
 
         <footer class="input-card">
+            <select id="kbSelect"></select>
             <select id="langSelect">
                 <option value="">Auto language</option>
                 <option value="vi">Vietnamese</option>
@@ -467,17 +469,71 @@
         const messagesEl = document.getElementById('messages');
         const inputEl = document.getElementById('chatInput');
         const sendBtn = document.getElementById('sendBtn');
+        const kbSelect = document.getElementById('kbSelect');
         const langSelect = document.getElementById('langSelect');
         const citationListEl = document.getElementById('citationList');
         const sessionLabel = document.getElementById('sessionLabel');
+        const kbLabel = document.getElementById('kbLabel');
         const providerLabel = document.getElementById('providerLabel');
 
         let isBusy = false;
         let sessionId = localStorage.getItem('campusrag_session') || null;
+        let activeKb = null;
         updateSessionLabel();
+        loadKnowledgeBases().catch(() => {
+            kbSelect.innerHTML = '<option value="">Default KB</option>';
+            kbLabel.textContent = 'default';
+        });
 
         function updateSessionLabel() {
             sessionLabel.textContent = sessionId ? sessionId.slice(0, 10) + '…' : 'new';
+        }
+
+        function updateKbLabel() {
+            kbLabel.textContent = activeKb ? activeKb.key : '-';
+        }
+
+        function syncKbUrl() {
+            const url = new URL(window.location.href);
+            if (activeKb && activeKb.key) {
+                url.searchParams.set('kb', activeKb.key);
+            } else {
+                url.searchParams.delete('kb');
+            }
+            window.history.replaceState({}, '', url);
+        }
+
+        async function loadKnowledgeBases() {
+            const response = await fetch('/api/kbs');
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+            const items = await response.json();
+            const requestedKey = new URL(window.location.href).searchParams.get('kb');
+
+            kbSelect.innerHTML = '';
+            for (const kb of items) {
+                const option = document.createElement('option');
+                option.value = String(kb.id);
+                option.textContent = kb.is_default ? `${kb.name} (Default)` : kb.name;
+                option.dataset.key = kb.key;
+                kbSelect.appendChild(option);
+            }
+
+            const initialKb = items.find((item) => requestedKey && item.key === requestedKey)
+                || items.find((item) => item.is_default)
+                || items[0]
+                || null;
+
+            if (!initialKb) return;
+
+            kbSelect.value = String(initialKb.id);
+            activeKb = {
+                id: initialKb.id,
+                key: initialKb.key,
+                name: initialKb.name,
+            };
+            updateKbLabel();
+            syncKbUrl();
         }
 
         function focusInputWithoutScroll() {
@@ -578,6 +634,7 @@
                         message: text,
                         session_id: sessionId,
                         lang: langSelect.value || null,
+                        kb_id: activeKb ? Number(activeKb.id) : null,
                     }),
                 });
 
@@ -633,6 +690,18 @@
                             }
 
                             providerLabel.textContent = data.llm_provider || '-';
+                            if (data.kb_id && data.kb_key) {
+                                activeKb = {
+                                    id: data.kb_id,
+                                    key: data.kb_key,
+                                    name: data.kb_name || data.kb_key,
+                                };
+                                if (kbSelect.value !== String(data.kb_id)) {
+                                    kbSelect.value = String(data.kb_id);
+                                }
+                                updateKbLabel();
+                                syncKbUrl();
+                            }
 
                             if (metaNode) {
                                 const label = document.createElement('span');
@@ -668,6 +737,16 @@
         }
 
         sendBtn.addEventListener('click', sendMessage);
+        kbSelect.addEventListener('change', () => {
+            const option = kbSelect.selectedOptions[0];
+            activeKb = option ? {
+                id: Number(option.value),
+                key: option.dataset.key || '',
+                name: option.textContent || '',
+            } : null;
+            updateKbLabel();
+            syncKbUrl();
+        });
         inputEl.addEventListener('keydown', (event) => {
             if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();

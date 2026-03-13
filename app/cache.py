@@ -26,9 +26,9 @@ def get_cache() -> Cache:
     return _cache
 
 
-def _make_key(prefix: str, query: str, kb_version: str = "") -> str:
-    """Create a cache key from prefix + query hash + kb_version."""
-    raw = f"{query.strip().lower()}:{kb_version}"
+def _make_key(prefix: str, query: str, scope: str = "") -> str:
+    """Create a cache key from prefix + normalized query + scope."""
+    raw = f"{query.strip().lower()}:{scope}"
     h = hashlib.sha256(raw.encode()).hexdigest()[:16]
     return f"{prefix}:{h}"
 
@@ -45,24 +45,24 @@ def set_cached_embedding(query: str, embedding: list[float]):
 
 
 # ── Layer 2: Retrieval Results ─────────────────────────────
-def get_cached_retrieval(query: str, kb_version: str) -> list[dict] | None:
-    key = _make_key("ret", query, kb_version)
+def get_cached_retrieval(query: str, scope: str) -> list[dict] | None:
+    key = _make_key("ret", query, scope)
     return get_cache().get(key)
 
 
-def set_cached_retrieval(query: str, kb_version: str, results: list[dict]):
-    key = _make_key("ret", query, kb_version)
+def set_cached_retrieval(query: str, scope: str, results: list[dict]):
+    key = _make_key("ret", query, scope)
     get_cache().set(key, results, expire=settings.cache_ttl_seconds)
 
 
 # ── Layer 3: Full Responses ───────────────────────────────
-def get_cached_response(query: str, kb_version: str) -> str | None:
-    key = _make_key("res", query, kb_version)
+def get_cached_response(query: str, scope: str) -> str | None:
+    key = _make_key("res", query, scope)
     return get_cache().get(key)
 
 
-def set_cached_response(query: str, kb_version: str, response: str):
-    key = _make_key("res", query, kb_version)
+def set_cached_response(query: str, scope: str, response: str):
+    key = _make_key("res", query, scope)
     get_cache().set(key, response, expire=settings.cache_ttl_seconds)
 
 
