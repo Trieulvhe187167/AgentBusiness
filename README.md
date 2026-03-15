@@ -393,7 +393,7 @@ Main endpoints:
 ### Current regression and smoke suite
 
 ```powershell
-pytest tests/test_phase5_kb_scope.py tests/test_phase9_smoke_api.py tests/test_phase10_admin_debug.py -q
+pytest tests -q
 ```
 
 ### Manual smoke scripts
