@@ -10,6 +10,7 @@ import logging
 import re
 import time
 import uuid
+from collections.abc import Mapping
 from typing import Any, Generator
 
 from app.cache import (
@@ -23,7 +24,7 @@ from app.database import execute_sync, fetch_all_sync, fetch_one_sync, utcnow_is
 from app.embeddings import embed_query, using_hashing_fallback
 from app.lang import detect_language
 from app.llm_client import active_provider_name, generate_stream, is_llm_ready
-from app.models import Citation
+from app.models import Citation, RequestContext
 from app.query_expander import expand_query
 from app.reranker import rerank
 from app.vector_store import vector_store
@@ -463,6 +464,26 @@ def _clear_pending_session(session_id: str):
     )
 
 
+def _coerce_request_context(request_context: RequestContext | dict[str, Any] | None) -> dict[str, Any]:
+    if request_context is None:
+        return {}
+    if isinstance(request_context, RequestContext):
+        payload = request_context.model_dump()
+    elif hasattr(request_context, "model_dump"):
+        payload = request_context.model_dump()
+    elif isinstance(request_context, Mapping):
+        payload = dict(request_context)
+    else:
+        logger.warning("Ignoring unexpected request_context type: %s", type(request_context).__name__)
+        return {}
+
+    auth = dict(payload.get("auth") or {})
+    auth["roles"] = list(auth.get("roles") or [])
+    auth["channel"] = auth.get("channel") or "web"
+    payload["auth"] = auth
+    return payload
+
+
 def _log_chat(
     session_id: str,
     user_message: str,
@@ -473,16 +494,31 @@ def _log_chat(
     citations: list[dict[str, Any]],
     latency_ms: int,
     llm_provider: str,
+    request_context: RequestContext | dict[str, Any] | None = None,
 ):
+    context = _coerce_request_context(request_context)
+    auth = context.get("auth") or {}
     execute_sync(
         """
         INSERT INTO chat_logs (
-            session_id, user_message, merged_query, mode, top_score,
+            session_id, request_id, user_id, roles_json, channel, tenant_id, org_id,
+            kb_id, kb_key, user_message, merged_query, mode, top_score,
             answer_text, citations_json, latency_ms, llm_provider, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            session_id, user_message, merged_query, mode,
+            session_id,
+            context.get("request_id"),
+            auth.get("user_id"),
+            json.dumps(auth.get("roles") or [], ensure_ascii=False),
+            auth.get("channel"),
+            auth.get("tenant_id"),
+            auth.get("org_id"),
+            context.get("kb_id"),
+            context.get("kb_key"),
+            user_message,
+            merged_query,
+            mode,
             float(top_score), answer_text,
             json.dumps(citations, ensure_ascii=False),
             latency_ms, llm_provider, utcnow_iso(),
@@ -583,6 +619,7 @@ def rag_stream(
     lang: str | None = None,
     kb_id: int | None = None,
     kb_key: str | None = None,
+    request_context: RequestContext | dict[str, Any] | None = None,
 ) -> Generator[dict[str, Any], None, None]:
     start_time = time.perf_counter()
     user_query = _normalize_query(query)
@@ -592,6 +629,7 @@ def rag_stream(
     merged_query = user_query
     followup = False
     scoped_sid = sid
+    context = _coerce_request_context(request_context)
 
     llm_provider = active_provider_name()
     mode = "fallback"
@@ -601,6 +639,8 @@ def rag_stream(
 
     try:
         kb_scope = _resolve_kb_scope(kb_id=kb_id, kb_key=kb_key)
+        context["kb_id"] = kb_scope["id"]
+        context["kb_key"] = kb_scope["key"]
         scoped_sid = _scoped_session_id(sid, kb_scope["id"])
         pending = _load_pending_session(scoped_sid)
         if pending and pending.get("pending_clarify_query"):
@@ -621,6 +661,7 @@ def rag_stream(
                 "query": user_query,
                 "mode": mode,
                 "score": round(top_score, 4),
+                "request_id": context.get("request_id"),
                 "session_id": sid,
                 "llm_provider": llm_provider,
                 "lang": resolved_lang,
@@ -636,15 +677,15 @@ def rag_stream(
 
             use_llm = settings.normalized_answer_mode != "extractive" and is_llm_ready()
             if use_llm:
-                context = _context_for_llm(results)
+                llm_context = _context_for_llm(results)
 
                 # Build prompt with optional conversational memory
                 recent_turns = _load_recent_turns(scoped_sid)
                 memory = _build_memory_summary(recent_turns)
                 full_prompt = (
-                    f"{memory}\n\n{CONTEXT_TEMPLATE.format(context=context, question=merged_query)}"
+                    f"{memory}\n\n{CONTEXT_TEMPLATE.format(context=llm_context, question=merged_query)}"
                     if memory
-                    else CONTEXT_TEMPLATE.format(context=context, question=merged_query)
+                    else CONTEXT_TEMPLATE.format(context=llm_context, question=merged_query)
                 )
 
                 generated_parts = []
@@ -654,7 +695,7 @@ def rag_stream(
                 answer_text = "".join(generated_parts).strip()
 
                 # Numeric guardrail: if LLM hallucinated numbers → fallback extractive
-                if _answer_has_hallucinated_numbers(answer_text, context):
+                if _answer_has_hallucinated_numbers(answer_text, llm_context):
                     logger.warning("Guardrail triggered: falling back to extractive answer")
                     answer_text = _extractive_answer(results, resolved_lang)
                     yield {"event": "token", "data": {"text": "\n[corrected]\n" + answer_text}}
@@ -675,13 +716,13 @@ def rag_stream(
             # If LLM is available, attempt an answer from partial results first, then invite clarification.
             use_llm = settings.normalized_answer_mode != "extractive" and is_llm_ready()
             if use_llm and results:
-                context = _context_for_llm(results)
+                llm_context = _context_for_llm(results)
                 recent_turns = _load_recent_turns(scoped_sid)
                 memory = _build_memory_summary(recent_turns)
                 full_prompt = (
-                    f"{memory}\n\n{CONTEXT_TEMPLATE.format(context=context, question=merged_query)}"
+                    f"{memory}\n\n{CONTEXT_TEMPLATE.format(context=llm_context, question=merged_query)}"
                     if memory
-                    else CONTEXT_TEMPLATE.format(context=context, question=merged_query)
+                    else CONTEXT_TEMPLATE.format(context=llm_context, question=merged_query)
                 )
                 generated_parts = []
                 for token in generate_stream(full_prompt, system_prompt=SYSTEM_PROMPT):
@@ -731,6 +772,7 @@ def rag_stream(
             citations=citations,
             latency_ms=latency_ms,
             llm_provider=llm_provider,
+            request_context=context,
         )
         yield {"event": "done", "data": {"ok": True, "latency_ms": latency_ms}}
 
@@ -748,6 +790,7 @@ def rag_stream(
                 citations=[],
                 latency_ms=latency_ms,
                 llm_provider=llm_provider,
+                request_context=context,
             )
         except Exception:
             logger.exception("Failed to store error log")

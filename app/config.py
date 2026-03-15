@@ -79,13 +79,20 @@ class Settings(BaseSettings):
     embedding_passage_prefix: str = ""
 
     # LLM provider switch
-    llm_provider: str = "auto"  # auto|openai|gemini|ollama|llama_cpp|openai_compatible|none
+    llm_provider: str = "openai_compatible"  # auto|openai|gemini|ollama|llama_cpp|openai_compatible|none
     answer_mode: str = "auto"   # auto|extractive|generative
 
+    # Agent runtime contract (Phase 0 baseline)
+    agent_serving_stack: str = "vllm"      # vllm|qwen_agent|sglang|ollama|llama_cpp|openai|gemini|custom
+    agent_tool_protocol: str = "manual_json"  # manual_json|openai_tools
+    agent_native_tool_calling: bool = False
+    agent_tool_choice_mode: str = "auto"  # auto|required|none
+    agent_tool_parser: str = ""
+
     # OpenAI Compatible
-    llm_base_url: str = "http://localhost:11434/v1"
-    llm_api_key: str = "ollama"
-    llm_model: str = "llama3.2" # qwen2.5:0.5b or qwen3.5:0.8b
+    llm_base_url: str = "http://127.0.0.1:8000/v1"
+    llm_api_key: str = "EMPTY"
+    llm_model: str = "qwen3.5:0.8b"
     llm_timeout_seconds: int = 120
 
     # OpenAI
@@ -119,6 +126,19 @@ class Settings(BaseSettings):
     # Session and logs
     session_ttl_minutes: int = 120
     chat_log_limit_default: int = 50
+
+    # External business integrations
+    integration_cache_ttl_seconds: int = 120
+    integration_http_timeout_seconds: int = 15
+
+    order_api_base_url: str = ""
+    order_api_key: str = ""
+    order_api_status_path: str = "/orders/status"
+    order_api_recent_path: str = "/orders/recent"
+
+    game_api_base_url: str = ""
+    game_api_key: str = ""
+    game_api_online_path: str = "/alliances/online"
 
     # Cache
     cache_ttl_seconds: int = 3600
@@ -181,6 +201,80 @@ class Settings(BaseSettings):
         provider = self.llm_provider.strip().lower()
         valid = {"auto", "openai", "gemini", "ollama", "llama_cpp", "openai_compatible", "none"}
         return provider if provider in valid else "auto"
+
+    @property
+    def normalized_agent_serving_stack(self) -> str:
+        stack = self.agent_serving_stack.strip().lower()
+        valid = {"vllm", "qwen_agent", "sglang", "ollama", "llama_cpp", "openai", "gemini", "custom"}
+        return stack if stack in valid else "vllm"
+
+    @property
+    def normalized_agent_tool_protocol(self) -> str:
+        protocol = self.agent_tool_protocol.strip().lower()
+        valid = {"manual_json", "openai_tools"}
+        return protocol if protocol in valid else "manual_json"
+
+    @property
+    def normalized_agent_tool_choice_mode(self) -> str:
+        mode = self.agent_tool_choice_mode.strip().lower()
+        valid = {"auto", "required", "none"}
+        return mode if mode in valid else "auto"
+
+    @property
+    def agent_native_tool_status(self) -> str:
+        if self.normalized_agent_tool_protocol != "openai_tools" or not self.agent_native_tool_calling:
+            return "disabled"
+        if self.normalized_llm_provider not in {"openai", "openai_compatible"}:
+            return "misconfigured"
+        if self.normalized_llm_provider == "openai_compatible" and not self.llm_base_url.strip():
+            return "misconfigured"
+        if self.normalized_llm_provider == "openai" and not self.openai_api_key.strip():
+            return "misconfigured"
+        if not self.effective_chat_model.strip():
+            return "misconfigured"
+        return "ready"
+
+    @property
+    def agent_native_tool_ready(self) -> bool:
+        return self.agent_native_tool_status == "ready"
+
+    @property
+    def agent_native_tool_reason(self) -> str:
+        status = self.agent_native_tool_status
+        if status == "disabled":
+            return "Native tool calling is disabled; the router will keep using the manual JSON path."
+        if self.normalized_llm_provider not in {"openai", "openai_compatible"}:
+            return "Native tool calling requires an OpenAI-compatible chat completions provider."
+        if self.normalized_llm_provider == "openai_compatible" and not self.llm_base_url.strip():
+            return "RAG_LLM_BASE_URL must be set for openai_compatible native tool calling."
+        if self.normalized_llm_provider == "openai" and not self.openai_api_key.strip():
+            return "RAG_OPENAI_API_KEY must be set for native OpenAI tool calling."
+        if not self.effective_chat_model.strip():
+            return "A target chat model must be configured before enabling native tool calling."
+        return "Runtime is ready for native tool calling."
+
+    @property
+    def agent_native_tool_warning(self) -> str | None:
+        if not self.agent_native_tool_ready:
+            return None
+        if self.normalized_agent_serving_stack in {"vllm", "sglang"} and not self.agent_tool_parser.strip():
+            return "Set RAG_AGENT_TOOL_PARSER if your serving stack requires an explicit parser for auto tool choice."
+        return None
+
+    @property
+    def effective_chat_model(self) -> str:
+        provider = self.normalized_llm_provider
+        if provider == "openai":
+            return self.openai_model
+        if provider == "gemini":
+            return self.gemini_model
+        if provider == "ollama":
+            return self.ollama_model
+        if provider == "llama_cpp":
+            return Path(self.llm_model_path).name if self.llm_model_path else ""
+        if provider == "none":
+            return ""
+        return self.llm_model
 
 
 settings = Settings()

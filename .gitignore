@@ -70,6 +70,7 @@ Thumbs.db
 desktop.ini
 .idea/
 .vscode/
+.qodo/
 *.swp
 *.swo
 *~
@@ -98,3 +99,4 @@ docker-compose.override.yml
 *.bak
 *.tmp
 *.cache
+.agent/tmp_*/

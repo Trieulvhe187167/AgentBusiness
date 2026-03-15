@@ -4,7 +4,79 @@ Pydantic schemas for API requests and responses.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+import re
+
+from pydantic import BaseModel, Field, field_validator
+
+
+_ROLE_TOKEN_RE = re.compile(r"[^a-z0-9:_-]+")
+
+
+def _normalize_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = " ".join(str(value).strip().split())
+    return text or None
+
+
+def _normalize_roles(raw_roles: object) -> list[str]:
+    if raw_roles is None:
+        return []
+
+    if isinstance(raw_roles, str):
+        values = [part.strip() for part in raw_roles.split(",")]
+    elif isinstance(raw_roles, (list, tuple, set)):
+        values = [str(part).strip() for part in raw_roles]
+    else:
+        values = [str(raw_roles).strip()]
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if not value:
+            continue
+        role = _ROLE_TOKEN_RE.sub("_", value.lower()).strip("_")
+        if not role or role in seen:
+            continue
+        seen.add(role)
+        normalized.append(role)
+    return normalized
+
+
+class AuthContext(BaseModel):
+    user_id: str | None = Field(default=None, min_length=1, max_length=120)
+    roles: list[str] = Field(default_factory=list)
+    channel: str = Field(default="web", min_length=1, max_length=40)
+    tenant_id: str | None = Field(default=None, min_length=1, max_length=120)
+    org_id: str | None = Field(default=None, min_length=1, max_length=120)
+
+    @field_validator("user_id", "tenant_id", "org_id", mode="before")
+    @classmethod
+    def _normalize_identity_fields(cls, value):
+        return _normalize_optional_text(value)
+
+    @field_validator("channel", mode="before")
+    @classmethod
+    def _normalize_channel(cls, value):
+        return (_normalize_optional_text(value) or "web").lower()
+
+    @field_validator("roles", mode="before")
+    @classmethod
+    def _normalize_role_list(cls, value):
+        return _normalize_roles(value)
+
+
+class RequestContext(BaseModel):
+    request_id: str = Field(..., min_length=1, max_length=80)
+    session_id: str | None = None
+    kb_id: int | None = Field(default=None, ge=1)
+    kb_key: str | None = Field(default=None, min_length=1, max_length=80)
+    auth: AuthContext = Field(default_factory=AuthContext)
+
+    @field_validator("request_id", "session_id", "kb_key", mode="before")
+    @classmethod
+    def _normalize_request_fields(cls, value):
+        return _normalize_optional_text(value)
 
 
 class KnowledgeBaseCreate(BaseModel):
@@ -106,10 +178,50 @@ class ChatRequest(BaseModel):
     lang: str | None = Field(default=None, description="Optional language hint: vi or en")
     kb_id: int | None = Field(default=None, ge=1)
     kb_key: str | None = Field(default=None, min_length=1, max_length=80)
+    request_id: str | None = Field(default=None, min_length=1, max_length=80)
+    user_id: str | None = Field(default=None, min_length=1, max_length=120)
+    roles: list[str] = Field(default_factory=list)
+    channel: str = Field(default="web", min_length=1, max_length=40)
+    tenant_id: str | None = Field(default=None, min_length=1, max_length=120)
+    org_id: str | None = Field(default=None, min_length=1, max_length=120)
+
+    @field_validator("session_id", "conversation_id", "request_id", "user_id", "tenant_id", "org_id", "kb_key", mode="before")
+    @classmethod
+    def _normalize_optional_request_fields(cls, value):
+        return _normalize_optional_text(value)
+
+    @field_validator("channel", mode="before")
+    @classmethod
+    def _normalize_chat_channel(cls, value):
+        return (_normalize_optional_text(value) or "web").lower()
+
+    @field_validator("roles", mode="before")
+    @classmethod
+    def _normalize_chat_roles(cls, value):
+        return _normalize_roles(value)
 
     @property
     def resolved_session_id(self) -> str | None:
         return self.session_id or self.conversation_id
+
+    @property
+    def auth_context(self) -> AuthContext:
+        return AuthContext(
+            user_id=self.user_id,
+            roles=self.roles,
+            channel=self.channel,
+            tenant_id=self.tenant_id,
+            org_id=self.org_id,
+        )
+
+    def build_request_context(self, request_id: str) -> RequestContext:
+        return RequestContext(
+            request_id=request_id,
+            session_id=self.resolved_session_id,
+            kb_id=self.kb_id,
+            kb_key=self.kb_key,
+            auth=self.auth_context,
+        )
 
 
 class Citation(BaseModel):
@@ -173,6 +285,14 @@ class DocumentSummary(BaseModel):
 class ChatLogItem(BaseModel):
     id: int
     session_id: str
+    request_id: str | None = None
+    user_id: str | None = None
+    roles: list[str] = Field(default_factory=list)
+    channel: str | None = None
+    tenant_id: str | None = None
+    org_id: str | None = None
+    kb_id: int | None = None
+    kb_key: str | None = None
     mode: str
     top_score: float | None = None
     latency_ms: int | None = None
@@ -182,8 +302,30 @@ class ChatLogItem(BaseModel):
     created_at: str
 
 
+class ToolAuditLogItem(BaseModel):
+    id: int
+    tool_call_id: str
+    request_id: str | None = None
+    session_id: str | None = None
+    user_id: str | None = None
+    roles: list[str] = Field(default_factory=list)
+    channel: str | None = None
+    tenant_id: str | None = None
+    org_id: str | None = None
+    kb_id: int | None = None
+    kb_key: str | None = None
+    tool_name: str
+    tool_status: str
+    args_json: str | None = None
+    result_summary: str | None = None
+    latency_ms: int | None = None
+    error_message: str | None = None
+    created_at: str
+
+
 class SystemRuntime(BaseModel):
     scope: dict[str, str | int | bool | None]
+    agent_runtime: dict[str, str | bool | None]
     vector_backend: str
     llm_provider_active: str
     llm_provider_config: str

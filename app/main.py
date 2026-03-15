@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from sse_starlette.sse import EventSourceResponse
+from sse_starlette.sse import AppStatus, EventSourceResponse
 
 from app.config import settings
 from app.database import fetch_all, fetch_one, init_db
@@ -31,6 +31,7 @@ from app.models import (
     KBSource,
     KBStats,
     SystemRuntime,
+    ToolAuditLogItem,
 )
 from app.upload import router as upload_router
 
@@ -44,6 +45,23 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("app")
+
+
+def _safe_request_id(raw: str | None) -> str:
+    value = (raw or "").strip()
+    return value[:80] if value else uuid.uuid4().hex[:8]
+
+
+def _parse_roles_json(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [str(item) for item in parsed if str(item).strip()]
 
 
 @asynccontextmanager
@@ -97,8 +115,9 @@ app = FastAPI(
 
 @app.middleware("http")
 async def add_request_id(request: Request, call_next):
-    request_id = uuid.uuid4().hex[:8]
+    request_id = _safe_request_id(request.headers.get("X-Request-ID"))
     start = datetime.now(timezone.utc)
+    request.state.request_id = request_id
     response = await call_next(request)
     elapsed = (datetime.now(timezone.utc) - start).total_seconds()
     response.headers["X-Request-ID"] = request_id
@@ -196,16 +215,23 @@ async def health(request: Request):
 
 
 @app.post("/api/chat")
-async def chat(req: ChatRequest):
-    from app.rag import rag_stream
+async def chat(req: ChatRequest, request: Request):
+    from app.agent import agent_stream
+
+    request_context = req.build_request_context(
+        request_id=req.request_id or getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8]
+    )
+    AppStatus.should_exit = False
+    AppStatus.should_exit_event = None
 
     async def event_generator():
-        for event in rag_stream(
+        async for event in agent_stream(
             query=req.message,
             session_id=req.resolved_session_id,
             lang=req.lang,
             kb_id=req.kb_id,
             kb_key=req.kb_key,
+            request_context=request_context,
         ):
             yield {
                 "event": event["event"],
@@ -305,7 +331,8 @@ async def documents():
 async def admin_chat_logs(limit: int = Query(default=settings.chat_log_limit_default, ge=1, le=500)):
     rows = await fetch_all(
         """
-        SELECT id, session_id, mode, top_score, latency_ms, llm_provider,
+        SELECT id, session_id, request_id, user_id, roles_json, channel,
+               tenant_id, org_id, kb_id, kb_key, mode, top_score, latency_ms, llm_provider,
                user_message, answer_text, created_at
         FROM chat_logs
         ORDER BY created_at DESC
@@ -318,6 +345,14 @@ async def admin_chat_logs(limit: int = Query(default=settings.chat_log_limit_def
         ChatLogItem(
             id=row["id"],
             session_id=row.get("session_id") or "",
+            request_id=row.get("request_id"),
+            user_id=row.get("user_id"),
+            roles=_parse_roles_json(row.get("roles_json")),
+            channel=row.get("channel"),
+            tenant_id=row.get("tenant_id"),
+            org_id=row.get("org_id"),
+            kb_id=row.get("kb_id"),
+            kb_key=row.get("kb_key"),
             mode=row["mode"],
             top_score=row.get("top_score"),
             latency_ms=row.get("latency_ms"),
@@ -328,6 +363,52 @@ async def admin_chat_logs(limit: int = Query(default=settings.chat_log_limit_def
         )
         for row in rows
     ]
+
+
+@app.get("/api/admin/tool-audit-logs", response_model=list[ToolAuditLogItem])
+async def admin_tool_audit_logs(limit: int = Query(default=settings.chat_log_limit_default, ge=1, le=500)):
+    rows = await fetch_all(
+        """
+        SELECT id, tool_call_id, request_id, session_id, user_id, roles_json, channel,
+               tenant_id, org_id, kb_id, kb_key, tool_name, args_json, result_summary,
+               tool_status, latency_ms, error_message, created_at
+        FROM tool_audit_logs
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+
+    return [
+        ToolAuditLogItem(
+            id=row["id"],
+            tool_call_id=row.get("tool_call_id") or "",
+            request_id=row.get("request_id"),
+            session_id=row.get("session_id"),
+            user_id=row.get("user_id"),
+            roles=_parse_roles_json(row.get("roles_json")),
+            channel=row.get("channel"),
+            tenant_id=row.get("tenant_id"),
+            org_id=row.get("org_id"),
+            kb_id=row.get("kb_id"),
+            kb_key=row.get("kb_key"),
+            tool_name=row.get("tool_name") or "",
+            tool_status=row.get("tool_status") or "",
+            args_json=row.get("args_json"),
+            result_summary=row.get("result_summary"),
+            latency_ms=row.get("latency_ms"),
+            error_message=row.get("error_message"),
+            created_at=row.get("created_at") or "",
+        )
+        for row in rows
+    ]
+
+
+@app.get("/api/admin/tools")
+async def admin_tools_registry():
+    from app.tools import tool_registry
+
+    return [item.model_dump() for item in tool_registry.list_definitions()]
 
 
 @app.post("/api/cache/clear")
@@ -379,6 +460,18 @@ async def system_info(
             "kb_version": stats.kb_version,
             "is_default": stats.is_default,
         },
+        "agent_runtime": {
+            "serving_stack": settings.normalized_agent_serving_stack,
+            "tool_protocol": settings.normalized_agent_tool_protocol,
+            "native_tool_calling": settings.agent_native_tool_calling,
+            "tool_choice_mode": settings.normalized_agent_tool_choice_mode,
+            "native_tool_status": settings.agent_native_tool_status,
+            "native_tool_ready": settings.agent_native_tool_ready,
+            "native_tool_reason": settings.agent_native_tool_reason,
+            "native_tool_warning": settings.agent_native_tool_warning,
+            "tool_parser": settings.agent_tool_parser or None,
+            "target_model": settings.effective_chat_model or None,
+        },
         "embedding_model": settings.embedding_model,
         "embedding_source": settings.effective_embedding_source,
         "embedding_backend": "hashing" if hashing else "sentence-transformers",
@@ -402,7 +495,7 @@ async def system_info(
         "answer_mode_config": settings.normalized_answer_mode,
         "llm_provider_config": settings.normalized_llm_provider,
         "llm_provider_active": active_provider_name(),
-        "llm_model": getattr(settings, f"{settings.normalized_llm_provider}_model", getattr(settings, "llm_model", "")),
+        "llm_model": settings.effective_chat_model,
         "llm_loaded": getattr(request.app.state, "llm_loaded", False),
         "cache_entries": cache.get("total_entries", 0),
         "cache_size_mb": cache.get("size_mb", 0),

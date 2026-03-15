@@ -2,6 +2,24 @@
 
 This project is a FastAPI-based RAG chatbot that supports document upload, Knowledge Base (KB) management, ingestion into a vector store, and chat scoped to each KB.
 
+It now also supports backend tool execution for live business data, including:
+
+- recent order lookup for signed-in users
+- order status lookup by `order_code`
+- online member count lookup for a game alliance/group
+
+## Phase 0 runtime contract
+
+The current agent upgrade baseline is fixed to:
+
+- serving stack: `vLLM`
+- API mode: `openai_compatible`
+- default model target: `Qwen/Qwen3-4B-Instruct-2507`
+- tool protocol: `manual_json`
+- native tool calling: `disabled`
+
+This keeps Phase 0 intentionally conservative. The model is only expected to return structured JSON actions in later phases; backend code remains responsible for validation, authorization, execution, and audit logging. `Qwen-Agent` stays a supported alternative for experiments, but it is not the default runtime contract for this repo.
+
 ## What the system does
 
 - Upload documents: `.pdf`, `.xlsx`, `.xls`, `.csv`, `.html`, `.htm`, `.txt`, `.md`, `.docx`, `.json`, `.jsonl`
@@ -148,16 +166,27 @@ Important settings:
 RAG_VECTOR_BACKEND=chroma
 RAG_CHROMA_HTTP_URL=
 RAG_EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2
-RAG_LLM_PROVIDER=auto
+RAG_LLM_PROVIDER=openai_compatible
 RAG_ANSWER_MODE=auto
 RAG_OPENAI_API_KEY=
 RAG_GEMINI_API_KEY=
 RAG_OLLAMA_BASE_URL=
+RAG_AGENT_SERVING_STACK=vllm
+RAG_AGENT_TOOL_PROTOCOL=manual_json
+RAG_AGENT_NATIVE_TOOL_CALLING=false
+RAG_AGENT_TOOL_CHOICE_MODE=auto
 RAG_LLM_BASE_URL=http://127.0.0.1:8000/v1
 RAG_LLM_API_KEY=EMPTY
-RAG_LLM_MODEL=Qwen/Qwen3.5-0.8B
+RAG_LLM_MODEL=Qwen/Qwen3-4B-Instruct-2507
 RAG_LLM_MODEL_PATH=
+RAG_ORDER_API_BASE_URL=
+RAG_ORDER_API_STATUS_PATH=/orders/status
+RAG_ORDER_API_RECENT_PATH=/orders/recent
+RAG_GAME_API_BASE_URL=
+RAG_GAME_API_ONLINE_PATH=/alliances/online
 ```
+
+For the full external API and SQLite middle-layer setup, see [docs/external-integrations.md](/D:/Projects/Projects/Agent_for_business/docs/external-integrations.md).
 
 ## Common run modes
 
@@ -180,10 +209,37 @@ Useful when you have a local server that exposes an OpenAI-style API, such as vL
 
 ```dotenv
 RAG_LLM_PROVIDER=openai_compatible
+RAG_AGENT_SERVING_STACK=vllm
+RAG_AGENT_TOOL_PROTOCOL=manual_json
+RAG_AGENT_NATIVE_TOOL_CALLING=false
 RAG_LLM_BASE_URL=http://127.0.0.1:8000/v1
 RAG_LLM_API_KEY=EMPTY
-RAG_LLM_MODEL=Qwen/Qwen3.5-0.8B
+RAG_LLM_MODEL=Qwen/Qwen3-4B-Instruct-2507
 ```
+
+For the current roadmap, this is the recommended local runtime. Native tool calling is intentionally left off until the manual JSON action loop is implemented and validated.
+
+### 2b. OpenAI-compatible native tool calling rollout
+
+This is now available as an opt-in path for Phase 6b. The backend still executes all tools itself; the model only selects tools and arguments.
+
+```dotenv
+RAG_LLM_PROVIDER=openai_compatible
+RAG_AGENT_SERVING_STACK=vllm
+RAG_AGENT_TOOL_PROTOCOL=openai_tools
+RAG_AGENT_NATIVE_TOOL_CALLING=true
+RAG_AGENT_TOOL_CHOICE_MODE=auto
+RAG_AGENT_TOOL_PARSER=qwen3_coder
+RAG_LLM_BASE_URL=http://127.0.0.1:8000/v1
+RAG_LLM_API_KEY=EMPTY
+RAG_LLM_MODEL=Qwen/Qwen3-4B-Instruct-2507
+```
+
+Notes:
+
+- `manual_json` is still the default and safest rollout path.
+- `/api/system` now reports `native_tool_status`, `native_tool_ready`, `native_tool_reason`, and `tool_choice_mode`.
+- If your serving stack requires an explicit parser for auto tool choice, set `RAG_AGENT_TOOL_PARSER`.
 
 ### 3. Ollama
 
@@ -221,6 +277,25 @@ RAG_GEMINI_MODEL=gemini-2.0-flash
 RAG_LLM_PROVIDER=llama_cpp
 RAG_LLM_MODEL_PATH=models/your-model.gguf
 ```
+
+### 7. External business APIs
+
+The agent can call business tools for live data while still keeping execution in backend code.
+
+Examples:
+
+- `Đơn hàng của tôi tới đâu rồi?`
+  - if `user_id` exists in `auth_context`, the agent can call `find_recent_orders`
+- `Kiểm tra đơn DH12345`
+  - the agent can call `get_order_status`
+- `Liên minh LM01 có bao nhiêu người online?`
+  - the agent can call `get_online_member_count`
+
+Recommended rollout:
+
+- start with SQLite snapshots in `order_status_cache` and `game_online_cache`
+- then connect `RAG_ORDER_API_BASE_URL` and `RAG_GAME_API_BASE_URL`
+- keep direct source-DB access out of the chatbot process
 
 ## Run the application
 

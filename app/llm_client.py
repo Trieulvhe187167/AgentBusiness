@@ -12,15 +12,32 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Generator
+from typing import Any, Generator
 
 import httpx
+from pydantic import BaseModel, Field
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 _llama_model = None
+
+
+class LLMToolCall(BaseModel):
+    id: str | None = None
+    name: str
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    raw_arguments: str = ""
+
+
+class LLMChatResult(BaseModel):
+    provider: str
+    model: str | None = None
+    text: str = ""
+    finish_reason: str | None = None
+    tool_calls: list[LLMToolCall] = Field(default_factory=list)
+    raw_message: dict[str, Any] = Field(default_factory=dict)
 
 
 def _safe_chunk_text(text: str, chunk_size: int = 24) -> Generator[str, None, None]:
@@ -132,6 +149,112 @@ def _extract_openai_text(payload: dict) -> str:
             if text:
                 chunks.append(text)
     return "\n".join(chunks).strip()
+
+
+def _coerce_message_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        chunks: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                text = item.get("text") or item.get("content")
+                if text:
+                    chunks.append(str(text))
+            elif item:
+                chunks.append(str(item))
+        return "\n".join(chunks).strip()
+    return ""
+
+
+def _parse_tool_calls(message: dict[str, Any]) -> list[LLMToolCall]:
+    parsed: list[LLMToolCall] = []
+    for item in message.get("tool_calls") or []:
+        if not isinstance(item, dict):
+            continue
+        function = item.get("function") or {}
+        name = str(function.get("name") or "").strip()
+        if not name:
+            continue
+        raw_arguments = str(function.get("arguments") or "")
+        arguments: dict[str, Any] = {}
+        if raw_arguments:
+            try:
+                payload = json.loads(raw_arguments)
+                if isinstance(payload, dict):
+                    arguments = payload
+            except json.JSONDecodeError:
+                logger.warning("Failed to decode tool arguments for %s: %s", name, raw_arguments[:160])
+        parsed.append(
+            LLMToolCall(
+                id=str(item.get("id")) if item.get("id") is not None else None,
+                name=name,
+                arguments=arguments,
+                raw_arguments=raw_arguments,
+            )
+        )
+    return parsed
+
+
+def _build_chat_messages(prompt: str, system_prompt: str = "") -> list[dict[str, str]]:
+    messages: list[dict[str, str]] = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+    return messages
+
+
+def _chat_completions_request(
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    prompt: str,
+    system_prompt: str = "",
+    tools: list[dict[str, Any]] | None = None,
+    tool_choice: str | dict[str, Any] | None = None,
+    response_format: dict[str, Any] | None = None,
+    timeout_seconds: int,
+) -> LLMChatResult:
+    base = base_url.rstrip("/")
+    if not base:
+        raise RuntimeError("Chat completions base URL is not configured")
+
+    url = f"{base}/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    if api_key and api_key.upper() != "EMPTY":
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    body: dict[str, Any] = {
+        "model": model,
+        "messages": _build_chat_messages(prompt, system_prompt),
+        "temperature": settings.llm_temperature,
+        "top_p": settings.llm_top_p,
+        "frequency_penalty": max(0.0, settings.llm_repeat_penalty - 1.0),
+        "max_tokens": settings.llm_max_tokens,
+        "stream": False,
+    }
+    if tools:
+        body["tools"] = tools
+    if tool_choice is not None:
+        body["tool_choice"] = tool_choice
+    if response_format is not None:
+        body["response_format"] = response_format
+
+    timeout = httpx.Timeout(timeout_seconds)
+    response = httpx.post(url, headers=headers, json=body, timeout=timeout)
+    response.raise_for_status()
+    payload = response.json()
+    choice = (payload.get("choices") or [{}])[0]
+    message = choice.get("message") or {}
+    return LLMChatResult(
+        provider="openai_compatible",
+        model=payload.get("model"),
+        text=_coerce_message_text(message.get("content")),
+        finish_reason=choice.get("finish_reason"),
+        tool_calls=_parse_tool_calls(message),
+        raw_message=message if isinstance(message, dict) else {},
+    )
 
 
 def _openai_stream(prompt: str, system_prompt: str = "") -> Generator[str, None, None]:
@@ -250,6 +373,47 @@ def _openai_compatible_stream(prompt: str, system_prompt: str = "") -> Generator
                             yield token
                 except json.JSONDecodeError:
                     continue
+
+
+def complete_chat(
+    prompt: str,
+    system_prompt: str = "",
+    *,
+    provider: str | None = None,
+    tools: list[dict[str, Any]] | None = None,
+    tool_choice: str | dict[str, Any] | None = None,
+    response_format: dict[str, Any] | None = None,
+) -> LLMChatResult:
+    selected = (provider or choose_provider()).lower().strip()
+
+    if selected == "openai_compatible":
+        return _chat_completions_request(
+            base_url=settings.llm_base_url,
+            api_key=settings.llm_api_key,
+            model=settings.llm_model,
+            prompt=prompt,
+            system_prompt=system_prompt,
+            tools=tools,
+            tool_choice=tool_choice,
+            response_format=response_format,
+            timeout_seconds=settings.llm_timeout_seconds,
+        )
+
+    if selected == "openai":
+        return _chat_completions_request(
+            base_url=settings.openai_base_url,
+            api_key=settings.openai_api_key,
+            model=settings.openai_model,
+            prompt=prompt,
+            system_prompt=system_prompt,
+            tools=tools,
+            tool_choice=tool_choice,
+            response_format=response_format,
+            timeout_seconds=settings.openai_timeout_seconds,
+        ).model_copy(update={"provider": "openai"})
+
+    text = "".join(generate_stream(prompt, system_prompt=system_prompt, provider=selected)).strip()
+    return LLMChatResult(provider=selected, model=settings.effective_chat_model or None, text=text)
 
 
 def provider_available(provider: str) -> bool:

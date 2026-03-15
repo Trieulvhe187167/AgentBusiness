@@ -115,10 +115,112 @@ ALTER TABLE ingest_jobs ADD COLUMN kb_id INTEGER;
 CREATE INDEX IF NOT EXISTS idx_ingest_jobs_kb_id ON ingest_jobs(kb_id);
 """
 
+_PHASE1_CONTEXT_AND_AUDIT_SCHEMA = """
+ALTER TABLE chat_logs ADD COLUMN request_id TEXT;
+ALTER TABLE chat_logs ADD COLUMN user_id TEXT;
+ALTER TABLE chat_logs ADD COLUMN roles_json TEXT;
+ALTER TABLE chat_logs ADD COLUMN channel TEXT;
+ALTER TABLE chat_logs ADD COLUMN tenant_id TEXT;
+ALTER TABLE chat_logs ADD COLUMN org_id TEXT;
+ALTER TABLE chat_logs ADD COLUMN kb_id INTEGER;
+ALTER TABLE chat_logs ADD COLUMN kb_key TEXT;
+CREATE INDEX IF NOT EXISTS idx_chat_logs_request_id ON chat_logs(request_id);
+CREATE INDEX IF NOT EXISTS idx_chat_logs_user_id ON chat_logs(user_id);
+
+CREATE TABLE IF NOT EXISTS tool_audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tool_call_id TEXT NOT NULL,
+    request_id TEXT,
+    session_id TEXT,
+    user_id TEXT,
+    roles_json TEXT,
+    channel TEXT,
+    tenant_id TEXT,
+    org_id TEXT,
+    kb_id INTEGER,
+    kb_key TEXT,
+    tool_name TEXT NOT NULL,
+    args_json TEXT,
+    result_summary TEXT,
+    tool_status TEXT NOT NULL,
+    latency_ms INTEGER,
+    error_message TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_tool_audit_logs_request_id ON tool_audit_logs(request_id);
+CREATE INDEX IF NOT EXISTS idx_tool_audit_logs_tool_call_id ON tool_audit_logs(tool_call_id);
+CREATE INDEX IF NOT EXISTS idx_tool_audit_logs_session_time ON tool_audit_logs(session_id, created_at DESC);
+"""
+
+_PHASE2_SUPPORT_TICKETS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS support_tickets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_code TEXT NOT NULL UNIQUE,
+    issue_type TEXT NOT NULL,
+    message TEXT NOT NULL,
+    contact TEXT,
+    status TEXT NOT NULL DEFAULT 'open',
+    created_by_user_id TEXT,
+    channel TEXT,
+    tenant_id TEXT,
+    org_id TEXT,
+    kb_id INTEGER,
+    kb_key TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_support_tickets_ticket_code ON support_tickets(ticket_code);
+CREATE INDEX IF NOT EXISTS idx_support_tickets_user_id ON support_tickets(created_by_user_id);
+CREATE INDEX IF NOT EXISTS idx_support_tickets_created_at ON support_tickets(created_at DESC);
+"""
+
+_PHASE5_SLOT_MEMORY_SCHEMA = """
+ALTER TABLE chat_sessions ADD COLUMN slots_json TEXT;
+"""
+
+_PHASE19_EXTERNAL_INTEGRATIONS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS order_status_cache (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_code TEXT NOT NULL,
+    user_id TEXT,
+    status TEXT NOT NULL,
+    last_update TEXT,
+    tracking_code TEXT,
+    carrier TEXT,
+    source TEXT NOT NULL DEFAULT 'snapshot',
+    raw_json TEXT,
+    cached_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_order_status_cache_code ON order_status_cache(order_code);
+CREATE INDEX IF NOT EXISTS idx_order_status_cache_user_time ON order_status_cache(user_id, cached_at DESC);
+
+CREATE TABLE IF NOT EXISTS game_online_cache (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    alliance_id TEXT NOT NULL,
+    server_id TEXT,
+    server_scope TEXT NOT NULL,
+    online_count INTEGER NOT NULL,
+    observed_at TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'snapshot',
+    raw_json TEXT,
+    cached_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_game_online_cache_scope ON game_online_cache(alliance_id, server_scope);
+CREATE INDEX IF NOT EXISTS idx_game_online_cache_time ON game_online_cache(cached_at DESC);
+"""
+
 MIGRATIONS: list[tuple[str, str]] = [
     ("001_core_schema", _CORE_SCHEMA),
     ("002_knowledge_bases", _KB_SCHEMA),
     ("003_ingest_jobs_kb_id", _INGEST_JOB_KB_SCHEMA),
+    ("004_phase1_context_and_audit", _PHASE1_CONTEXT_AND_AUDIT_SCHEMA),
+    ("005_phase2_support_tickets", _PHASE2_SUPPORT_TICKETS_SCHEMA),
+    ("006_phase5_slot_memory", _PHASE5_SLOT_MEMORY_SCHEMA),
+    ("007_phase19_external_integrations", _PHASE19_EXTERNAL_INTEGRATIONS_SCHEMA),
 ]
 
 

@@ -125,14 +125,15 @@
 
         .body {
             display: grid;
-            grid-template-columns: minmax(0, 1fr) 340px;
+            grid-template-columns: minmax(0, 1fr) 360px;
             gap: 14px;
             min-height: 0;
             overflow: hidden;
         }
 
         .chat-card,
-        .cite-card {
+        .cite-card,
+        .trace-card {
             background: var(--panel);
             border: 1px solid var(--line);
             border-radius: var(--radius);
@@ -143,6 +144,13 @@
 
         .chat-card {
             display: flex;
+        }
+
+        .side-stack {
+            min-height: 0;
+            display: grid;
+            grid-template-rows: minmax(190px, 0.85fr) minmax(0, 1.15fr);
+            gap: 14px;
         }
 
         .messages {
@@ -189,6 +197,7 @@
         .meta {
             display: flex;
             align-items: center;
+            flex-wrap: wrap;
             gap: 7px;
             margin-bottom: 8px;
             font-size: 11px;
@@ -218,6 +227,36 @@
             color: var(--danger);
         }
 
+        .mode.tool {
+            background: #dfeaf9;
+            color: #184d87;
+        }
+
+        .mode.memory {
+            background: #ece3fb;
+            color: #6540a9;
+        }
+
+        .mode.route {
+            background: #edf0f2;
+            color: #46585c;
+        }
+
+        .mode.success {
+            background: #d9f3ec;
+            color: #116651;
+        }
+
+        .mode.failed {
+            background: #ffe1dc;
+            color: var(--danger);
+        }
+
+        .mode.pending {
+            background: #eef3d4;
+            color: #5b6b17;
+        }
+
         .typing {
             display: inline-flex;
             gap: 5px;
@@ -239,7 +278,8 @@
             animation-delay: .3s;
         }
 
-        .cite-head {
+        .cite-head,
+        .trace-head {
             border-bottom: 1px solid var(--line);
             padding: 14px 14px 12px;
             display: flex;
@@ -248,7 +288,8 @@
             gap: 10px;
         }
 
-        .cite-head h3 {
+        .cite-head h3,
+        .trace-head h3 {
             margin: 0;
             font-size: 13px;
             letter-spacing: .03em;
@@ -256,13 +297,88 @@
             color: var(--ink-dim);
         }
 
-        .cite-list {
+        .cite-list,
+        .trace-list {
             height: calc(100% - 50px);
             overflow: auto;
             padding: 10px;
             display: flex;
             flex-direction: column;
             gap: 9px;
+        }
+
+        .trace-item {
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            background: #fff;
+            padding: 11px 12px;
+        }
+
+        .trace-item.pending {
+            border-color: #d8dfab;
+            background: #fbfdea;
+        }
+
+        .trace-item.success {
+            border-color: #bfe4d8;
+            background: #f3fcf8;
+        }
+
+        .trace-item.failed {
+            border-color: #efc2bb;
+            background: #fff7f6;
+        }
+
+        .trace-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+
+        .trace-kind {
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: .06em;
+            text-transform: uppercase;
+            color: var(--ink-dim);
+        }
+
+        .trace-state {
+            border-radius: 999px;
+            padding: 3px 8px;
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+        }
+
+        .trace-state.pending {
+            background: #eef3d4;
+            color: #5b6b17;
+        }
+
+        .trace-state.success {
+            background: #d9f3ec;
+            color: #116651;
+        }
+
+        .trace-state.failed {
+            background: #ffe1dc;
+            color: var(--danger);
+        }
+
+        .trace-title {
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 3px;
+        }
+
+        .trace-detail {
+            font-size: 12px;
+            line-height: 1.55;
+            color: var(--ink-dim);
         }
 
         .cite-item {
@@ -401,7 +517,12 @@
                 grid-template-columns: 1fr;
             }
 
-            .cite-card {
+            .side-stack {
+                grid-template-rows: 180px 220px;
+            }
+
+            .cite-card,
+            .trace-card {
                 min-height: 180px;
             }
 
@@ -419,7 +540,7 @@
                 <span class="dot"></span>
                 <div class="title">
                     <h1>CampusRAG Assistant</h1>
-                    <p>Grounded answers with citations and clarify/fallback guardrails</p>
+                    <p>Grounded answers with agent routing, citations, and safe tool execution</p>
                 </div>
             </div>
             <div class="header-tools">
@@ -436,20 +557,31 @@
                     <div class="welcome">
                         <strong>Xin chào / Hello</strong>
                         <div style="margin-top:8px;">
-                            Mình chỉ trả lời dựa trên dữ liệu đã upload. Nếu điểm tương đồng thấp, hệ thống sẽ tự chuyển sang
-                            chế độ <b>clarify</b> hoặc <b>fallback</b> để tránh hallucination.
+                            Mình trả lời dựa trên dữ liệu đã upload và có thể gọi tool an toàn cho một số tác vụ hỗ trợ.
+                            Nếu ngữ cảnh chưa đủ rõ, hệ thống sẽ chuyển sang <b>clarify</b> hoặc <b>fallback</b> để tránh hallucination.
                         </div>
                     </div>
                 </div>
             </section>
 
-            <aside class="cite-card">
-                <div class="cite-head">
-                    <h3>Citations</h3>
-                </div>
-                <div class="cite-list" id="citationList">
-                    <div class="muted">No citations yet.</div>
-                </div>
+            <aside class="side-stack">
+                <section class="trace-card">
+                    <div class="trace-head">
+                        <h3>Agent Trace</h3>
+                    </div>
+                    <div class="trace-list" id="traceList">
+                        <div class="muted">No agent activity yet.</div>
+                    </div>
+                </section>
+
+                <section class="cite-card">
+                    <div class="cite-head">
+                        <h3>Citations</h3>
+                    </div>
+                    <div class="cite-list" id="citationList">
+                        <div class="muted">No citations yet.</div>
+                    </div>
+                </section>
             </aside>
         </main>
 
@@ -472,6 +604,7 @@
         const kbSelect = document.getElementById('kbSelect');
         const langSelect = document.getElementById('langSelect');
         const citationListEl = document.getElementById('citationList');
+        const traceListEl = document.getElementById('traceList');
         const sessionLabel = document.getElementById('sessionLabel');
         const kbLabel = document.getElementById('kbLabel');
         const providerLabel = document.getElementById('providerLabel');
@@ -544,6 +677,63 @@
             }
         }
 
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#39;');
+        }
+
+        function humanizeToken(value) {
+            return String(value || '')
+                .replaceAll('_', ' ')
+                .replace(/\b\w/g, (match) => match.toUpperCase());
+        }
+
+        function resetTrace(message = 'Waiting for agent trace...') {
+            traceListEl.innerHTML = `<div class="muted">${escapeHtml(message)}</div>`;
+        }
+
+        function appendTraceStep(kind, title, detail, state = 'pending') {
+            if (traceListEl.querySelector('.muted')) {
+                traceListEl.innerHTML = '';
+            }
+
+            const item = document.createElement('div');
+            item.className = `trace-item ${state}`;
+            item.innerHTML = `
+                <div class="trace-top">
+                    <span class="trace-kind">${escapeHtml(kind)}</span>
+                    <span class="trace-state ${escapeHtml(state)}">${escapeHtml(state)}</span>
+                </div>
+                <div class="trace-title">${escapeHtml(title)}</div>
+                <div class="trace-detail">${escapeHtml(detail || '')}</div>
+            `;
+            traceListEl.appendChild(item);
+            traceListEl.scrollTop = traceListEl.scrollHeight;
+        }
+
+        function appendMetaBadge(container, label, style) {
+            if (!container || !label) return;
+            const badge = document.createElement('span');
+            badge.className = `mode ${style}`;
+            badge.textContent = label;
+            container.appendChild(badge);
+        }
+
+        function resetMeta(container) {
+            if (!container) return;
+            container.innerHTML = '<span>Assistant</span>';
+        }
+
+        function summarizeArguments(args) {
+            const entries = Object.entries(args || {}).filter(([, value]) => value !== null && value !== undefined && value !== '');
+            if (!entries.length) return 'No explicit arguments.';
+            return `Arguments: ${entries.map(([key]) => key).join(', ')}.`;
+        }
+
         function addMessage(text, type, meta = null) {
             const welcome = messagesEl.querySelector('.welcome');
             if (welcome) welcome.remove();
@@ -556,10 +746,7 @@
                 header.className = 'meta';
                 header.innerHTML = '<span>Assistant</span>';
                 if (meta && meta.mode) {
-                    const mode = document.createElement('span');
-                    mode.className = `mode ${meta.mode}`;
-                    mode.textContent = `${meta.mode}${meta.score !== undefined ? ` · ${meta.score}` : ''}`;
-                    header.appendChild(mode);
+                    appendMetaBadge(header, `${meta.mode}${meta.score !== undefined ? ` · ${meta.score}` : ''}`, meta.mode);
                 }
                 node.appendChild(header);
 
@@ -606,9 +793,9 @@
                 const card = document.createElement('div');
                 card.className = 'cite-item';
                 card.innerHTML = `
-                    <div class="cite-source">[${i + 1}] ${source}</div>
-                    <div class="cite-score">score: ${item.score ?? '-'}</div>
-                    <div class="cite-preview">${item.content_preview || ''}</div>
+                    <div class="cite-source">[${i + 1}] ${escapeHtml(source)}</div>
+                    <div class="cite-score">score: ${escapeHtml(item.score ?? '-')}</div>
+                    <div class="cite-preview">${escapeHtml(item.content_preview || '')}</div>
                 `;
                 card.addEventListener('click', () => card.classList.toggle('open'));
                 citationListEl.appendChild(card);
@@ -622,6 +809,8 @@
             inputEl.value = '';
             addMessage(text, 'user');
             addTyping();
+            resetTrace();
+            renderCitations([]);
 
             isBusy = true;
             sendBtn.disabled = true;
@@ -653,6 +842,7 @@
                 let buffer = '';
                 let currentEvent = '';
                 let fullText = '';
+                let lastRoute = null;
 
                 while (true) {
                     const { done, value } = await reader.read();
@@ -703,12 +893,35 @@
                                 syncKbUrl();
                             }
 
-                            if (metaNode) {
-                                const label = document.createElement('span');
-                                label.className = `mode ${data.mode}`;
-                                label.textContent = `${data.mode} · ${data.score ?? '-'}`;
-                                metaNode.appendChild(label);
+                            resetMeta(metaNode);
+                            appendMetaBadge(metaNode, `${data.mode}${data.score !== undefined ? ` · ${data.score}` : ''}`, data.mode || 'route');
+                            if (data.route) {
+                                appendMetaBadge(metaNode, `route: ${data.route}`, 'route');
                             }
+                            if (data.tool_name) {
+                                appendMetaBadge(metaNode, humanizeToken(data.tool_name), 'tool');
+                            }
+
+                            const startParts = [];
+                            if (data.mode) startParts.push(`mode ${data.mode}`);
+                            if (data.llm_provider) startParts.push(`provider ${data.llm_provider}`);
+                            if (data.reason) startParts.push(humanizeToken(data.reason).toLowerCase());
+                            appendTraceStep(
+                                'start',
+                                'Response stream opened',
+                                startParts.join(' · '),
+                                data.mode === 'fallback' ? 'failed' : 'success'
+                            );
+                        }
+
+                        if (currentEvent === 'route') {
+                            lastRoute = data.route || null;
+                            appendTraceStep(
+                                'route',
+                                `Route selected: ${humanizeToken(data.route || 'unknown')}`,
+                                data.reason ? humanizeToken(data.reason) : 'No route reason provided.',
+                                data.route === 'fallback' ? 'failed' : 'pending'
+                            );
                         }
 
                         if (currentEvent === 'token') {
@@ -717,12 +930,46 @@
                             messagesEl.scrollTop = messagesEl.scrollHeight;
                         }
 
+                        if (currentEvent === 'tool_call') {
+                            appendTraceStep(
+                                'tool',
+                                `Calling ${humanizeToken(data.tool_name || 'tool')}`,
+                                summarizeArguments(data.arguments),
+                                'pending'
+                            );
+                        }
+
+                        if (currentEvent === 'tool_result') {
+                            const state = data.status === 'success'
+                                ? 'success'
+                                : data.status === 'clarify'
+                                    ? 'pending'
+                                    : 'failed';
+                            appendTraceStep(
+                                'result',
+                                `${humanizeToken(data.tool_name || 'tool')} ${humanizeToken(data.status || 'finished')}`,
+                                data.summary || 'No summary available.',
+                                state
+                            );
+                            appendMetaBadge(metaNode, data.status || 'done', state);
+                        }
+
                         if (currentEvent === 'citations') {
                             renderCitations(data.items || []);
                         }
 
+                        if (currentEvent === 'done') {
+                            appendTraceStep(
+                                'done',
+                                data.ok ? 'Response completed' : 'Response completed with issues',
+                                `Latency ${data.latency_ms ?? '-'} ms${lastRoute ? ` · route ${lastRoute}` : ''}`,
+                                data.ok ? 'success' : 'failed'
+                            );
+                        }
+
                         if (currentEvent === 'error') {
                             contentNode.textContent = `Error: ${data.message || 'unknown error'}`;
+                            appendTraceStep('error', 'Response failed', data.message || 'unknown error', 'failed');
                         }
                     }
                 }
