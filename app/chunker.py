@@ -110,6 +110,10 @@ def chunk_records(
     chunk_size: int = 1000,
     chunk_overlap: int = 100,
     chunk_strategy: str | None = None,
+    access_level: str = "public",
+    tenant_id: str | None = None,
+    org_id: str | None = None,
+    owner_user_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """
     Split parsed records into chunks with rich metadata.
@@ -154,6 +158,10 @@ def chunk_records(
                 "file_hash": file_hash,
                 "ingest_signature": ingest_signature,
                 "content_preview": piece[:150].replace("\n", " "),
+                "access_level": access_level,
+                "tenant_id": tenant_id,
+                "org_id": org_id,
+                "owner_user_id": owner_user_id,
                 # Parser-specific metadata
                 "page_num": meta.get("page_num"),
                 "sheet_name": meta.get("sheet_name"),

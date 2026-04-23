@@ -8,23 +8,25 @@ import app.main as main
 import app.rag as rag
 from app.models import AuthContext, ChatRequest, RequestContext
 from app.tool_audit import log_tool_call
-from tests.conftest import configure_test_env, poll_jobs
+from tests.conftest import admin_headers, configure_test_env, poll_jobs
 
 
 def _prepare_ingested_default_kb(client: TestClient) -> int:
+    admin = admin_headers()
     sample_path = Path("kb_sample.csv")
     with sample_path.open("rb") as handle:
         upload = client.post(
             "/api/upload",
             files={"file": (sample_path.name, handle, "text/csv")},
+            headers=admin,
         )
     upload.raise_for_status()
 
-    kb = client.get("/api/kbs/default")
+    kb = client.get("/api/kbs/default", headers=admin)
     kb.raise_for_status()
     kb_id = kb.json()["id"]
 
-    ingest = client.post(f"/api/kbs/{kb_id}/ingest")
+    ingest = client.post(f"/api/kbs/{kb_id}/ingest", headers=admin)
     ingest.raise_for_status()
     jobs = ingest.json().get("jobs") or []
     if jobs:
@@ -64,7 +66,7 @@ def test_chat_logs_capture_request_and_auth_context(tmp_path, monkeypatch):
         start_event = next(event for event in events if event["event"] == "start")
         assert start_event["data"]["request_id"] == "req-phase12-chat"
 
-        logs = client.get("/api/admin/chat-logs", params={"limit": 20})
+        logs = client.get("/api/admin/chat-logs", params={"limit": 20}, headers=admin_headers())
         logs.raise_for_status()
         payload = logs.json()
         row = next(item for item in payload if item["request_id"] == "req-phase12-chat")
@@ -105,7 +107,7 @@ def test_tool_audit_endpoint_returns_logged_entries(tmp_path, monkeypatch):
     )
 
     with TestClient(main.app) as client:
-        logs = client.get("/api/admin/tool-audit-logs", params={"limit": 10})
+        logs = client.get("/api/admin/tool-audit-logs", params={"limit": 10}, headers=admin_headers())
         logs.raise_for_status()
         payload = logs.json()
         row = next(item for item in payload if item["tool_call_id"] == tool_call_id)

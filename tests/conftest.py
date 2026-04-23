@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import asyncio
 import uuid
@@ -20,6 +20,44 @@ from app.vector_store import vector_store
 
 def run(coro):
     return asyncio.run(coro)
+
+
+def auth_headers(
+    *,
+    user_id: str | None = None,
+    roles: list[str] | None = None,
+    channel: str | None = None,
+    tenant_id: str | None = None,
+    org_id: str | None = None,
+) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    if user_id:
+        headers["X-User-Id"] = user_id
+    if roles:
+        headers["X-Roles"] = ",".join(roles)
+    if channel:
+        headers["X-Channel"] = channel
+    if tenant_id:
+        headers["X-Tenant-Id"] = tenant_id
+    if org_id:
+        headers["X-Org-Id"] = org_id
+    return headers
+
+
+def admin_headers(
+    *,
+    user_id: str = "admin-1",
+    channel: str = "admin",
+    tenant_id: str | None = None,
+    org_id: str | None = None,
+) -> dict[str, str]:
+    return auth_headers(
+        user_id=user_id,
+        roles=["admin"],
+        channel=channel,
+        tenant_id=tenant_id,
+        org_id=org_id,
+    )
 
 
 def configure_test_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, expected_dim: int = 2):
@@ -50,7 +88,15 @@ def configure_test_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, expec
     vector_store.initialize(expected_dim=expected_dim)
 
 
-def insert_file(original_name: str, *, status: str = "uploaded") -> int:
+def insert_file(
+    original_name: str,
+    *,
+    status: str = "uploaded",
+    access_level: str = "public",
+    tenant_id: str | None = None,
+    org_id: str | None = None,
+    owner_user_id: str | None = None,
+) -> int:
     safe_name = f"{uuid.uuid4().hex[:8]}_{original_name}"
     file_path = settings.raw_upload_dir / safe_name
     file_path.write_text("name,answer\nshipping,free\n", encoding="utf-8")
@@ -58,10 +104,20 @@ def insert_file(original_name: str, *, status: str = "uploaded") -> int:
         database.execute_sync(
             """
             INSERT INTO uploaded_files
-                (filename, original_name, file_type, file_size, file_hash, status, parser_type, created_at)
-            VALUES (?, ?, '.csv', ?, ?, ?, 'csv', datetime('now'))
+                (filename, original_name, file_type, file_size, file_hash, status, access_level, tenant_id, org_id, owner_user_id, parser_type, created_at)
+            VALUES (?, ?, '.csv', ?, ?, ?, ?, ?, ?, ?, 'csv', datetime('now'))
             """,
-            (safe_name, original_name, file_path.stat().st_size, f"hash-{original_name}", status),
+            (
+                safe_name,
+                original_name,
+                file_path.stat().st_size,
+                f"hash-{original_name}",
+                status,
+                access_level,
+                tenant_id,
+                org_id,
+                owner_user_id,
+            ),
         )
         or 0
     )
@@ -129,7 +185,19 @@ def mark_ingested(kb_id: int, file_id: int, *, chunk_count: int = 1, ingest_sign
     )
 
 
-def add_vector(kb_id: int, file_id: int, text: str, *, filename: str, kb_version: str, chunk_id: str):
+def add_vector(
+    kb_id: int,
+    file_id: int,
+    text: str,
+    *,
+    filename: str,
+    kb_version: str,
+    chunk_id: str,
+    access_level: str = "public",
+    tenant_id: str | None = None,
+    org_id: str | None = None,
+    owner_user_id: str | None = None,
+):
     vector_store.add_chunks(
         [
             {
@@ -143,6 +211,10 @@ def add_vector(kb_id: int, file_id: int, text: str, *, filename: str, kb_version
                 "ingest_signature": f"sig-{kb_id}-{file_id}",
                 "content_preview": text,
                 "text": text,
+                "access_level": access_level,
+                "tenant_id": tenant_id,
+                "org_id": org_id,
+                "owner_user_id": owner_user_id,
             }
         ],
         [[1.0, 0.0]],
@@ -156,7 +228,7 @@ def poll_jobs(client: TestClient, jobs: list[dict], timeout_seconds: int = 20):
     pending = {job["job_id"] for job in jobs}
     while pending and time.time() < deadline:
         for job_id in list(pending):
-            response = client.get(f"/api/jobs/{job_id}")
+            response = client.get(f"/api/jobs/{job_id}", headers=admin_headers())
             response.raise_for_status()
             payload = response.json()
             if payload["status"] == "failed":

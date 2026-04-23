@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 from typing import Any, Generator
+from urllib.parse import urlparse
 
 import httpx
 from pydantic import BaseModel, Field
@@ -22,6 +23,10 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 _llama_model = None
+
+
+class LLMTemporaryFailure(RuntimeError):
+    """Expected transient failure from a configured LLM service."""
 
 
 class LLMToolCall(BaseModel):
@@ -38,6 +43,34 @@ class LLMChatResult(BaseModel):
     finish_reason: str | None = None
     tool_calls: list[LLMToolCall] = Field(default_factory=list)
     raw_message: dict[str, Any] = Field(default_factory=dict)
+
+
+def _normalized_model_name(value: str | None) -> str:
+    return str(value or "").strip()
+
+
+def _looks_like_local_ollama_openai_base(base_url: str) -> bool:
+    parsed = urlparse((base_url or "").strip())
+    host = (parsed.hostname or "").lower()
+    return host in {"localhost", "127.0.0.1"} and (parsed.port or 80) == 11434
+
+
+def _resolved_ollama_base_url() -> str:
+    configured = settings.effective_ollama_base_url.strip()
+    if configured:
+        return configured.rstrip("/")
+    base = settings.llm_base_url.strip().rstrip("/")
+    if _looks_like_local_ollama_openai_base(base):
+        return base[:-3] if base.endswith("/v1") else base
+    return ""
+
+
+def _is_transient_httpx_error(err: Exception) -> bool:
+    return isinstance(err, (httpx.TimeoutException, httpx.ConnectError))
+
+
+def _temporary_failure(message: str, err: Exception) -> LLMTemporaryFailure:
+    return LLMTemporaryFailure(f"{message}: {err.__class__.__name__}")
 
 
 def _safe_chunk_text(text: str, chunk_size: int = 24) -> Generator[str, None, None]:
@@ -84,7 +117,12 @@ def _load_llama_cpp():
     return _llama_model
 
 
-def _llama_cpp_stream(prompt: str, system_prompt: str = "") -> Generator[str, None, None]:
+def _llama_cpp_stream(
+    prompt: str,
+    system_prompt: str = "",
+    *,
+    max_tokens_override: int | None = None,
+) -> Generator[str, None, None]:
     model = _load_llama_cpp()
     messages = []
     if system_prompt:
@@ -93,7 +131,7 @@ def _llama_cpp_stream(prompt: str, system_prompt: str = "") -> Generator[str, No
 
     stream = model.create_chat_completion(
         messages=messages,
-        max_tokens=settings.llm_max_tokens,
+        max_tokens=max_tokens_override or settings.llm_max_tokens,
         temperature=settings.llm_temperature,
         top_p=settings.llm_top_p,
         repeat_penalty=settings.llm_repeat_penalty,
@@ -107,14 +145,25 @@ def _llama_cpp_stream(prompt: str, system_prompt: str = "") -> Generator[str, No
             yield token
 
 
-def _ollama_stream(prompt: str, system_prompt: str = "") -> Generator[str, None, None]:
-    base = settings.effective_ollama_base_url.rstrip("/")
+def _ollama_stream(
+    prompt: str,
+    system_prompt: str = "",
+    *,
+    base_url_override: str | None = None,
+    model_override: str | None = None,
+    timeout_seconds_override: int | None = None,
+    max_tokens_override: int | None = None,
+) -> Generator[str, None, None]:
+    base = (base_url_override or _resolved_ollama_base_url()).rstrip("/")
     if not base:
         raise RuntimeError("RAG_OLLAMA_BASE_URL is not configured")
 
     url = f"{base}/api/generate"
+    model_name = _normalized_model_name(model_override) or _normalized_model_name(settings.ollama_model)
+    if not model_name:
+        raise RuntimeError("RAG_OLLAMA_MODEL is not configured")
     payload = {
-        "model": settings.ollama_model,
+        "model": model_name,
         "prompt": prompt,
         "system": system_prompt,
         "stream": True,
@@ -122,20 +171,25 @@ def _ollama_stream(prompt: str, system_prompt: str = "") -> Generator[str, None,
             "temperature": settings.llm_temperature,
             "top_p": settings.llm_top_p,
             "repeat_penalty": settings.llm_repeat_penalty,
-            "num_predict": settings.llm_max_tokens,
+            "num_predict": max_tokens_override or settings.llm_max_tokens,
         },
     }
 
-    timeout = httpx.Timeout(settings.ollama_timeout_seconds)
-    with httpx.stream("POST", url, json=payload, timeout=timeout) as resp:
-        resp.raise_for_status()
-        for line in resp.iter_lines():
-            if not line:
-                continue
-            data = json.loads(line)
-            token = data.get("response", "")
-            if token:
-                yield token
+    timeout = httpx.Timeout(timeout_seconds_override or settings.ollama_timeout_seconds)
+    try:
+        with httpx.stream("POST", url, json=payload, timeout=timeout) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines():
+                if not line:
+                    continue
+                data = json.loads(line)
+                token = data.get("response", "")
+                if token:
+                    yield token
+    except Exception as err:
+        if _is_transient_httpx_error(err):
+            raise _temporary_failure("Native Ollama request failed", err) from err
+        raise
 
 
 def _extract_openai_text(payload: dict) -> str:
@@ -215,6 +269,7 @@ def _chat_completions_request(
     tool_choice: str | dict[str, Any] | None = None,
     response_format: dict[str, Any] | None = None,
     timeout_seconds: int,
+    max_tokens: int | None = None,
 ) -> LLMChatResult:
     base = base_url.rstrip("/")
     if not base:
@@ -226,12 +281,12 @@ def _chat_completions_request(
         headers["Authorization"] = f"Bearer {api_key}"
 
     body: dict[str, Any] = {
-        "model": model,
+        "model": _normalized_model_name(model),
         "messages": _build_chat_messages(prompt, system_prompt),
         "temperature": settings.llm_temperature,
         "top_p": settings.llm_top_p,
         "frequency_penalty": max(0.0, settings.llm_repeat_penalty - 1.0),
-        "max_tokens": settings.llm_max_tokens,
+        "max_tokens": max_tokens or settings.llm_max_tokens,
         "stream": False,
     }
     if tools:
@@ -242,7 +297,12 @@ def _chat_completions_request(
         body["response_format"] = response_format
 
     timeout = httpx.Timeout(timeout_seconds)
-    response = httpx.post(url, headers=headers, json=body, timeout=timeout)
+    try:
+        response = httpx.post(url, headers=headers, json=body, timeout=timeout)
+    except Exception as err:
+        if _is_transient_httpx_error(err):
+            raise _temporary_failure("Chat completions request failed", err) from err
+        raise
     response.raise_for_status()
     payload = response.json()
     choice = (payload.get("choices") or [{}])[0]
@@ -257,7 +317,13 @@ def _chat_completions_request(
     )
 
 
-def _openai_stream(prompt: str, system_prompt: str = "") -> Generator[str, None, None]:
+def _openai_stream(
+    prompt: str,
+    system_prompt: str = "",
+    *,
+    timeout_seconds_override: int | None = None,
+    max_tokens_override: int | None = None,
+) -> Generator[str, None, None]:
     if not settings.openai_api_key:
         raise RuntimeError("RAG_OPENAI_API_KEY is not configured")
 
@@ -274,17 +340,22 @@ def _openai_stream(prompt: str, system_prompt: str = "") -> Generator[str, None,
         input_items.insert(0, {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]})
 
     body = {
-        "model": settings.openai_model,
+        "model": _normalized_model_name(settings.openai_model),
         "input": input_items,
         "temperature": settings.llm_temperature,
         "top_p": settings.llm_top_p,
         "frequency_penalty": max(0.0, settings.llm_repeat_penalty - 1.0),
-        "max_output_tokens": settings.llm_max_tokens,
+        "max_output_tokens": max_tokens_override or settings.llm_max_tokens,
         "stream": False,
     }
 
-    timeout = httpx.Timeout(settings.openai_timeout_seconds)
-    response = httpx.post(url, headers=headers, json=body, timeout=timeout)
+    timeout = httpx.Timeout(timeout_seconds_override or settings.openai_timeout_seconds)
+    try:
+        response = httpx.post(url, headers=headers, json=body, timeout=timeout)
+    except Exception as err:
+        if _is_transient_httpx_error(err):
+            raise _temporary_failure("OpenAI Responses request failed", err) from err
+        raise
     response.raise_for_status()
     text = _extract_openai_text(response.json())
     for chunk in _safe_chunk_text(text):
@@ -300,12 +371,18 @@ def _extract_gemini_text(payload: dict) -> str:
     return text.strip()
 
 
-def _gemini_stream(prompt: str, system_prompt: str = "") -> Generator[str, None, None]:
+def _gemini_stream(
+    prompt: str,
+    system_prompt: str = "",
+    *,
+    timeout_seconds_override: int | None = None,
+    max_tokens_override: int | None = None,
+) -> Generator[str, None, None]:
     if not settings.gemini_api_key:
         raise RuntimeError("RAG_GEMINI_API_KEY is not configured")
 
     base = settings.gemini_base_url.rstrip("/")
-    model = settings.gemini_model
+    model = _normalized_model_name(settings.gemini_model)
     url = f"{base}/models/{model}:generateContent?key={settings.gemini_api_key}"
 
     body = {
@@ -313,21 +390,32 @@ def _gemini_stream(prompt: str, system_prompt: str = "") -> Generator[str, None,
         "generationConfig": {
             "temperature": settings.llm_temperature,
             "topP": settings.llm_top_p,
-            "maxOutputTokens": settings.llm_max_tokens,
+            "maxOutputTokens": max_tokens_override or settings.llm_max_tokens,
         },
     }
     if system_prompt:
         body["systemInstruction"] = {"parts": [{"text": system_prompt}]}
 
-    timeout = httpx.Timeout(settings.gemini_timeout_seconds)
-    response = httpx.post(url, json=body, timeout=timeout)
+    timeout = httpx.Timeout(timeout_seconds_override or settings.gemini_timeout_seconds)
+    try:
+        response = httpx.post(url, json=body, timeout=timeout)
+    except Exception as err:
+        if _is_transient_httpx_error(err):
+            raise _temporary_failure("Gemini request failed", err) from err
+        raise
     response.raise_for_status()
     text = _extract_gemini_text(response.json())
     for chunk in _safe_chunk_text(text):
         yield chunk
 
 
-def _openai_compatible_stream(prompt: str, system_prompt: str = "") -> Generator[str, None, None]:
+def _openai_compatible_stream(
+    prompt: str,
+    system_prompt: str = "",
+    *,
+    timeout_seconds_override: int | None = None,
+    max_tokens_override: int | None = None,
+) -> Generator[str, None, None]:
     base = settings.llm_base_url.rstrip("/")
     if not base:
         raise RuntimeError("RAG_LLM_BASE_URL is not configured for openai_compatible")
@@ -343,36 +431,67 @@ def _openai_compatible_stream(prompt: str, system_prompt: str = "") -> Generator
     messages.append({"role": "user", "content": prompt})
 
     body = {
-        "model": settings.llm_model,
+        "model": _normalized_model_name(settings.llm_model),
         "messages": messages,
         "temperature": settings.llm_temperature,
         "top_p": settings.llm_top_p,
         "frequency_penalty": max(0.0, settings.llm_repeat_penalty - 1.0),
-        "max_tokens": settings.llm_max_tokens,
+        "max_tokens": max_tokens_override or settings.llm_max_tokens,
         "stream": True,
     }
 
-    timeout = httpx.Timeout(settings.llm_timeout_seconds)
-    with httpx.stream("POST", url, headers=headers, json=body, timeout=timeout) as resp:
-        resp.raise_for_status()
-        for line in resp.iter_lines():
-            if not line:
-                continue
-            line = line.strip()
-            if line.startswith("data: "):
-                data_str = line[6:]
-                if data_str == "[DONE]":
-                    break
-                try:
-                    data = json.loads(data_str)
-                    choices = data.get("choices", [])
-                    if choices:
-                        delta = choices[0].get("delta", {})
-                        token = delta.get("content", "")
-                        if token:
-                            yield token
-                except json.JSONDecodeError:
+    timeout = httpx.Timeout(timeout_seconds_override or settings.llm_timeout_seconds)
+    try:
+        with httpx.stream("POST", url, headers=headers, json=body, timeout=timeout) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines():
+                if not line:
                     continue
+                line = line.strip()
+                if line.startswith("data: "):
+                    data_str = line[6:]
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        data = json.loads(data_str)
+                        choices = data.get("choices", [])
+                        if choices:
+                            delta = choices[0].get("delta", {})
+                            token = delta.get("content", "")
+                            if token:
+                                yield token
+                    except json.JSONDecodeError:
+                        continue
+    except (httpx.TimeoutException, httpx.ConnectError) as err:
+        if not _looks_like_local_ollama_openai_base(base):
+            raise _temporary_failure("OpenAI-compatible stream request failed", err) from err
+        logger.warning(
+            "OpenAI-compatible request to %s failed (%s). Falling back to native Ollama API.",
+            base,
+            err.__class__.__name__,
+        )
+        try:
+            ollama_kwargs: dict[str, Any] = {
+                "base_url_override": _resolved_ollama_base_url(),
+                "model_override": _normalized_model_name(settings.llm_model),
+            }
+            if timeout_seconds_override is not None:
+                ollama_kwargs["timeout_seconds_override"] = timeout_seconds_override
+            if max_tokens_override is not None:
+                ollama_kwargs["max_tokens_override"] = max_tokens_override
+            try:
+                yield from _ollama_stream(prompt, system_prompt, **ollama_kwargs)
+            except TypeError:
+                # Keep older tests and monkeypatched helpers working when they do not accept
+                # the newer override kwargs.
+                yield from _ollama_stream(
+                    prompt,
+                    system_prompt,
+                    base_url_override=ollama_kwargs["base_url_override"],
+                    model_override=ollama_kwargs["model_override"],
+                )
+        except LLMTemporaryFailure as fallback_err:
+            raise _temporary_failure("Local Ollama fallback failed", fallback_err) from fallback_err
 
 
 def complete_chat(
@@ -383,6 +502,8 @@ def complete_chat(
     tools: list[dict[str, Any]] | None = None,
     tool_choice: str | dict[str, Any] | None = None,
     response_format: dict[str, Any] | None = None,
+    timeout_seconds: int | None = None,
+    max_tokens: int | None = None,
 ) -> LLMChatResult:
     selected = (provider or choose_provider()).lower().strip()
 
@@ -390,29 +511,39 @@ def complete_chat(
         return _chat_completions_request(
             base_url=settings.llm_base_url,
             api_key=settings.llm_api_key,
-            model=settings.llm_model,
+            model=_normalized_model_name(settings.llm_model),
             prompt=prompt,
             system_prompt=system_prompt,
             tools=tools,
             tool_choice=tool_choice,
             response_format=response_format,
-            timeout_seconds=settings.llm_timeout_seconds,
+            timeout_seconds=timeout_seconds or settings.llm_timeout_seconds,
+            max_tokens=max_tokens,
         )
 
     if selected == "openai":
         return _chat_completions_request(
             base_url=settings.openai_base_url,
             api_key=settings.openai_api_key,
-            model=settings.openai_model,
+            model=_normalized_model_name(settings.openai_model),
             prompt=prompt,
             system_prompt=system_prompt,
             tools=tools,
             tool_choice=tool_choice,
             response_format=response_format,
-            timeout_seconds=settings.openai_timeout_seconds,
+            timeout_seconds=timeout_seconds or settings.openai_timeout_seconds,
+            max_tokens=max_tokens,
         ).model_copy(update={"provider": "openai"})
 
-    text = "".join(generate_stream(prompt, system_prompt=system_prompt, provider=selected)).strip()
+    text = "".join(
+        generate_stream(
+            prompt,
+            system_prompt=system_prompt,
+            provider=selected,
+            timeout_seconds=timeout_seconds,
+            max_tokens=max_tokens,
+        )
+    ).strip()
     return LLMChatResult(provider=selected, model=settings.effective_chat_model or None, text=text)
 
 
@@ -444,23 +575,50 @@ def choose_provider() -> str:
     return "none"
 
 
-def generate_stream(prompt: str, system_prompt: str = "", provider: str | None = None) -> Generator[str, None, None]:
+def generate_stream(
+    prompt: str,
+    system_prompt: str = "",
+    provider: str | None = None,
+    *,
+    timeout_seconds: int | None = None,
+    max_tokens: int | None = None,
+) -> Generator[str, None, None]:
     selected = (provider or choose_provider()).lower().strip()
 
     if selected == "openai":
-        yield from _openai_stream(prompt, system_prompt)
+        yield from _openai_stream(
+            prompt,
+            system_prompt,
+            timeout_seconds_override=timeout_seconds,
+            max_tokens_override=max_tokens,
+        )
         return
     if selected == "openai_compatible":
-        yield from _openai_compatible_stream(prompt, system_prompt)
+        yield from _openai_compatible_stream(
+            prompt,
+            system_prompt,
+            timeout_seconds_override=timeout_seconds,
+            max_tokens_override=max_tokens,
+        )
         return
     if selected == "gemini":
-        yield from _gemini_stream(prompt, system_prompt)
+        yield from _gemini_stream(
+            prompt,
+            system_prompt,
+            timeout_seconds_override=timeout_seconds,
+            max_tokens_override=max_tokens,
+        )
         return
     if selected == "ollama":
-        yield from _ollama_stream(prompt, system_prompt)
+        yield from _ollama_stream(
+            prompt,
+            system_prompt,
+            timeout_seconds_override=timeout_seconds,
+            max_tokens_override=max_tokens,
+        )
         return
     if selected == "llama_cpp":
-        yield from _llama_cpp_stream(prompt, system_prompt)
+        yield from _llama_cpp_stream(prompt, system_prompt, max_tokens_override=max_tokens)
         return
 
     raise RuntimeError("No LLM provider available")

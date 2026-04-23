@@ -1,4 +1,4 @@
-﻿"""
+"""
 Embedding wrapper.
 
 Primary path:

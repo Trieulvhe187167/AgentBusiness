@@ -14,6 +14,7 @@ from typing import Any, Callable
 
 from pydantic import BaseModel, Field
 
+from app.authorization import AuthorizationDeniedError, authorize_tool_access
 from app.models import RequestContext
 from app.tool_audit import log_tool_call
 
@@ -34,6 +35,9 @@ class ToolAuthPolicy(BaseModel):
     allow_anonymous: bool = False
     require_user_id: bool = False
     required_roles: list[str] = Field(default_factory=list)
+    allowed_channels: list[str] = Field(default_factory=list)
+    requires_tenant_match: bool = False
+    risk_level: str = "low"
     scope: str = "general"
 
 
@@ -125,7 +129,7 @@ class ToolRegistry:
         started = time.perf_counter()
 
         try:
-            self._authorize(spec, context)
+            self._authorize(spec, context, raw_args)
             validated_input = spec.input_model.model_validate(raw_args)
         except ToolAuthorizationError as err:
             self._log_failure(spec, tool_call_id, context, raw_args, "permission_denied", err, started)
@@ -175,18 +179,11 @@ class ToolRegistry:
             latency_ms=latency_ms,
         )
 
-    def _authorize(self, spec: ToolSpec, context: RequestContext) -> None:
-        auth = context.auth
-        policy = spec.auth_policy
-        if policy.require_user_id and not auth.user_id:
-            raise ToolAuthorizationError(f"Tool '{spec.name}' requires user_id")
-        if not policy.allow_anonymous and not auth.user_id and not policy.required_roles:
-            raise ToolAuthorizationError(f"Tool '{spec.name}' does not allow anonymous access")
-        if policy.required_roles:
-            user_roles = set(auth.roles)
-            if not user_roles.intersection(policy.required_roles):
-                roles = ", ".join(policy.required_roles)
-                raise ToolAuthorizationError(f"Tool '{spec.name}' requires one of roles: {roles}")
+    def _authorize(self, spec: ToolSpec, context: RequestContext, raw_args: dict[str, Any]) -> None:
+        try:
+            authorize_tool_access(spec.name, spec.auth_policy, context=context, arguments=raw_args)
+        except AuthorizationDeniedError as err:
+            raise ToolAuthorizationError(str(err)) from err
 
     async def _invoke(self, spec: ToolSpec, validated_input: BaseModel, context: RequestContext) -> dict[str, Any]:
         result = spec.handler(validated_input, context)

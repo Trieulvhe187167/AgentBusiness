@@ -6,13 +6,15 @@ from __future__ import annotations
 
 import re
 import uuid
+from collections.abc import Mapping
 from typing import Any
 
 import aiosqlite
 from fastapi import HTTPException
 
+from app.authorization import coerce_auth_context, ensure_can_access_kb
 from app.database import get_db, utcnow_iso
-from app.models import KnowledgeBaseSummary
+from app.models import AuthContext, KnowledgeBaseSummary
 
 _KEY_SANITIZE_RE = re.compile(r"[^a-z0-9_-]+")
 
@@ -23,6 +25,9 @@ SELECT
     kb.name,
     kb.description,
     kb.status,
+    kb.access_level,
+    kb.tenant_id,
+    kb.org_id,
     kb.is_default,
     kb.kb_version,
     kb.created_at,
@@ -53,6 +58,9 @@ def row_to_kb_summary(row: dict[str, Any]) -> KnowledgeBaseSummary:
         name=row["name"],
         description=row.get("description"),
         status=row["status"],
+        access_level=row.get("access_level") or "public",
+        tenant_id=row.get("tenant_id"),
+        org_id=row.get("org_id"),
         is_default=bool(row["is_default"]),
         kb_version=row["kb_version"],
         file_count=int(row.get("file_count") or 0),
@@ -68,13 +76,40 @@ async def fetch_kb_summary(db: aiosqlite.Connection, where_sql: str, params: tup
         + f"""
         WHERE {where_sql}
         GROUP BY
-            kb.id, kb.key, kb.name, kb.description, kb.status,
+            kb.id, kb.key, kb.name, kb.description, kb.status, kb.access_level, kb.tenant_id, kb.org_id,
             kb.is_default, kb.kb_version, kb.created_at, kb.updated_at
         """,
         params,
     )
     row = await cursor.fetchone()
     return row_to_kb_summary(dict(row)) if row else None
+
+
+async def list_accessible_kbs(
+    db: aiosqlite.Connection,
+    auth_context: AuthContext | Mapping[str, Any] | None = None,
+    request_context: Mapping[str, Any] | object | None = None,
+) -> list[KnowledgeBaseSummary]:
+    cursor = await db.execute(
+        KB_SELECT
+        + """
+        GROUP BY
+            kb.id, kb.key, kb.name, kb.description, kb.status, kb.access_level, kb.tenant_id, kb.org_id,
+            kb.is_default, kb.kb_version, kb.created_at, kb.updated_at
+        ORDER BY kb.is_default DESC, kb.created_at ASC
+        """
+    )
+    rows = await cursor.fetchall()
+    items = [row_to_kb_summary(dict(row)) for row in rows]
+
+    visible: list[KnowledgeBaseSummary] = []
+    for kb in items:
+        try:
+            ensure_kb_access(kb, auth_context, request_context=request_context)
+        except HTTPException:
+            continue
+        visible.append(kb)
+    return visible
 
 
 async def get_kb_or_404(db: aiosqlite.Connection, kb_id: int) -> KnowledgeBaseSummary:
@@ -89,6 +124,13 @@ async def get_default_kb(db: aiosqlite.Connection) -> KnowledgeBaseSummary:
     if not kb:
         raise HTTPException(404, "Default Knowledge Base not found")
     return kb
+def ensure_kb_access(
+    kb: KnowledgeBaseSummary | Mapping[str, Any],
+    auth_context: AuthContext | Mapping[str, Any] | None,
+    *,
+    request_context: Mapping[str, Any] | object | None = None,
+) -> None:
+    ensure_can_access_kb(kb, coerce_auth_context(auth_context), request_context=request_context)
 
 
 async def resolve_kb_scope(
@@ -96,18 +138,28 @@ async def resolve_kb_scope(
     *,
     kb_id: int | None = None,
     kb_key: str | None = None,
+    auth_context: AuthContext | Mapping[str, Any] | None = None,
+    request_context: Mapping[str, Any] | object | None = None,
 ) -> KnowledgeBaseSummary:
     if kb_id is not None:
-        return await get_kb_or_404(db, kb_id)
+        kb = await get_kb_or_404(db, kb_id)
+        if auth_context is not None:
+            ensure_kb_access(kb, auth_context, request_context=request_context)
+        return kb
 
     if kb_key:
         normalized_key = normalize_kb_key(kb_key)
         kb = await fetch_kb_summary(db, "kb.key = ?", (normalized_key,))
         if not kb:
             raise HTTPException(404, f"Knowledge Base not found for key '{normalized_key}'")
+        if auth_context is not None:
+            ensure_kb_access(kb, auth_context, request_context=request_context)
         return kb
 
-    return await get_default_kb(db)
+    kb = await get_default_kb(db)
+    if auth_context is not None:
+        ensure_kb_access(kb, auth_context, request_context=request_context)
+    return kb
 
 
 async def bump_kb_version(db: aiosqlite.Connection, kb_id: int) -> str:

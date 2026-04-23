@@ -44,8 +44,8 @@ class SearchKBOutput(BaseModel):
 async def _search_kb_tool(payload: SearchKBInput, context: RequestContext) -> dict[str, Any]:
     target_kb_id = payload.kb_id if payload.kb_id is not None else context.kb_id
     target_kb_key = payload.kb_key or context.kb_key
-    kb_scope = rag._resolve_kb_scope(kb_id=target_kb_id, kb_key=target_kb_key)
-    results = rag.retrieve(payload.query, top_k=payload.top_k, kb_id=kb_scope["id"])
+    kb_scope = rag._resolve_kb_scope(kb_id=target_kb_id, kb_key=target_kb_key, auth_context=context.auth.model_dump())
+    results = rag.retrieve(payload.query, top_k=payload.top_k, kb_id=kb_scope["id"], auth_context=context.auth.model_dump())
 
     return {
         "query": payload.query,
@@ -76,7 +76,12 @@ def build_search_kb_tool() -> ToolSpec:
         description="Search within a scoped Knowledge Base and return ranked supporting chunks.",
         input_model=SearchKBInput,
         output_model=SearchKBOutput,
-        auth_policy=ToolAuthPolicy(allow_anonymous=True, scope="kb"),
+        auth_policy=ToolAuthPolicy(
+            allow_anonymous=True,
+            allowed_channels=["web", "chat", "admin"],
+            risk_level="low",
+            scope="kb",
+        ),
         timeout_seconds=15,
         idempotent=True,
         handler=_search_kb_tool,

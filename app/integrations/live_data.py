@@ -58,6 +58,8 @@ def _normalize_order_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "order_code": order_code,
         "user_id": str(payload.get("user_id") or "").strip() or None,
+        "tenant_id": str(payload.get("tenant_id") or "").strip() or None,
+        "org_id": str(payload.get("org_id") or "").strip() or None,
         "status": str(payload.get("status") or "").strip() or "unknown",
         "last_update": str(payload.get("last_update") or payload.get("updated_at") or "").strip() or None,
         "tracking_code": str(payload.get("tracking_code") or "").strip() or None,
@@ -83,14 +85,16 @@ def _upsert_order_cache(payload: dict[str, Any], *, source: str, raw_payload: di
         """
         INSERT INTO order_status_cache (
             order_code, user_id, status, last_update, tracking_code, carrier,
-            source, raw_json, cached_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            tenant_id, org_id, source, raw_json, cached_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(order_code) DO UPDATE SET
             user_id=excluded.user_id,
             status=excluded.status,
             last_update=excluded.last_update,
             tracking_code=excluded.tracking_code,
             carrier=excluded.carrier,
+            tenant_id=excluded.tenant_id,
+            org_id=excluded.org_id,
             source=excluded.source,
             raw_json=excluded.raw_json,
             cached_at=excluded.cached_at,
@@ -103,6 +107,8 @@ def _upsert_order_cache(payload: dict[str, Any], *, source: str, raw_payload: di
             payload.get("last_update"),
             payload.get("tracking_code"),
             payload.get("carrier"),
+            payload.get("tenant_id"),
+            payload.get("org_id"),
             source,
             json.dumps(raw_payload or payload, ensure_ascii=False),
             now,
@@ -147,6 +153,8 @@ def _serialize_order_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "order_code": row["order_code"],
         "user_id": row.get("user_id"),
+        "tenant_id": row.get("tenant_id"),
+        "org_id": row.get("org_id"),
         "status": row["status"],
         "last_update": row.get("last_update"),
         "tracking_code": row.get("tracking_code"),
@@ -177,7 +185,7 @@ async def _http_get_json(base_url: str, path: str, *, api_key: str, params: dict
 async def get_order_status(order_code: str, *, user_id: str | None = None) -> dict[str, Any]:
     row = fetch_one_sync(
         """
-        SELECT order_code, user_id, status, last_update, tracking_code, carrier, source, cached_at
+        SELECT order_code, user_id, tenant_id, org_id, status, last_update, tracking_code, carrier, source, cached_at
         FROM order_status_cache
         WHERE order_code = ?
         """,
@@ -210,7 +218,7 @@ async def get_order_status(order_code: str, *, user_id: str | None = None) -> di
 async def find_recent_orders(user_id: str, *, limit: int = 5) -> dict[str, Any]:
     rows = fetch_all_sync(
         """
-        SELECT order_code, user_id, status, last_update, tracking_code, carrier, source, cached_at
+        SELECT order_code, user_id, tenant_id, org_id, status, last_update, tracking_code, carrier, source, cached_at
         FROM order_status_cache
         WHERE user_id = ?
         ORDER BY COALESCE(last_update, cached_at) DESC, id DESC
@@ -218,45 +226,58 @@ async def find_recent_orders(user_id: str, *, limit: int = 5) -> dict[str, Any]:
         """,
         (user_id, limit),
     )
-    if rows:
+    snapshot_orders = [_serialize_order_row(dict(row)) for row in rows]
+    snapshot_fresh = bool(rows) and all(_is_fresh(row.get("cached_at")) for row in rows)
+
+    if rows and (snapshot_fresh or not settings.order_api_base_url.strip()):
         return {
             "user_id": user_id,
             "total": len(rows),
-            "orders": [_serialize_order_row(dict(row)) for row in rows],
+            "orders": snapshot_orders,
             "source": "snapshot",
         }
 
     if settings.order_api_base_url.strip():
-        payload = _extract_payload(
-            await _http_get_json(
-                settings.order_api_base_url,
-                settings.order_api_recent_path,
-                api_key=settings.order_api_key,
-                params={"user_id": user_id, "limit": limit},
+        try:
+            payload = _extract_payload(
+                await _http_get_json(
+                    settings.order_api_base_url,
+                    settings.order_api_recent_path,
+                    api_key=settings.order_api_key,
+                    params={"user_id": user_id, "limit": limit},
+                )
             )
-        )
-        if isinstance(payload, dict):
-            items = payload.get("orders") or payload.get("items") or []
-        elif isinstance(payload, list):
-            items = payload
-        else:
-            raise ToolExecutionError("Recent orders API returned an invalid payload")
+            if isinstance(payload, dict):
+                items = payload.get("orders") or payload.get("items") or []
+            elif isinstance(payload, list):
+                items = payload
+            else:
+                raise ToolExecutionError("Recent orders API returned an invalid payload")
 
-        normalized_orders: list[dict[str, Any]] = []
-        for item in items[:limit]:
-            if not isinstance(item, dict):
-                continue
-            normalized = _normalize_order_payload(item)
-            normalized["user_id"] = normalized.get("user_id") or user_id
-            _upsert_order_cache(normalized, source="api", raw_payload=item)
-            normalized_orders.append({**normalized, "source": "api"})
+            normalized_orders: list[dict[str, Any]] = []
+            for item in items[:limit]:
+                if not isinstance(item, dict):
+                    continue
+                normalized = _normalize_order_payload(item)
+                normalized["user_id"] = normalized.get("user_id") or user_id
+                _upsert_order_cache(normalized, source="api", raw_payload=item)
+                normalized_orders.append({**normalized, "source": "api"})
 
-        return {
-            "user_id": user_id,
-            "total": len(normalized_orders),
-            "orders": normalized_orders,
-            "source": "api",
-        }
+            return {
+                "user_id": user_id,
+                "total": len(normalized_orders),
+                "orders": normalized_orders,
+                "source": "api",
+            }
+        except Exception:
+            if rows:
+                return {
+                    "user_id": user_id,
+                    "total": len(rows),
+                    "orders": snapshot_orders,
+                    "source": "snapshot",
+                }
+            raise
 
     return {
         "user_id": user_id,

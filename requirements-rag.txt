@@ -1,0 +1,8 @@
+-r requirements-core.txt
+
+# Advanced RAG backends
+chromadb==0.5.20
+
+# Optional richer tabular parsing
+pandas>=2.2
+xlrd>=2.0

@@ -93,7 +93,12 @@ def build_create_support_ticket_tool() -> ToolSpec:
         description="Create a support ticket for a customer issue and return the ticket code.",
         input_model=CreateSupportTicketInput,
         output_model=CreateSupportTicketOutput,
-        auth_policy=ToolAuthPolicy(allow_anonymous=True, scope="support"),
+        auth_policy=ToolAuthPolicy(
+            allow_anonymous=True,
+            allowed_channels=["web", "chat", "admin"],
+            risk_level="medium",
+            scope="support",
+        ),
         timeout_seconds=10,
         idempotent=False,
         handler=_create_support_ticket_tool,

@@ -1,40 +1,42 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from tests.conftest import isolated_client, poll_jobs
+from tests.conftest import admin_headers, isolated_client, poll_jobs
 
 
 def test_upload_ingest_and_chat_smoke(isolated_client: TestClient):
+    admin = admin_headers()
     sample_path = Path("kb_sample.csv")
     with sample_path.open("rb") as handle:
         upload = isolated_client.post(
             "/api/upload",
             files={"file": (sample_path.name, handle, "text/csv")},
+            headers=admin,
         )
     assert upload.status_code == 200, upload.text
     uploaded = upload.json()["file"]
     assert uploaded["original_name"] == "kb_sample.csv"
     assert uploaded["status"] == "uploaded"
 
-    default_kb = isolated_client.get("/api/kbs/default")
+    default_kb = isolated_client.get("/api/kbs/default", headers=admin)
     assert default_kb.status_code == 200, default_kb.text
     kb = default_kb.json()
 
-    kb_files = isolated_client.get(f"/api/kbs/{kb['id']}/files")
+    kb_files = isolated_client.get(f"/api/kbs/{kb['id']}/files", headers=admin)
     assert kb_files.status_code == 200, kb_files.text
     attached_names = {item["original_name"] for item in kb_files.json()}
     assert "kb_sample.csv" in attached_names
 
-    ingest = isolated_client.post(f"/api/kbs/{kb['id']}/ingest")
+    ingest = isolated_client.post(f"/api/kbs/{kb['id']}/ingest", headers=admin)
     assert ingest.status_code == 200, ingest.text
     jobs = ingest.json().get("jobs") or []
     assert jobs, ingest.json()
     poll_jobs(isolated_client, jobs)
 
-    stats = isolated_client.get("/api/kb/stats", params={"kb_id": kb["id"]})
+    stats = isolated_client.get("/api/kb/stats", params={"kb_id": kb["id"]}, headers=admin)
     assert stats.status_code == 200, stats.text
     stats_payload = stats.json()
     assert stats_payload["scope"] == "kb"
@@ -57,24 +59,26 @@ def test_upload_ingest_and_chat_smoke(isolated_client: TestClient):
 
 
 def test_ingest_endpoint_reports_no_stale_files_after_smoke_run(isolated_client: TestClient):
+    admin = admin_headers()
     sample_path = Path("kb_sample.csv")
     with sample_path.open("rb") as handle:
         isolated_client.post(
             "/api/upload",
             files={"file": (sample_path.name, handle, "text/csv")},
+            headers=admin,
         ).raise_for_status()
 
-    kb = isolated_client.get("/api/kbs/default")
+    kb = isolated_client.get("/api/kbs/default", headers=admin)
     kb.raise_for_status()
     kb_id = kb.json()["id"]
 
-    first_ingest = isolated_client.post(f"/api/kbs/{kb_id}/ingest")
+    first_ingest = isolated_client.post(f"/api/kbs/{kb_id}/ingest", headers=admin)
     first_ingest.raise_for_status()
     jobs = first_ingest.json().get("jobs") or []
     assert jobs
     poll_jobs(isolated_client, jobs)
 
-    second_ingest = isolated_client.post(f"/api/kbs/{kb_id}/ingest")
+    second_ingest = isolated_client.post(f"/api/kbs/{kb_id}/ingest", headers=admin)
     second_ingest.raise_for_status()
     payload = second_ingest.json()
     assert payload["jobs"] == []

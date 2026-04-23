@@ -6,6 +6,7 @@
     environment:
       - RAG_VECTOR_BACKEND=chroma
       - RAG_CHROMA_HTTP_URL=http://chroma:8000
+      - RAG_LLM_PROVIDER=none
       - RAG_DATA_DIR=/data
       - RAG_RAW_UPLOAD_DIR=/data/raw
       - RAG_PROCESSED_DIR=/data/processed

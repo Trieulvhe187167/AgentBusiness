@@ -11,8 +11,9 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
+from app.auth import require_admin
 from app.chunker import chunk_records
 from app.config import settings
 from app.database import execute_with_retry, fetch_all, fetch_one
@@ -23,7 +24,9 @@ from app.parsers import parse_file
 from app.vector_store import vector_store
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api", tags=["ingest"])
+router = APIRouter(prefix="/api", tags=["ingest"], dependencies=[Depends(require_admin)])
+
+_ACCESS_LEVEL_ORDER = {"public": 0, "internal": 1, "admin": 2}
 
 
 def _utcnow() -> str:
@@ -208,6 +211,16 @@ async def _run_ingest(job_id: str, kb_id: int, file_id: int):
         next_kb_version = new_kb_version()
 
         vector_store.delete_by_kb_and_file(kb_id, file_id)
+        kb_access_level = str(kb.access_level or "public").lower()
+        file_access_level = str(file_row.get("access_level") or "public").lower()
+        effective_access_level = (
+            kb_access_level
+            if _ACCESS_LEVEL_ORDER.get(kb_access_level, 0) >= _ACCESS_LEVEL_ORDER.get(file_access_level, 0)
+            else file_access_level
+        )
+        effective_tenant_id = file_row.get("tenant_id") or kb.tenant_id
+        effective_org_id = file_row.get("org_id") or kb.org_id
+        effective_owner_user_id = file_row.get("owner_user_id")
 
         chunks = chunk_records(
             records=records,
@@ -220,6 +233,10 @@ async def _run_ingest(job_id: str, kb_id: int, file_id: int):
             ingest_signature=ingest_signature,
             chunk_size=settings.chunk_size,
             chunk_overlap=settings.chunk_overlap,
+            access_level=effective_access_level,
+            tenant_id=effective_tenant_id,
+            org_id=effective_org_id,
+            owner_user_id=effective_owner_user_id,
         )
         if not chunks:
             raise ValueError("No chunks produced - file may be empty or unparseable")

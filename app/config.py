@@ -19,7 +19,10 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
     )
 
+    # ------------------------------------------------------------------
     # Paths
+    # MVP required: yes
+    # ------------------------------------------------------------------
     data_dir: Path = BASE_DIR / "data"
     raw_upload_dir: Path = BASE_DIR / "data" / "raw"
     processed_dir: Path = BASE_DIR / "data" / "processed"
@@ -29,46 +32,67 @@ class Settings(BaseSettings):
     sqlite_path: Path = BASE_DIR / "data" / "metadata.db"
     models_dir: Path = BASE_DIR / "models"
 
-    # Upload security
+    # ------------------------------------------------------------------
+    # Upload
+    # MVP required: yes
+    # ------------------------------------------------------------------
     max_upload_size_mb: int = 50
     allowed_extensions: list[str] = [
         ".xlsx", ".xls", ".csv", ".pdf", ".html", ".htm",
-        ".txt", ".md", ".docx", ".json", ".jsonl",
+        ".txt", ".md", ".docx", ".json", ".jsonl", ".ndjson", ".tsv", ".xml",
     ]
 
+    # ------------------------------------------------------------------
+    # Parsing
+    # MVP required: yes
+    # ------------------------------------------------------------------
     # Custom column overrides for CSV/Excel (empty = auto-detect)
     kb_text_columns: list[str] = []
     kb_meta_columns: list[str] = []
 
+    # ------------------------------------------------------------------
     # Chunking
+    # MVP required: yes
+    # ------------------------------------------------------------------
     chunk_size: int = 1000
     chunk_overlap: int = 120
 
-    # Vector backend
-    vector_backend: str = "chroma"  # chroma | numpy
+    # ------------------------------------------------------------------
+    # Vector store
+    # MVP required: yes
+    # Advanced options: Chroma HTTP / persistent server
+    # ------------------------------------------------------------------
+    vector_backend: str = "numpy"  # chroma | numpy
     top_k: int = 10
     chroma_collection_name: str = "kb_chunks"
     chroma_http_url: str = ""
     chroma_tenant: str = "default_tenant"
     chroma_database: str = "default_database"
 
-    # 3-mode thresholds
+    # Retrieval thresholds
     threshold_good: float = 0.60
     threshold_low: float = 0.40
     min_similarity_threshold: float = 0.30
 
-    # Auto thresholds when hashing embedding fallback is active
+    # Hashing fallback thresholds
     hashing_threshold_good: float = 0.32
     hashing_threshold_low: float = 0.18
     hashing_min_similarity_threshold: float = 0.12
 
+    # ------------------------------------------------------------------
     # Answer presentation
+    # MVP required: yes
+    # ------------------------------------------------------------------
     max_citations: int = 3
     max_extractive_chunks: int = 2
     max_answer_chunks: int = 5
     debug_show_retrieval: bool = False
 
-    # Embeddings — multilingual model supports both VI and EN
+    # ------------------------------------------------------------------
+    # Embeddings
+    # MVP required: yes
+    # ------------------------------------------------------------------
+    # Multilingual default to support both VI and EN retrieval.
     embedding_model: str = "paraphrase-multilingual-MiniLM-L12-v2"
     embedding_batch_size: int = 64
     embedding_model_path: str = ""
@@ -78,21 +102,33 @@ class Settings(BaseSettings):
     embedding_query_prefix: str = ""
     embedding_passage_prefix: str = ""
 
-    # LLM provider switch
-    llm_provider: str = "openai_compatible"  # auto|openai|gemini|ollama|llama_cpp|openai_compatible|none
+    # ------------------------------------------------------------------
+    # LLM
+    # MVP required: no
+    # Advanced modes: OpenAI-compatible, OpenAI, Gemini, Ollama, llama.cpp
+    # ------------------------------------------------------------------
+    llm_provider: str = "none"  # auto|openai|gemini|ollama|llama_cpp|openai_compatible|none
     answer_mode: str = "auto"   # auto|extractive|generative
 
-    # Agent runtime contract (Phase 0 baseline)
+    # ------------------------------------------------------------------
+    # Agent / tool runtime
+    # MVP required: no
+    # Phase advanced rollout only
+    # ------------------------------------------------------------------
     agent_serving_stack: str = "vllm"      # vllm|qwen_agent|sglang|ollama|llama_cpp|openai|gemini|custom
     agent_tool_protocol: str = "manual_json"  # manual_json|openai_tools
     agent_native_tool_calling: bool = False
     agent_tool_choice_mode: str = "auto"  # auto|required|none
     agent_tool_parser: str = ""
+    agent_enable_llm_router: bool = True
+    agent_brain_mode: str = "hybrid"  # hybrid|ai_first
+    agent_followup_reaction_llm_timeout_seconds: int = 8
+    agent_followup_reaction_llm_max_tokens: int = 96
 
-    # OpenAI Compatible
+    # OpenAI-compatible / vLLM path
     llm_base_url: str = "http://127.0.0.1:8000/v1"
     llm_api_key: str = "EMPTY"
-    llm_model: str = "qwen3.5:0.8b"
+    llm_model: str = "Qwen/Qwen3-4B-Instruct-2507"
     llm_timeout_seconds: int = 120
 
     # OpenAI
@@ -123,11 +159,39 @@ class Settings(BaseSettings):
     llm_repeat_penalty: float = 1.1
     llm_n_batch: int = 512
 
-    # Session and logs
+    # ------------------------------------------------------------------
+    # Session / logs
+    # MVP required: chat logs yes, slot memory optional
+    # ------------------------------------------------------------------
     session_ttl_minutes: int = 120
     chat_log_limit_default: int = 50
+    conversation_memory_turn_limit: int = 5
 
+    # ------------------------------------------------------------------
+    # Authentication / authorization
+    # MVP required: no
+    # Production rollout only
+    # ------------------------------------------------------------------
+    auth_mode: str = "dev"  # dev|jwt|gateway
+    allow_header_auth_in_dev: bool = True
+    jwt_issuer: str = ""
+    jwt_audience: str = ""
+    jwt_jwks_url: str = ""
+    jwt_shared_secret: str = ""
+    jwt_jwks_cache_ttl_seconds: int = 300
+    gateway_shared_secret: str = ""
+    gateway_user_id_header: str = "X-Auth-User-Id"
+    gateway_roles_header: str = "X-Auth-Roles"
+    gateway_channel_header: str = "X-Auth-Channel"
+    gateway_tenant_id_header: str = "X-Auth-Tenant-Id"
+    gateway_org_id_header: str = "X-Auth-Org-Id"
+    gateway_secret_header: str = "X-Auth-Gateway-Secret"
+
+    # ------------------------------------------------------------------
     # External business integrations
+    # MVP required: no
+    # Phase advanced rollout only
+    # ------------------------------------------------------------------
     integration_cache_ttl_seconds: int = 120
     integration_http_timeout_seconds: int = 15
 
@@ -140,7 +204,10 @@ class Settings(BaseSettings):
     game_api_key: str = ""
     game_api_online_path: str = "/alliances/online"
 
+    # ------------------------------------------------------------------
     # Cache
+    # MVP required: optional but enabled by default
+    # ------------------------------------------------------------------
     cache_ttl_seconds: int = 3600
     cache_max_size_mb: int = 500
 
@@ -215,10 +282,20 @@ class Settings(BaseSettings):
         return protocol if protocol in valid else "manual_json"
 
     @property
+    def normalized_auth_mode(self) -> str:
+        mode = self.auth_mode.strip().lower()
+        return mode if mode in {"dev", "jwt", "gateway"} else "dev"
+
+    @property
     def normalized_agent_tool_choice_mode(self) -> str:
         mode = self.agent_tool_choice_mode.strip().lower()
         valid = {"auto", "required", "none"}
         return mode if mode in valid else "auto"
+
+    @property
+    def normalized_agent_brain_mode(self) -> str:
+        mode = self.agent_brain_mode.strip().lower()
+        return mode if mode in {"hybrid", "ai_first"} else "hybrid"
 
     @property
     def agent_native_tool_status(self) -> str:

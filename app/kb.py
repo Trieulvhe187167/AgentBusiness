@@ -5,8 +5,9 @@ Knowledge Base CRUD and file mapping endpoints.
 from __future__ import annotations
 
 import aiosqlite
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from app.auth import require_admin
 from app.kb_service import (
     KB_SELECT,
     attach_file_to_kb,
@@ -29,7 +30,7 @@ from app.models import (
 )
 from app.vector_store import vector_store
 
-router = APIRouter(prefix="/api/kbs", tags=["knowledge-bases"])
+router = APIRouter(prefix="/api/kbs", tags=["knowledge-bases"], dependencies=[Depends(require_admin)])
 
 _STATUS_ALLOWED = {"active", "archived"}
 _KB_FILE_SELECT = """
@@ -49,6 +50,10 @@ SELECT
     uf.file_size,
     uf.file_hash,
     uf.status AS upload_status,
+    uf.access_level,
+    uf.tenant_id,
+    uf.org_id,
+    uf.owner_user_id,
     uf.created_at
 FROM kb_files kf
 JOIN uploaded_files uf ON uf.id = kf.file_id
@@ -66,6 +71,10 @@ def _row_to_kb_file_summary(row: dict) -> KBFileSummary:
         file_size=row["file_size"],
         file_hash=row["file_hash"],
         upload_status=row["upload_status"],
+        access_level=row.get("access_level") or "public",
+        tenant_id=row.get("tenant_id"),
+        org_id=row.get("org_id"),
+        owner_user_id=row.get("owner_user_id"),
         kb_status=row["kb_status"],
         chunk_count=int(row.get("chunk_count") or 0),
         ingest_signature=row.get("ingest_signature"),
@@ -153,7 +162,7 @@ async def list_knowledge_bases():
             KB_SELECT
             + """
             GROUP BY
-                kb.id, kb.key, kb.name, kb.description, kb.status,
+                kb.id, kb.key, kb.name, kb.description, kb.status, kb.access_level, kb.tenant_id, kb.org_id,
                 kb.is_default, kb.kb_version, kb.created_at, kb.updated_at
             ORDER BY kb.is_default DESC, kb.created_at ASC
             """
@@ -180,13 +189,16 @@ async def create_knowledge_base(payload: KnowledgeBaseCreate):
             insert_cursor = await db.execute(
                 """
                 INSERT INTO knowledge_bases
-                    (key, name, description, status, is_default, kb_version, created_at, updated_at)
-                VALUES (?, ?, ?, 'active', ?, ?, datetime('now'), datetime('now'))
+                    (key, name, description, status, access_level, tenant_id, org_id, is_default, kb_version, created_at, updated_at)
+                VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
                 """,
                 (
                     normalized_key,
                     payload.name.strip(),
                     payload.description.strip() if payload.description else None,
+                    payload.access_level,
+                    payload.tenant_id,
+                    payload.org_id,
                     1 if make_default else 0,
                     new_kb_version(),
                 ),
@@ -262,6 +274,18 @@ async def update_knowledge_base(kb_id: int, payload: KnowledgeBaseUpdate):
             description = changes["description"]
             assignments.append("description = ?")
             params.append(description.strip() if isinstance(description, str) else None)
+
+        if "access_level" in changes:
+            assignments.append("access_level = ?")
+            params.append(str(changes["access_level"]).strip().lower())
+
+        if "tenant_id" in changes:
+            assignments.append("tenant_id = ?")
+            params.append(changes["tenant_id"])
+
+        if "org_id" in changes:
+            assignments.append("org_id = ?")
+            params.append(changes["org_id"])
 
         if "status" in changes:
             status = str(changes["status"]).strip().lower()

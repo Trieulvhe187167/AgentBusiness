@@ -18,9 +18,17 @@
         .header small, .note { color:var(--dim); font-size:12px; }
         .links { display:flex; gap:12px; align-items:center; }
         .links a { text-decoration:none; color:var(--brand); font-weight:700; font-size:13px; }
+        .authbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+        .authbar input { width:auto; min-width:140px; }
+        .authbar .auth-note { font-size:12px; color:var(--dim); }
+        .field-stack { display:flex; flex-direction:column; gap:6px; min-width:180px; flex:1; }
+        .field-stack label { font-size:12px; font-weight:700; color:var(--ink); }
+        .field-stack small { color:var(--dim); font-size:11px; line-height:1.35; }
         .grid { display:grid; grid-template-columns:repeat(12,minmax(0,1fr)); gap:14px; }
         .span-12 { grid-column:span 12; } .span-8 { grid-column:span 8; } .span-7 { grid-column:span 7; } .span-6 { grid-column:span 6; } .span-5 { grid-column:span 5; } .span-4 { grid-column:span 4; }
-        .card h2 { margin:0 0 12px; font-size:15px; }
+        .card h2 { margin:0; font-size:15px; }
+        .section-head { display:flex; flex-direction:column; gap:4px; margin-bottom:12px; }
+        .section-head p { margin:0; color:var(--dim); font-size:12px; }
         .stats { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:10px; }
         .stat { border:1px solid var(--line); border-radius:12px; padding:10px; background:#fff; }
         .value { font-size:24px; font-weight:800; color:var(--brand); line-height:1; }
@@ -74,19 +82,53 @@
         </header>
 
         <section class="card">
+            <div class="section-head">
+                <h2>Admin Request Identity</h2>
+                <p>Set the request headers this Admin UI will send on every API call.</p>
+            </div>
+            <div class="authbar">
+                <div class="field-stack">
+                    <label for="authUserId">User ID</label>
+                    <input id="authUserId" type="text" placeholder="X-User-Id" value="admin-1" title="User ID sent in the X-User-Id header.">
+                    <small>Định danh người dùng gửi request, ví dụ `admin-12` hoặc `employee-01`.</small>
+                </div>
+                <div class="field-stack">
+                    <label for="authRoles">Roles</label>
+                    <input id="authRoles" type="text" placeholder="X-Roles" value="admin" title="Roles sent in the X-Roles header. Use comma-separated values like admin,support.">
+                    <small>Vai trò phân quyền, có thể nhập một hoặc nhiều role như `admin`, `employee`, `support`.</small>
+                </div>
+                <div class="field-stack">
+                    <label for="authChannel">Channel</label>
+                    <input id="authChannel" type="text" placeholder="X-Channel" value="admin" title="Client channel sent in the X-Channel header.">
+                    <small>Kênh gọi API, ví dụ `admin`, `web`, `chat`, dùng để backend biết request đến từ đâu.</small>
+                </div>
+                <button class="btn-main" id="btnSaveAuth" title="Save these headers locally and use them for subsequent API requests.">Save Auth</button>
+                <span class="auth-note">Admin UI sends these headers on every API request.</span>
+            </div>
+        </section>
+
+        <section class="card">
+            <div class="section-head">
+                <h2>Knowledge Base Selector</h2>
+                <p>Choose the active KB, review its status, and apply top-level KB actions.</p>
+            </div>
             <div class="toolbar">
-                <select id="kbSelect" class="grow"></select>
+                <select id="kbSelect" class="grow" title="Choose which Knowledge Base the admin page is currently managing."></select>
                 <span class="badge">Key: <strong id="kbKeyLabel">-</strong></span>
                 <span class="badge">Status: <strong id="kbStatusLabel">-</strong></span>
+                <span class="badge">Access: <strong id="kbAccessLabel">-</strong></span>
                 <span class="badge">Default: <strong id="kbDefaultLabel">-</strong></span>
-                <button class="btn-muted" id="btnSetDefault">Set Default</button>
-                <button class="btn-danger" id="btnDeleteKb">Delete KB</button>
+                <button class="btn-muted" id="btnSetDefault" title="Mark the selected Knowledge Base as the default one for general chat.">Set Default</button>
+                <button class="btn-danger" id="btnDeleteKb" title="Delete the selected Knowledge Base and detach its related admin configuration.">Delete KB</button>
             </div>
             <div class="note" id="kbDescription">No Knowledge Base selected.</div>
         </section>
 
         <section class="card">
-            <h2>Selected KB Stats</h2>
+            <div class="section-head">
+                <h2>Selected KB Stats</h2>
+                <p>Quick health and capacity snapshot for the currently selected Knowledge Base.</p>
+            </div>
             <div class="stats">
                 <div class="stat"><div class="value" id="s-files">-</div><div class="label">Attached Files</div></div>
                 <div class="stat"><div class="value" id="s-ingested">-</div><div class="label">Ingested Files</div></div>
@@ -98,28 +140,55 @@
         </section>
 
         <div class="tabs">
-            <button class="tab-btn active" data-target="view-kb">KB Manager</button>
-            <button class="tab-btn" data-target="view-calibrate">Calibrate</button>
-            <button class="tab-btn" data-target="view-sources">Sources</button>
-            <button class="tab-btn" data-target="view-ops">Logs & System</button>
+            <button class="tab-btn active" data-target="view-kb" title="Create KBs, upload files, and manage the selected Knowledge Base.">KB Manager</button>
+            <button class="tab-btn" data-target="view-calibrate" title="Test retrieval quality in the currently selected Knowledge Base.">Calibrate</button>
+            <button class="tab-btn" data-target="view-sources" title="Inspect source distribution and language breakdown for the selected KB.">Sources</button>
+            <button class="tab-btn" data-target="view-ops" title="Review chat logs and runtime diagnostics for the system.">Logs & System</button>
         </div>
 
         <div id="view-kb" class="view active">
             <div class="grid">
                 <section class="card span-4">
-                    <h2>Create KB</h2>
-                    <div class="row"><input id="newKbName" type="text" placeholder="Knowledge Base name"></div>
-                    <div class="row"><input id="newKbKey" type="text" placeholder="kb-key"></div>
-                    <div class="row"><textarea id="newKbDescription" placeholder="Short description"></textarea></div>
+                    <div class="section-head">
+                        <h2>Create KB</h2>
+                        <p>Create a new Knowledge Base and define who is allowed to access it.</p>
+                    </div>
+                    <div class="field-stack" style="margin-bottom:10px;">
+                        <label for="newKbName">Knowledge Base Name</label>
+                        <input id="newKbName" type="text" placeholder="Knowledge Base name" title="Human-readable name shown in the admin UI and selectors.">
+                        <small>Tên hiển thị của KB trong giao diện quản trị, ví dụ `FAQ tuyển sinh` hoặc `Chính sách nội bộ`.</small>
+                    </div>
+                    <div class="field-stack" style="margin-bottom:10px;">
+                        <label for="newKbKey">KB Key</label>
+                        <input id="newKbKey" type="text" placeholder="kb-key" title="Stable KB key used in API calls and routing.">
+                        <small>Mã định danh kỹ thuật của KB, nên ngắn gọn và ổn định, ví dụ `faq_admission` hoặc `internal_policy`.</small>
+                    </div>
+                    <div class="field-stack" style="margin-bottom:10px;">
+                        <label for="newKbAccessLevel">Access Level</label>
+                        <select id="newKbAccessLevel" title="Choose whether this KB is public, internal-only, or admin-only.">
+                            <option value="public">Public</option>
+                            <option value="internal">Internal</option>
+                            <option value="admin">Admin Only</option>
+                        </select>
+                        <small>`Public` cho mọi người, `Internal` cho nhân sự nội bộ, `Admin Only` chỉ cho quản trị viên.</small>
+                    </div>
+                    <div class="field-stack" style="margin-bottom:10px;">
+                        <label for="newKbDescription">Description</label>
+                        <textarea id="newKbDescription" placeholder="Short description" title="Short explanation of what this Knowledge Base contains."></textarea>
+                        <small>Mô tả ngắn nội dung KB để admin dễ nhận biết phạm vi dữ liệu bên trong.</small>
+                    </div>
                     <div class="btn-row">
-                        <button class="btn-main" id="btnCreateKb">Create KB</button>
-                        <button class="btn-muted" id="btnRefreshAll">Refresh</button>
-                        <button class="btn-danger" id="btnClearCache">Clear Cache</button>
+                        <button class="btn-main" id="btnCreateKb" title="Create a new Knowledge Base using the form values above.">Create KB</button>
+                        <button class="btn-muted" id="btnRefreshAll" title="Reload KB data, file lists, and system panels.">Refresh</button>
+                        <button class="btn-danger" id="btnClearCache" title="Clear retrieval and runtime cache for fresh admin diagnostics.">Clear Cache</button>
                     </div>
                 </section>
 
                 <section class="card span-4">
-                    <h2>Upload To Selected KB</h2>
+                    <div class="section-head">
+                        <h2>Upload To Selected KB</h2>
+                        <p>Add source files to the shared library and attach them to the current Knowledge Base.</p>
+                    </div>
                     <div class="upload" id="uploadZone">
                         <input type="file" id="fileInput" multiple accept=".pdf,.txt,.md,.html,.htm,.csv,.xlsx,.xls,.docx,.json,.jsonl">
                         <strong>Drop files or click to upload</strong>
@@ -129,16 +198,30 @@
                 </section>
 
                 <section class="card span-4">
-                    <h2>Selected KB Actions</h2>
+                    <div class="section-head">
+                        <h2>Selected KB Actions</h2>
+                        <p>Run ingest or reindex jobs and update the access policy for the active KB.</p>
+                    </div>
                     <div class="btn-row">
-                        <button class="btn-main" id="btnIngestKb">Ingest Stale</button>
-                        <button class="btn-ok" id="btnReindexKb">Reindex All</button>
+                        <button class="btn-main" id="btnIngestKb" title="Ingest only files that are pending, failed, or stale in this KB.">Ingest Stale</button>
+                        <button class="btn-ok" id="btnReindexKb" title="Rebuild vectors for every file attached to this KB.">Reindex All</button>
+                    </div>
+                    <div class="row" style="margin-top:10px;">
+                        <select id="selectedKbAccessLevel" class="grow" title="Change the access level for the currently selected Knowledge Base.">
+                            <option value="public">Public</option>
+                            <option value="internal">Internal</option>
+                            <option value="admin">Admin Only</option>
+                        </select>
+                        <button class="btn-muted" id="btnSaveKbAccess" title="Save the selected access level for this Knowledge Base.">Save Access</button>
                     </div>
                     <div class="note">Ingest handles only attached files that are pending, failed, or stale. Reindex rebuilds all attached files.</div>
                 </section>
 
                 <section class="card span-7">
-                    <h2>Files In Selected KB</h2>
+                    <div class="section-head">
+                        <h2>Files In Selected KB</h2>
+                        <p>Review all files attached to the active KB and manage per-file ingest actions.</p>
+                    </div>
                     <div class="scroll">
                         <table class="table" id="kbFilesTable">
                             <thead><tr><th>ID</th><th>Name</th><th>KB Status</th><th>Source Status</th><th>Chunks</th><th>Actions</th></tr></thead>
@@ -148,7 +231,10 @@
                 </section>
 
                 <section class="card span-5">
-                    <h2>Source Library</h2>
+                    <div class="section-head">
+                        <h2>Source Library</h2>
+                        <p>Browse uploaded files that can be attached to one or more Knowledge Bases.</p>
+                    </div>
                     <div class="scroll">
                         <table class="table" id="libraryTable">
                             <thead><tr><th>ID</th><th>Name</th><th>Status</th><th>Rows/Pages</th><th>Actions</th></tr></thead>
@@ -162,10 +248,13 @@
         <div id="view-calibrate" class="view">
             <div class="grid">
                 <section class="card span-12">
-                    <h2>Test Retrieval In Selected KB</h2>
+                    <div class="section-head">
+                        <h2>Test Retrieval In Selected KB</h2>
+                        <p>Run a manual query to inspect retrieval ranking, language, and snippet quality.</p>
+                    </div>
                     <div class="row">
-                        <input id="calibQuery" class="grow" type="text" placeholder="Type a test query...">
-                        <button class="btn-main" id="btnCalib">Run Search</button>
+                        <input id="calibQuery" class="grow" type="text" placeholder="Type a test query..." title="Enter a sample question to test how retrieval behaves for the selected KB.">
+                        <button class="btn-main" id="btnCalib" title="Run a retrieval test against the selected Knowledge Base.">Run Search</button>
                     </div>
                     <div id="calibSummary" class="note" style="margin:10px 0;"></div>
                     <div class="scroll" style="max-height:500px;">
@@ -181,7 +270,10 @@
         <div id="view-sources" class="view">
             <div class="grid">
                 <section class="card span-12">
-                    <h2>Source Distribution In Selected KB</h2>
+                    <div class="section-head">
+                        <h2>Source Distribution In Selected KB</h2>
+                        <p>Inspect how the selected KB is composed across files, chunks, and language mix.</p>
+                    </div>
                     <div class="scroll">
                         <table class="table" id="sourcesTable">
                             <thead><tr><th>Filename</th><th>Chunks</th><th>VI %</th><th>EN %</th><th>Other %</th></tr></thead>
@@ -195,7 +287,10 @@
         <div id="view-ops" class="view">
             <div class="grid">
                 <section class="card span-6">
-                    <h2>Recent Chat Logs</h2>
+                    <div class="section-head">
+                        <h2>Recent Chat Logs</h2>
+                        <p>Review recent end-user prompts, routing modes, and latency for operational debugging.</p>
+                    </div>
                     <div class="scroll">
                         <table class="table" id="logsTable">
                             <thead><tr><th>Time</th><th>Mode</th><th>Score</th><th>Latency</th><th>Question</th></tr></thead>
@@ -204,7 +299,22 @@
                     </div>
                 </section>
                 <section class="card span-6">
-                    <h2>Runtime System</h2>
+                    <div class="section-head">
+                        <h2>Authorization Audit</h2>
+                        <p>Inspect recent allow and deny decisions across admin routes, KB access, and tool execution.</p>
+                    </div>
+                    <div class="scroll">
+                        <table class="table" id="authAuditTable">
+                            <thead><tr><th>Time</th><th>Decision</th><th>Resource</th><th>Actor</th><th>Reason</th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+                <section class="card span-12">
+                    <div class="section-head">
+                        <h2>Runtime System</h2>
+                        <p>See the selected KB payload and active runtime configuration returned by the backend.</p>
+                    </div>
                     <div class="scroll"><pre class="mono" id="systemDump" style="margin:0;"></pre></div>
                 </section>
             </div>
@@ -217,6 +327,41 @@
         let kbFiles = [];
         let libraryFiles = [];
 
+        function loadAdminAuth() {
+            const stored = JSON.parse(localStorage.getItem('campusrag_admin_auth') || '{}');
+            return {
+                userId: stored.userId || 'admin-1',
+                roles: stored.roles || 'admin',
+                channel: stored.channel || 'admin',
+            };
+        }
+
+        function saveAdminAuth() {
+            const auth = {
+                userId: document.getElementById('authUserId').value.trim() || 'admin-1',
+                roles: document.getElementById('authRoles').value.trim() || 'admin',
+                channel: document.getElementById('authChannel').value.trim() || 'admin',
+            };
+            localStorage.setItem('campusrag_admin_auth', JSON.stringify(auth));
+            return auth;
+        }
+
+        function applyAdminAuthInputs() {
+            const auth = loadAdminAuth();
+            document.getElementById('authUserId').value = auth.userId;
+            document.getElementById('authRoles').value = auth.roles;
+            document.getElementById('authChannel').value = auth.channel;
+        }
+
+        function buildAuthHeaders(extraHeaders = {}) {
+            const auth = loadAdminAuth();
+            const headers = new Headers(extraHeaders);
+            if (auth.userId) headers.set('X-User-Id', auth.userId);
+            if (auth.roles) headers.set('X-Roles', auth.roles);
+            if (auth.channel) headers.set('X-Channel', auth.channel);
+            return headers;
+        }
+
         function toast(msg, ok = true) {
             const node = document.createElement('div');
             node.className = `toast ${ok ? 'ok' : 'err'}`;
@@ -226,7 +371,9 @@
         }
 
         async function fetchJson(url, options) {
-            const res = await fetch(url, options);
+            const opts = { ...(options || {}) };
+            opts.headers = buildAuthHeaders(options?.headers || {});
+            const res = await fetch(url, opts);
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
             return data;
@@ -239,9 +386,11 @@
         function updateKbHeader() {
             document.getElementById('kbKeyLabel').textContent = activeKb?.key || '-';
             document.getElementById('kbStatusLabel').textContent = activeKb?.status || '-';
+            document.getElementById('kbAccessLabel').textContent = activeKb?.access_level || '-';
             document.getElementById('kbDefaultLabel').textContent = activeKb?.is_default ? 'Yes' : 'No';
             document.getElementById('kbDescription').textContent = activeKb?.description || 'No description.';
             document.getElementById('s-kb-version').textContent = activeKb?.kb_version || '-';
+            document.getElementById('selectedKbAccessLevel').value = activeKb?.access_level || 'public';
         }
 
         async function loadKnowledgeBases(preferredId = null) {
@@ -251,7 +400,8 @@
             for (const kb of items) {
                 const option = document.createElement('option');
                 option.value = String(kb.id);
-                option.textContent = kb.is_default ? `${kb.name} (Default)` : kb.name;
+                const accessTag = kb.access_level ? ` [${kb.access_level}]` : '';
+                option.textContent = kb.is_default ? `${kb.name}${accessTag} (Default)` : `${kb.name}${accessTag}`;
                 select.appendChild(option);
             }
             activeKb = items.find((item) => preferredId && Number(item.id) === Number(preferredId))
@@ -351,10 +501,34 @@
             `).join('');
         }
 
+        async function refreshAuthAudit() {
+            const items = await fetchJson('/api/admin/auth-audit-logs?limit=50');
+            const tbody = document.querySelector('#authAuditTable tbody');
+            if (!items.length) {
+                tbody.innerHTML = '<tr><td colspan="5">No authorization audit logs yet.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = items.map((item) => {
+                const resource = [item.resource_type || '-', item.resource_id || '-'].join(' / ');
+                const actor = item.user_id
+                    ? `${item.user_id}${(item.roles || []).length ? ` (${item.roles.join(',')})` : ''}`
+                    : 'anonymous';
+                return `
+                    <tr>
+                        <td>${item.created_at || '-'}</td>
+                        <td><span class="status ${item.decision === 'allow' ? 'done' : 'failed'}">${item.decision || '-'}</span></td>
+                        <td>${resource}</td>
+                        <td>${actor}</td>
+                        <td>${item.reason || '-'}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
         async function refreshAll(preferredKbId = null) {
             await loadKnowledgeBases(preferredKbId);
             if (!selectedKbId()) return;
-            await Promise.all([refreshStatsAndSystem(), refreshKbFiles(), refreshLogs(), refreshSources()]);
+            await Promise.all([refreshStatsAndSystem(), refreshKbFiles(), refreshLogs(), refreshAuthAudit(), refreshSources()]);
             await refreshLibrary();
             renderJobSummary();
         }
@@ -383,6 +557,12 @@
             check();
         }
 
+        function explainAuthError(err) {
+            return err.message === 'Admin role required'
+                ? 'Thiếu quyền admin. Kiểm tra lại X-User-Id / X-Roles / X-Channel ở thanh Auth.'
+                : err.message;
+        }
+
         async function handleUpload(files) {
             if (!selectedKbId()) return toast('Select a Knowledge Base first.', false);
             for (const file of files) {
@@ -395,7 +575,7 @@
                     }
                     toast(`Uploaded: ${file.name}`);
                 } catch (err) {
-                    toast(`Upload failed: ${file.name} (${err.message})`, false);
+                    toast(`Upload failed: ${file.name} (${explainAuthError(err)})`, false);
                 }
             }
             await refreshAll(selectedKbId());
@@ -425,14 +605,28 @@
         async function createKb() {
             const name = document.getElementById('newKbName').value.trim();
             const key = document.getElementById('newKbKey').value.trim();
+            const accessLevel = document.getElementById('newKbAccessLevel').value;
             const description = document.getElementById('newKbDescription').value.trim();
             if (!name || !key) return toast('KB name and key are required.', false);
-            const created = await fetchJson('/api/kbs', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ name, key, description: description || null }) });
+            const created = await fetchJson('/api/kbs', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ name, key, access_level: accessLevel, description: description || null }) });
             document.getElementById('newKbName').value = '';
             document.getElementById('newKbKey').value = '';
+            document.getElementById('newKbAccessLevel').value = 'public';
             document.getElementById('newKbDescription').value = '';
             toast(`Created KB: ${created.name}`);
             await refreshAll(created.id);
+        }
+
+        async function saveKbAccessLevel() {
+            if (!selectedKbId()) return;
+            const accessLevel = document.getElementById('selectedKbAccessLevel').value;
+            await fetchJson(`/api/kbs/${selectedKbId()}`, {
+                method:'PATCH',
+                headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({ access_level: accessLevel }),
+            });
+            toast(`KB access updated to ${accessLevel}`);
+            await refreshAll(selectedKbId());
         }
 
         async function setDefaultKb() {
@@ -498,29 +692,35 @@
             await refreshAll(selectedKbId());
         }
 
-        document.getElementById('kbSelect').addEventListener('change', (e) => refreshAll(Number(e.target.value)).catch((err) => toast(err.message, false)));
-        document.getElementById('btnCreateKb').addEventListener('click', () => createKb().catch((e) => toast(e.message, false)));
-        document.getElementById('btnRefreshAll').addEventListener('click', () => refreshAll(selectedKbId()).catch((e) => toast(e.message, false)));
-        document.getElementById('btnClearCache').addEventListener('click', () => clearCache().catch((e) => toast(e.message, false)));
-        document.getElementById('btnIngestKb').addEventListener('click', () => ingestKb().catch((e) => toast(e.message, false)));
-        document.getElementById('btnReindexKb').addEventListener('click', () => reindexKb().catch((e) => toast(e.message, false)));
-        document.getElementById('btnSetDefault').addEventListener('click', () => setDefaultKb().catch((e) => toast(e.message, false)));
-        document.getElementById('btnDeleteKb').addEventListener('click', () => deleteKb().catch((e) => toast(e.message, false)));
-        document.getElementById('btnCalib').addEventListener('click', () => runCalibrate());
+        document.getElementById('kbSelect').addEventListener('change', (e) => refreshAll(Number(e.target.value)).catch((err) => toast(explainAuthError(err), false)));
+        document.getElementById('btnCreateKb').addEventListener('click', () => createKb().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnRefreshAll').addEventListener('click', () => refreshAll(selectedKbId()).catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnClearCache').addEventListener('click', () => clearCache().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnIngestKb').addEventListener('click', () => ingestKb().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnReindexKb').addEventListener('click', () => reindexKb().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnSetDefault').addEventListener('click', () => setDefaultKb().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnSaveKbAccess').addEventListener('click', () => saveKbAccessLevel().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnDeleteKb').addEventListener('click', () => deleteKb().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnCalib').addEventListener('click', () => runCalibrate().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnSaveAuth').addEventListener('click', () => {
+            saveAdminAuth();
+            toast('Saved admin auth headers');
+            refreshAll(selectedKbId()).catch((e) => toast(explainAuthError(e), false));
+        });
         document.getElementById('calibQuery').addEventListener('keypress', (e) => { if (e.key === 'Enter') runCalibrate(); });
 
         document.querySelector('#kbFilesTable tbody').addEventListener('click', (event) => {
             const ingestBtn = event.target.closest('[data-kb-ingest]');
-            if (ingestBtn) return ingestOne(Number(ingestBtn.dataset.kbIngest)).catch((e) => toast(e.message, false));
+            if (ingestBtn) return ingestOne(Number(ingestBtn.dataset.kbIngest)).catch((e) => toast(explainAuthError(e), false));
             const detachBtn = event.target.closest('[data-detach]');
-            if (detachBtn) return detachFile(Number(detachBtn.dataset.detach)).catch((e) => toast(e.message, false));
+            if (detachBtn) return detachFile(Number(detachBtn.dataset.detach)).catch((e) => toast(explainAuthError(e), false));
         });
 
         document.querySelector('#libraryTable tbody').addEventListener('click', (event) => {
             const attachBtn = event.target.closest('[data-attach]');
-            if (attachBtn) return attachFile(Number(attachBtn.dataset.attach)).catch((e) => toast(e.message, false));
+            if (attachBtn) return attachFile(Number(attachBtn.dataset.attach)).catch((e) => toast(explainAuthError(e), false));
             const delBtn = event.target.closest('[data-del]');
-            if (delBtn) return deleteFile(Number(delBtn.dataset.del)).catch((e) => toast(e.message, false));
+            if (delBtn) return deleteFile(Number(delBtn.dataset.del)).catch((e) => toast(explainAuthError(e), false));
         });
 
         const uploadZone = document.getElementById('uploadZone');
@@ -530,10 +730,10 @@
         uploadZone.addEventListener('drop', (event) => {
             event.preventDefault();
             uploadZone.classList.remove('drag');
-            handleUpload(event.dataTransfer.files).catch((e) => toast(e.message, false));
+            handleUpload(event.dataTransfer.files).catch((e) => toast(explainAuthError(e), false));
         });
         fileInput.addEventListener('change', () => {
-            handleUpload(fileInput.files).catch((e) => toast(e.message, false));
+            handleUpload(fileInput.files).catch((e) => toast(explainAuthError(e), false));
             fileInput.value = '';
         });
 
@@ -546,9 +746,11 @@
             });
         });
 
-        refreshAll().catch((e) => toast(e.message, false));
+        applyAdminAuthInputs();
+        refreshAll().catch((e) => toast(explainAuthError(e), false));
         setInterval(() => refreshStatsAndSystem().catch(() => {}), 15000);
         setInterval(() => refreshLogs().catch(() => {}), 12000);
+        setInterval(() => refreshAuthAudit().catch(() => {}), 12000);
     </script>
 </body>
 </html>

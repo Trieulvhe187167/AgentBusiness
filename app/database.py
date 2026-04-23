@@ -1,5 +1,11 @@
 """
 SQLite helpers, schema migrations, and bootstrap data.
+
+Schema ownership by phase:
+- Phase 0 / MVP core: uploads, ingest jobs, KB metadata, kb_files, chat logs
+- Phase 1+: request context, tool audit, slot memory
+- Phase 2+: support tickets
+- Phase 19+: external integration caches
 """
 
 from __future__ import annotations
@@ -15,6 +21,9 @@ from app.config import settings
 
 DB_PATH = str(settings.sqlite_path)
 
+# ---------------------------------------------------------------------------
+# Phase 0 / MVP core schema
+# ---------------------------------------------------------------------------
 _CORE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS uploaded_files (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -110,11 +119,17 @@ CREATE INDEX IF NOT EXISTS idx_kb_files_file_id ON kb_files(file_id);
 CREATE INDEX IF NOT EXISTS idx_kb_files_status ON kb_files(status);
 """
 
+# ---------------------------------------------------------------------------
+# Phase 0.5 / KB-scoped ingest
+# ---------------------------------------------------------------------------
 _INGEST_JOB_KB_SCHEMA = """
 ALTER TABLE ingest_jobs ADD COLUMN kb_id INTEGER;
 CREATE INDEX IF NOT EXISTS idx_ingest_jobs_kb_id ON ingest_jobs(kb_id);
 """
 
+# ---------------------------------------------------------------------------
+# Phase 1 / request context + audit
+# ---------------------------------------------------------------------------
 _PHASE1_CONTEXT_AND_AUDIT_SCHEMA = """
 ALTER TABLE chat_logs ADD COLUMN request_id TEXT;
 ALTER TABLE chat_logs ADD COLUMN user_id TEXT;
@@ -153,6 +168,9 @@ CREATE INDEX IF NOT EXISTS idx_tool_audit_logs_tool_call_id ON tool_audit_logs(t
 CREATE INDEX IF NOT EXISTS idx_tool_audit_logs_session_time ON tool_audit_logs(session_id, created_at DESC);
 """
 
+# ---------------------------------------------------------------------------
+# Phase 2 / support tooling
+# ---------------------------------------------------------------------------
 _PHASE2_SUPPORT_TICKETS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS support_tickets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -176,10 +194,16 @@ CREATE INDEX IF NOT EXISTS idx_support_tickets_user_id ON support_tickets(create
 CREATE INDEX IF NOT EXISTS idx_support_tickets_created_at ON support_tickets(created_at DESC);
 """
 
+# ---------------------------------------------------------------------------
+# Phase 5 / session memory
+# ---------------------------------------------------------------------------
 _PHASE5_SLOT_MEMORY_SCHEMA = """
 ALTER TABLE chat_sessions ADD COLUMN slots_json TEXT;
 """
 
+# ---------------------------------------------------------------------------
+# Phase 19 / external integration caches
+# ---------------------------------------------------------------------------
 _PHASE19_EXTERNAL_INTEGRATIONS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS order_status_cache (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -213,6 +237,97 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_game_online_cache_scope ON game_online_cac
 CREATE INDEX IF NOT EXISTS idx_game_online_cache_time ON game_online_cache(cached_at DESC);
 """
 
+# ---------------------------------------------------------------------------
+# Phase 22 / KB access levels
+# ---------------------------------------------------------------------------
+_PHASE22_KB_ACCESS_LEVEL_SCHEMA = """
+ALTER TABLE knowledge_bases ADD COLUMN access_level TEXT NOT NULL DEFAULT 'public';
+CREATE INDEX IF NOT EXISTS idx_knowledge_bases_access_level ON knowledge_bases(access_level);
+"""
+
+# ---------------------------------------------------------------------------
+# Phase 23 / KB tenant-org scope + file ACL metadata
+# ---------------------------------------------------------------------------
+_PHASE23_KB_SCOPE_SCHEMA = """
+ALTER TABLE knowledge_bases ADD COLUMN tenant_id TEXT;
+ALTER TABLE knowledge_bases ADD COLUMN org_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_knowledge_bases_tenant_id ON knowledge_bases(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_bases_org_id ON knowledge_bases(org_id);
+"""
+
+_PHASE23_FILE_ACL_SCHEMA = """
+ALTER TABLE uploaded_files ADD COLUMN access_level TEXT NOT NULL DEFAULT 'public';
+ALTER TABLE uploaded_files ADD COLUMN tenant_id TEXT;
+ALTER TABLE uploaded_files ADD COLUMN org_id TEXT;
+ALTER TABLE uploaded_files ADD COLUMN owner_user_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_uploaded_files_access_level ON uploaded_files(access_level);
+CREATE INDEX IF NOT EXISTS idx_uploaded_files_tenant_id ON uploaded_files(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_uploaded_files_org_id ON uploaded_files(org_id);
+CREATE INDEX IF NOT EXISTS idx_uploaded_files_owner_user_id ON uploaded_files(owner_user_id);
+"""
+
+# ---------------------------------------------------------------------------
+# Phase 24 / explicit ACL tables + order scope cache
+# ---------------------------------------------------------------------------
+_PHASE24_ACL_TABLES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS kb_acl (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kb_id INTEGER NOT NULL,
+    subject_type TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    permission TEXT NOT NULL DEFAULT 'read',
+    effect TEXT NOT NULL DEFAULT 'allow',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (kb_id, subject_type, subject_id, permission, effect),
+    FOREIGN KEY (kb_id) REFERENCES knowledge_bases(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_kb_acl_scope ON kb_acl(kb_id, subject_type, subject_id);
+
+CREATE TABLE IF NOT EXISTS document_acl (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_id INTEGER NOT NULL,
+    subject_type TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    permission TEXT NOT NULL DEFAULT 'read',
+    effect TEXT NOT NULL DEFAULT 'allow',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (file_id, subject_type, subject_id, permission, effect),
+    FOREIGN KEY (file_id) REFERENCES uploaded_files(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_document_acl_scope ON document_acl(file_id, subject_type, subject_id);
+"""
+
+_PHASE24_ORDER_SCOPE_SCHEMA = """
+ALTER TABLE order_status_cache ADD COLUMN tenant_id TEXT;
+ALTER TABLE order_status_cache ADD COLUMN org_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_order_status_cache_tenant_id ON order_status_cache(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_order_status_cache_org_id ON order_status_cache(org_id);
+"""
+
+# ---------------------------------------------------------------------------
+# Phase 25 / authorization audit
+# ---------------------------------------------------------------------------
+_PHASE25_AUTH_AUDIT_SCHEMA = """
+CREATE TABLE IF NOT EXISTS auth_audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    request_id TEXT,
+    user_id TEXT,
+    roles_json TEXT,
+    channel TEXT,
+    tenant_id TEXT,
+    org_id TEXT,
+    resource_type TEXT NOT NULL,
+    resource_id TEXT,
+    action TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    reason TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_auth_audit_logs_request_id ON auth_audit_logs(request_id);
+CREATE INDEX IF NOT EXISTS idx_auth_audit_logs_user_time ON auth_audit_logs(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_auth_audit_logs_resource ON auth_audit_logs(resource_type, resource_id, created_at DESC);
+"""
+
 MIGRATIONS: list[tuple[str, str]] = [
     ("001_core_schema", _CORE_SCHEMA),
     ("002_knowledge_bases", _KB_SCHEMA),
@@ -221,6 +336,12 @@ MIGRATIONS: list[tuple[str, str]] = [
     ("005_phase2_support_tickets", _PHASE2_SUPPORT_TICKETS_SCHEMA),
     ("006_phase5_slot_memory", _PHASE5_SLOT_MEMORY_SCHEMA),
     ("007_phase19_external_integrations", _PHASE19_EXTERNAL_INTEGRATIONS_SCHEMA),
+    ("008_phase22_kb_access_level", _PHASE22_KB_ACCESS_LEVEL_SCHEMA),
+    ("009_phase23_kb_scope", _PHASE23_KB_SCOPE_SCHEMA),
+    ("010_phase23_file_acl", _PHASE23_FILE_ACL_SCHEMA),
+    ("011_phase24_acl_tables", _PHASE24_ACL_TABLES_SCHEMA),
+    ("012_phase24_order_scope", _PHASE24_ORDER_SCOPE_SCHEMA),
+    ("013_phase25_auth_audit", _PHASE25_AUTH_AUDIT_SCHEMA),
 ]
 
 

@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 
 
 _ROLE_TOKEN_RE = re.compile(r"[^a-z0-9:_-]+")
+_ACCESS_LEVEL_ALLOWED = {"public", "internal", "admin"}
 
 
 def _normalize_optional_text(value: str | None) -> str | None:
@@ -40,6 +41,13 @@ def _normalize_roles(raw_roles: object) -> list[str]:
             continue
         seen.add(role)
         normalized.append(role)
+    return normalized
+
+
+def _normalize_access_level(value: object) -> str:
+    normalized = (_normalize_optional_text(str(value) if value is not None else None) or "public").lower()
+    if normalized not in _ACCESS_LEVEL_ALLOWED:
+        raise ValueError(f"Invalid access_level. Allowed: {sorted(_ACCESS_LEVEL_ALLOWED)}")
     return normalized
 
 
@@ -84,6 +92,19 @@ class KnowledgeBaseCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=160)
     description: str | None = Field(default=None, max_length=1000)
     is_default: bool = False
+    access_level: str = Field(default="public", min_length=1, max_length=40)
+    tenant_id: str | None = Field(default=None, min_length=1, max_length=120)
+    org_id: str | None = Field(default=None, min_length=1, max_length=120)
+
+    @field_validator("access_level", mode="before")
+    @classmethod
+    def _normalize_kb_access_level(cls, value):
+        return _normalize_access_level(value)
+
+    @field_validator("tenant_id", "org_id", mode="before")
+    @classmethod
+    def _normalize_kb_scope_fields(cls, value):
+        return _normalize_optional_text(value)
 
 
 class KnowledgeBaseUpdate(BaseModel):
@@ -92,6 +113,21 @@ class KnowledgeBaseUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=1000)
     status: str | None = Field(default=None, max_length=40)
     is_default: bool | None = None
+    access_level: str | None = Field(default=None, min_length=1, max_length=40)
+    tenant_id: str | None = Field(default=None, min_length=1, max_length=120)
+    org_id: str | None = Field(default=None, min_length=1, max_length=120)
+
+    @field_validator("access_level", mode="before")
+    @classmethod
+    def _normalize_optional_kb_access_level(cls, value):
+        if value is None:
+            return None
+        return _normalize_access_level(value)
+
+    @field_validator("tenant_id", "org_id", mode="before")
+    @classmethod
+    def _normalize_optional_kb_scope_fields(cls, value):
+        return _normalize_optional_text(value)
 
 
 class KnowledgeBaseSummary(BaseModel):
@@ -100,6 +136,9 @@ class KnowledgeBaseSummary(BaseModel):
     name: str
     description: str | None = None
     status: str
+    access_level: str = "public"
+    tenant_id: str | None = None
+    org_id: str | None = None
     is_default: bool
     kb_version: str
     file_count: int = 0
@@ -124,6 +163,10 @@ class KBFileSummary(BaseModel):
     file_size: int
     file_hash: str
     upload_status: str
+    access_level: str = "public"
+    tenant_id: str | None = None
+    org_id: str | None = None
+    owner_user_id: str | None = None
     kb_status: str
     chunk_count: int = 0
     ingest_signature: str | None = None
@@ -141,6 +184,10 @@ class FileInfo(BaseModel):
     file_size: int
     file_hash: str
     status: str
+    access_level: str = "public"
+    tenant_id: str | None = None
+    org_id: str | None = None
+    owner_user_id: str | None = None
     parser_type: str | None = None
     pages_or_rows: int | None = None
     ingested_at: str | None = None
@@ -321,6 +368,33 @@ class ToolAuditLogItem(BaseModel):
     latency_ms: int | None = None
     error_message: str | None = None
     created_at: str
+
+
+class AuthAuditLogItem(BaseModel):
+    id: int
+    request_id: str | None = None
+    user_id: str | None = None
+    roles: list[str] = Field(default_factory=list)
+    channel: str | None = None
+    tenant_id: str | None = None
+    org_id: str | None = None
+    resource_type: str
+    resource_id: str | None = None
+    action: str
+    decision: str
+    reason: str | None = None
+    created_at: str
+
+
+class CurrentUserProfile(BaseModel):
+    authenticated: bool
+    auth_mode: str
+    debug_auth_inputs_enabled: bool
+    user_id: str | None = None
+    roles: list[str] = Field(default_factory=list)
+    channel: str = "web"
+    tenant_id: str | None = None
+    org_id: str | None = None
 
 
 class SystemRuntime(BaseModel):

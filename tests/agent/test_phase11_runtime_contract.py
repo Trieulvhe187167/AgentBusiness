@@ -13,6 +13,7 @@ def test_system_info_reports_phase0_runtime_contract(monkeypatch: pytest.MonkeyP
     configure_test_env(tmp_path, monkeypatch)
     monkeypatch.setattr(settings, "llm_provider", "openai_compatible")
     monkeypatch.setattr(settings, "llm_model", "Qwen/Qwen3-4B-Instruct-2507")
+    monkeypatch.setattr(settings, "agent_brain_mode", "hybrid")
 
     request = SimpleNamespace(
         app=SimpleNamespace(
@@ -24,6 +25,7 @@ def test_system_info_reports_phase0_runtime_contract(monkeypatch: pytest.MonkeyP
 
     assert system["agent_runtime"] == {
         "serving_stack": "vllm",
+        "brain_mode": "hybrid",
         "tool_protocol": "manual_json",
         "native_tool_calling": False,
         "tool_choice_mode": "auto",

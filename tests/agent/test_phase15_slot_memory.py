@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from tests.conftest import (
     add_vector,
     attach_file,
+    auth_headers,
     fetch_default_kb,
     insert_file,
     isolated_client,
@@ -44,7 +45,7 @@ def test_slot_memory_resumes_pending_support_ticket(isolated_client: TestClient)
         "/api/chat",
         json={
             "session_id": session_id,
-            "message": "Tao ticket giao hang giup toi",
+            "message": "Tạo ticket giao hàng giúp tôi",
             "lang": "vi",
         },
     )
@@ -90,7 +91,7 @@ def test_slot_memory_answers_recent_ticket_reference(isolated_client: TestClient
         "/api/chat",
         json={
             "session_id": session_id,
-            "message": "Tao ticket giao hang, lien he user@example.com",
+            "message": "Tạo ticket giao hàng, liên hệ user@example.com",
             "lang": "vi",
         },
     )
@@ -104,7 +105,7 @@ def test_slot_memory_answers_recent_ticket_reference(isolated_client: TestClient
         "/api/chat",
         json={
             "session_id": session_id,
-            "message": "Ma ticket vua tao la gi?",
+            "message": "Mã ticket vừa tạo là gì?",
             "lang": "vi",
         },
     )
@@ -116,16 +117,16 @@ def test_slot_memory_answers_recent_ticket_reference(isolated_client: TestClient
 def test_slot_memory_reuses_last_kb_for_follow_up_stats(isolated_client: TestClient):
     session_id = "phase15-kb-memory"
     kb_id = _seed_default_kb_with_vectors()
+    admin = auth_headers(user_id="admin-1", roles=["admin"])
 
     first = isolated_client.post(
         "/api/chat",
+        headers=admin,
         json={
             "session_id": session_id,
             "message": "kb stats",
             "lang": "en",
             "kb_id": kb_id,
-            "user_id": "admin-1",
-            "roles": ["admin"],
         },
     )
     assert first.status_code == 200, first.text
@@ -133,12 +134,11 @@ def test_slot_memory_reuses_last_kb_for_follow_up_stats(isolated_client: TestCli
 
     second = isolated_client.post(
         "/api/chat",
+        headers=admin,
         json={
             "session_id": session_id,
             "message": "how many vectors?",
             "lang": "en",
-            "user_id": "admin-1",
-            "roles": ["admin"],
         },
     )
     assert second.status_code == 200, second.text

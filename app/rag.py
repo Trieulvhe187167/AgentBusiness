@@ -20,8 +20,10 @@ from app.cache import (
     set_cached_retrieval,
 )
 from app.config import settings
+from app.conversation_memory import build_conversation_context, load_recent_turns, resolve_followup_query
 from app.database import execute_sync, fetch_all_sync, fetch_one_sync, utcnow_iso
 from app.embeddings import embed_query, using_hashing_fallback
+from app.kb_service import ensure_kb_access, normalize_kb_key
 from app.lang import detect_language
 from app.llm_client import active_provider_name, generate_stream, is_llm_ready
 from app.models import Citation, RequestContext
@@ -152,11 +154,16 @@ FALLBACK_TEXT = {
 _NUMBER_RE = re.compile(r"\b\d[\d,\.\s]*\d|\b\d\b")
 
 
-def _resolve_kb_scope(kb_id: int | None = None, kb_key: str | None = None) -> dict[str, Any]:
+def _resolve_kb_scope(
+    kb_id: int | None = None,
+    kb_key: str | None = None,
+    *,
+    auth_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if kb_id is not None:
         row = fetch_one_sync(
             """
-            SELECT id, key, name, kb_version, is_default
+            SELECT id, key, name, kb_version, is_default, access_level, tenant_id, org_id
             FROM knowledge_bases
             WHERE id = ?
             """,
@@ -165,16 +172,16 @@ def _resolve_kb_scope(kb_id: int | None = None, kb_key: str | None = None) -> di
     elif kb_key:
         row = fetch_one_sync(
             """
-            SELECT id, key, name, kb_version, is_default
+            SELECT id, key, name, kb_version, is_default, access_level, tenant_id, org_id
             FROM knowledge_bases
             WHERE key = ?
             """,
-            (kb_key.strip().lower(),),
+            (normalize_kb_key(kb_key),),
         )
     else:
         row = fetch_one_sync(
             """
-            SELECT id, key, name, kb_version, is_default
+            SELECT id, key, name, kb_version, is_default, access_level, tenant_id, org_id
             FROM knowledge_bases
             WHERE is_default = 1
             LIMIT 1
@@ -184,6 +191,8 @@ def _resolve_kb_scope(kb_id: int | None = None, kb_key: str | None = None) -> di
     if not row:
         target = f"id={kb_id}" if kb_id is not None else f"key={kb_key}" if kb_key else "default"
         raise ValueError(f"Knowledge Base not found for {target}")
+    if auth_context is not None:
+        ensure_kb_access(row, auth_context)
 
     return {
         "id": int(row["id"]),
@@ -191,6 +200,9 @@ def _resolve_kb_scope(kb_id: int | None = None, kb_key: str | None = None) -> di
         "name": row["name"],
         "kb_version": row["kb_version"],
         "is_default": bool(row.get("is_default")),
+        "access_level": str(row.get("access_level") or "public"),
+        "tenant_id": row.get("tenant_id"),
+        "org_id": row.get("org_id"),
     }
 
 
@@ -287,6 +299,42 @@ def _extractive_answer(results: list[dict[str, Any]], lang: str) -> str:
     return "\n".join(parts).strip()
 
 
+def _llm_failure_note(lang: str) -> str:
+    if lang == "vi":
+        return "\n\n[He thong da chuyen sang tra loi tu trich dan do LLM tam thoi cham/khong san sang.]"
+    return "\n\n[Switched to citation-based answer because the LLM is temporarily slow or unavailable.]"
+
+
+def _stream_llm_with_extract_fallback(
+    *,
+    full_prompt: str,
+    results: list[dict[str, Any]],
+    lang: str,
+) -> tuple[str, bool]:
+    generated_parts: list[str] = []
+    try:
+        for token in generate_stream(full_prompt, system_prompt=SYSTEM_PROMPT):
+            generated_parts.append(token)
+            yield {"event": "token", "data": {"text": token}}
+    except Exception as err:
+        logger.warning("LLM generation failed, falling back to extractive answer: %s", err)
+        extractive = _extractive_answer(results, lang)
+        if generated_parts:
+            fallback_text = _llm_failure_note(lang) + "\n" + extractive
+            yield {"event": "token", "data": {"text": fallback_text}}
+            return "".join(generated_parts).strip() + fallback_text, False
+        yield {"event": "token", "data": {"text": extractive}}
+        return extractive, False
+
+    answer_text = "".join(generated_parts).strip()
+    if _answer_has_hallucinated_numbers(answer_text, _context_for_llm(results)):
+        logger.warning("Guardrail triggered: falling back to extractive answer")
+        corrected = _extractive_answer(results, lang)
+        yield {"event": "token", "data": {"text": "\n[corrected]\n" + corrected}}
+        return corrected, False
+    return answer_text, True
+
+
 def _fallback_text(results: list[dict[str, Any]], lang: str) -> str:
     """If partial results exist, surface the best chunk. Otherwise explain what's available."""
     # Try to give partial answer from available chunks
@@ -342,41 +390,11 @@ def _context_for_llm(results: list[dict[str, Any]]) -> str:
 
 def _load_recent_turns(session_id: str, n: int = 3) -> list[dict[str, Any]]:
     """Fetch the last n chat turns for the session."""
-    try:
-        rows = fetch_all_sync(
-            """
-            SELECT user_message, answer_text, mode FROM chat_logs
-            WHERE session_id = ?
-            ORDER BY created_at DESC
-            LIMIT ?
-            """,
-            (session_id, n),
-        )
-        return list(reversed(rows))  # chronological order
-    except Exception:
-        return []
+    return load_recent_turns(session_id, limit=n)
 
 
 def _build_memory_summary(turns: list[dict[str, Any]]) -> str:
-    """
-    Build a 1-2 line rule-based context summary from recent turns.
-    Extracts key nouns, categories, and entities without calling an LLM.
-    """
-    if not turns:
-        return ""
-
-    snippets = []
-    for turn in turns[-2:]:  # last 2 turns at most
-        q = (turn.get("user_message") or "").strip()[:80]
-        a = _extract_clean_text(turn.get("answer_text") or "")[:120]
-        if q:
-            snippets.append(f"Q: {q}")
-        if a:
-            snippets.append(f"A: {a}")
-
-    if not snippets:
-        return ""
-    return "Recent conversation context:\n" + "\n".join(snippets)
+    return build_conversation_context(turns)
 
 
 # ── Numeric guardrail ─────────────────────────────────────────────────────────
@@ -566,14 +584,22 @@ def retrieve(
     *,
     kb_id: int | None = None,
     kb_key: str | None = None,
+    auth_context: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Multi-query retrieval: query original + expanded variants.
     Results are merged, deduplicated, filtered by min_similarity, and reranked.
     """
     k = top_k or settings.top_k
-    kb_scope = _resolve_kb_scope(kb_id=kb_id, kb_key=kb_key)
-    where = {"kb_id": kb_scope["id"]}
+    kb_scope = _resolve_kb_scope(kb_id=kb_id, kb_key=kb_key, auth_context=auth_context)
+    where = {
+        "kb_id": kb_scope["id"],
+        "access_level": kb_scope["access_level"],
+    }
+    if kb_scope.get("tenant_id"):
+        where["tenant_id"] = kb_scope["tenant_id"]
+    if kb_scope.get("org_id"):
+        where["org_id"] = kb_scope["org_id"]
     cache_scope = _build_retrieval_scope(kb_scope, k, where=where)
     variants = expand_query(query)
 
@@ -627,9 +653,11 @@ def rag_stream(
     sid = session_id or uuid.uuid4().hex
 
     merged_query = user_query
+    prompt_query = user_query
     followup = False
     scoped_sid = sid
     context = _coerce_request_context(request_context)
+    recent_turns: list[dict[str, Any]] = []
 
     llm_provider = active_provider_name()
     mode = "fallback"
@@ -638,16 +666,22 @@ def rag_stream(
     citations: list[dict[str, Any]] = []
 
     try:
-        kb_scope = _resolve_kb_scope(kb_id=kb_id, kb_key=kb_key)
+        kb_scope = _resolve_kb_scope(kb_id=kb_id, kb_key=kb_key, auth_context=context.get("auth"))
         context["kb_id"] = kb_scope["id"]
         context["kb_key"] = kb_scope["key"]
         scoped_sid = _scoped_session_id(sid, kb_scope["id"])
         pending = _load_pending_session(scoped_sid)
+        recent_turns = _load_recent_turns(scoped_sid, n=settings.conversation_memory_turn_limit)
         if pending and pending.get("pending_clarify_query"):
             merged_query = f"{pending['pending_clarify_query']} | {user_query}"
+            prompt_query = merged_query
             followup = True
+        else:
+            merged_query, resolution_reason = resolve_followup_query(user_query, recent_turns)
+            if resolution_reason:
+                logger.debug("Resolved follow-up query for session %s using recent history", scoped_sid)
 
-        results = retrieve(merged_query, kb_id=kb_scope["id"])
+        results = retrieve(merged_query, kb_id=kb_scope["id"], auth_context=context.get("auth"))
         results = _apply_lang_boost(results, resolved_lang)
         top_score = float(results[0].get("similarity", 0.0)) if results else 0.0
 
@@ -680,25 +714,17 @@ def rag_stream(
                 llm_context = _context_for_llm(results)
 
                 # Build prompt with optional conversational memory
-                recent_turns = _load_recent_turns(scoped_sid)
                 memory = _build_memory_summary(recent_turns)
                 full_prompt = (
-                    f"{memory}\n\n{CONTEXT_TEMPLATE.format(context=llm_context, question=merged_query)}"
+                    f"{memory}\n\n{CONTEXT_TEMPLATE.format(context=llm_context, question=prompt_query)}"
                     if memory
-                    else CONTEXT_TEMPLATE.format(context=llm_context, question=merged_query)
+                    else CONTEXT_TEMPLATE.format(context=llm_context, question=prompt_query)
                 )
-
-                generated_parts = []
-                for token in generate_stream(full_prompt, system_prompt=SYSTEM_PROMPT):
-                    generated_parts.append(token)
-                    yield {"event": "token", "data": {"text": token}}
-                answer_text = "".join(generated_parts).strip()
-
-                # Numeric guardrail: if LLM hallucinated numbers → fallback extractive
-                if _answer_has_hallucinated_numbers(answer_text, llm_context):
-                    logger.warning("Guardrail triggered: falling back to extractive answer")
-                    answer_text = _extractive_answer(results, resolved_lang)
-                    yield {"event": "token", "data": {"text": "\n[corrected]\n" + answer_text}}
+                answer_text, use_llm = yield from _stream_llm_with_extract_fallback(
+                    full_prompt=full_prompt,
+                    results=results,
+                    lang=resolved_lang,
+                )
 
             else:
                 answer_text = _extractive_answer(results, resolved_lang)
@@ -716,19 +742,17 @@ def rag_stream(
             # If LLM is available, attempt an answer from partial results first, then invite clarification.
             use_llm = settings.normalized_answer_mode != "extractive" and is_llm_ready()
             if use_llm and results:
-                llm_context = _context_for_llm(results)
-                recent_turns = _load_recent_turns(scoped_sid)
                 memory = _build_memory_summary(recent_turns)
                 full_prompt = (
-                    f"{memory}\n\n{CONTEXT_TEMPLATE.format(context=llm_context, question=merged_query)}"
+                    f"{memory}\n\n{CONTEXT_TEMPLATE.format(context=_context_for_llm(results), question=prompt_query)}"
                     if memory
-                    else CONTEXT_TEMPLATE.format(context=llm_context, question=merged_query)
+                    else CONTEXT_TEMPLATE.format(context=_context_for_llm(results), question=prompt_query)
                 )
-                generated_parts = []
-                for token in generate_stream(full_prompt, system_prompt=SYSTEM_PROMPT):
-                    generated_parts.append(token)
-                    yield {"event": "token", "data": {"text": token}}
-                answer_text = "".join(generated_parts).strip()
+                answer_text, use_llm = yield from _stream_llm_with_extract_fallback(
+                    full_prompt=full_prompt,
+                    results=results,
+                    lang=resolved_lang,
+                )
 
                 # Append a soft clarification nudge
                 nudge = (

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import app.database as database
+import app.integrations.live_data as live_data
+from app.config import settings
 from fastapi.testclient import TestClient
 
-from tests.conftest import isolated_client
+from tests.conftest import auth_headers, configure_test_env, isolated_client, run
 
 
 def _seed_order(
@@ -15,8 +17,9 @@ def _seed_order(
     tracking_code: str | None = "TRACK-001",
     carrier: str | None = "GHN",
     source: str = "snapshot",
+    cached_at: str | None = None,
 ):
-    now = database.utcnow_iso()
+    now = cached_at or database.utcnow_iso()
     database.execute_sync(
         """
         INSERT INTO order_status_cache (
@@ -54,11 +57,11 @@ def test_chat_agent_suggests_recent_orders_for_signed_in_user(isolated_client: T
 
     chat = isolated_client.post(
         "/api/chat",
+        headers=auth_headers(user_id="user-1"),
         json={
             "session_id": "phase19-recent-orders",
             "message": "Don hang cua toi toi dau roi?",
             "lang": "vi",
-            "user_id": "user-1",
         },
     )
 
@@ -91,11 +94,11 @@ def test_chat_agent_returns_order_status_for_explicit_code(isolated_client: Test
 
     chat = isolated_client.post(
         "/api/chat",
+        headers=auth_headers(user_id="user-1"),
         json={
             "session_id": "phase19-order-status",
             "message": "Kiem tra don DH99999 giup toi",
             "lang": "vi",
-            "user_id": "user-1",
         },
     )
 
@@ -111,11 +114,11 @@ def test_chat_agent_blocks_access_to_other_users_order(isolated_client: TestClie
 
     chat = isolated_client.post(
         "/api/chat",
+        headers=auth_headers(user_id="user-1"),
         json={
             "session_id": "phase19-order-denied",
             "message": "Kiem tra don DH00077",
             "lang": "vi",
-            "user_id": "user-1",
         },
     )
 
@@ -141,3 +144,42 @@ def test_chat_agent_returns_online_member_count(isolated_client: TestClient):
     assert '"tool_name": "get_online_member_count"' in chat.text
     assert '"status": "success"' in chat.text
     assert "128" in chat.text
+
+
+def test_recent_orders_refreshes_stale_snapshot_when_api_is_configured(tmp_path, monkeypatch):
+    configure_test_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(settings, "order_api_base_url", "http://orders.test")
+    monkeypatch.setattr(settings, "order_api_recent_path", "/orders/recent")
+    monkeypatch.setattr(settings, "integration_cache_ttl_seconds", 60)
+
+    _seed_order(
+        "DH-STALE",
+        user_id="user-1",
+        status="cho_xac_nhan",
+        cached_at="2025-01-01T00:00:00+00:00",
+    )
+
+    async def fake_http_get_json(base_url: str, path: str, *, api_key: str, params: dict):
+        assert base_url == "http://orders.test"
+        assert path == "/orders/recent"
+        assert params == {"user_id": "user-1", "limit": 5}
+        return {
+            "orders": [
+                {
+                    "order_code": "DH-FRESH",
+                    "user_id": "user-1",
+                    "status": "dang_giao",
+                    "updated_at": "2026-03-20T10:00:00+00:00",
+                    "tracking_code": "TRACK-NEW",
+                    "carrier": "GHN",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(live_data, "_http_get_json", fake_http_get_json)
+
+    result = run(live_data.find_recent_orders("user-1", limit=5))
+
+    assert result["source"] == "api"
+    assert result["orders"][0]["order_code"] == "DH-FRESH"
+    assert result["orders"][0]["status"] == "dang_giao"

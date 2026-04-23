@@ -60,6 +60,9 @@ def test_registry_defines_phase2_tools(tmp_path, monkeypatch):
     assert definitions["find_recent_orders"].auth_policy["require_user_id"] is True
     assert definitions["get_online_member_count"].auth_policy["allow_anonymous"] is True
     assert definitions["list_kbs"].auth_policy["required_roles"] == ["admin"]
+    assert definitions["list_kbs"].auth_policy["allowed_channels"] == ["admin"]
+    assert definitions["list_kbs"].auth_policy["risk_level"] == "high"
+    assert definitions["get_order_status"].auth_policy["requires_tenant_match"] is True
     assert definitions["get_kb_stats"].auth_policy["required_roles"] == ["admin"]
 
 
@@ -128,6 +131,50 @@ def test_admin_tools_require_admin_role_and_return_data(tmp_path, monkeypatch):
     assert any(item["key"] == "default" for item in kb_list.output["items"])
     assert kb_stats.output["kb_id"] == default_kb.id
     assert kb_stats.output["total_vectors"] >= 1
+
+
+def test_admin_tools_require_admin_channel(tmp_path, monkeypatch):
+    configure_test_env(tmp_path, monkeypatch)
+    registry = build_default_tool_registry()
+
+    wrong_channel_context = RequestContext(
+        request_id="req-admin-web-channel",
+        auth=AuthContext(user_id="admin-1", roles=["admin"], channel="web"),
+    )
+
+    with pytest.raises(ToolAuthorizationError):
+        run(registry.execute("list_kbs", {}, request_context=wrong_channel_context))
+
+
+def test_order_tools_reject_tenant_scope_mismatch(tmp_path, monkeypatch):
+    configure_test_env(tmp_path, monkeypatch)
+    registry = build_default_tool_registry()
+
+    async def _fake_get_order_status(order_code: str, *, user_id: str | None = None):
+        return {
+            "order_code": order_code,
+            "user_id": user_id,
+            "tenant_id": "tenant-b",
+            "org_id": "org-b",
+            "status": "shipping",
+            "source": "api",
+        }
+
+    monkeypatch.setattr("app.tools.business_tools.get_order_status", _fake_get_order_status)
+
+    tenant_a_context = RequestContext(
+        request_id="req-order-tenant-a",
+        auth=AuthContext(user_id="cust-1", roles=["customer"], channel="web", tenant_id="tenant-a", org_id="org-a"),
+    )
+
+    with pytest.raises(ToolAuthorizationError):
+        run(
+            registry.execute(
+                "get_order_status",
+                {"order_code": "ORD-1"},
+                request_context=tenant_a_context,
+            )
+        )
 
 
 def test_create_support_ticket_persists_and_validates_contact(tmp_path, monkeypatch):

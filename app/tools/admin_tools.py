@@ -36,7 +36,7 @@ async def _list_kbs_tool(_: EmptyToolInput, __: RequestContext) -> dict[str, Any
             KB_SELECT
             + """
             GROUP BY
-                kb.id, kb.key, kb.name, kb.description, kb.status,
+                kb.id, kb.key, kb.name, kb.description, kb.status, kb.access_level, kb.tenant_id, kb.org_id,
                 kb.is_default, kb.kb_version, kb.created_at, kb.updated_at
             ORDER BY kb.is_default DESC, kb.created_at ASC
             """
@@ -54,7 +54,7 @@ async def _get_kb_stats_tool(payload: GetKBStatsInput, context: RequestContext) 
     target_kb_key = payload.kb_key or context.kb_key
     db = await open_db()
     try:
-        kb_scope = await resolve_kb_scope(db, kb_id=target_kb_id, kb_key=target_kb_key)
+        kb_scope = await resolve_kb_scope(db, kb_id=target_kb_id, kb_key=target_kb_key, auth_context=context.auth)
     finally:
         await db.close()
 
@@ -91,7 +91,12 @@ def build_list_kbs_tool() -> ToolSpec:
         description="List all Knowledge Bases with counts and current status.",
         input_model=EmptyToolInput,
         output_model=ListKBsOutput,
-        auth_policy=ToolAuthPolicy(required_roles=["admin"], scope="admin"),
+        auth_policy=ToolAuthPolicy(
+            required_roles=["admin"],
+            allowed_channels=["admin"],
+            risk_level="high",
+            scope="admin",
+        ),
         timeout_seconds=10,
         idempotent=True,
         handler=_list_kbs_tool,
@@ -105,7 +110,12 @@ def build_get_kb_stats_tool() -> ToolSpec:
         description="Return KB-level ingest and vector statistics for a selected Knowledge Base.",
         input_model=GetKBStatsInput,
         output_model=KBStats,
-        auth_policy=ToolAuthPolicy(required_roles=["admin"], scope="admin"),
+        auth_policy=ToolAuthPolicy(
+            required_roles=["admin"],
+            allowed_channels=["admin"],
+            risk_level="high",
+            scope="admin",
+        ),
         timeout_seconds=10,
         idempotent=True,
         handler=_get_kb_stats_tool,

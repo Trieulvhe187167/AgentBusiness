@@ -1,4 +1,4 @@
-﻿"""
+"""
 FastAPI application entrypoint.
 """
 
@@ -12,24 +12,29 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import AppStatus, EventSourceResponse
 
+from app.auth import get_request_auth, require_admin
 from app.config import settings
 from app.database import fetch_all, fetch_one, init_db
 from app.ingest import router as ingest_router
 from app.kb import router as kb_router
-from app.kb_service import open_db, resolve_kb_scope
+from app.kb_service import list_accessible_kbs, open_db, resolve_kb_scope
 from app.models import (
+    AuthAuditLogItem,
     CacheStats,
     ChatLogItem,
     ChatRequest,
+    CurrentUserProfile,
     DocumentSummary,
     HealthResponse,
+    KnowledgeBaseSummary,
     KBSource,
     KBStats,
+    RequestContext,
     SystemRuntime,
     ToolAuditLogItem,
 )
@@ -62,6 +67,19 @@ def _parse_roles_json(raw: str | None) -> list[str]:
     if not isinstance(parsed, list):
         return []
     return [str(item) for item in parsed if str(item).strip()]
+
+
+def _reject_body_auth_override_in_jwt_mode(req: ChatRequest) -> None:
+    if settings.normalized_auth_mode != "jwt":
+        return
+
+    forbidden_fields = {"user_id", "roles", "channel", "tenant_id", "org_id"}
+    supplied = sorted(field for field in req.model_fields_set if field in forbidden_fields)
+    if supplied:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Auth fields are not allowed in chat body when AUTH_MODE=jwt: {', '.join(supplied)}",
+        )
 
 
 @asynccontextmanager
@@ -215,11 +233,21 @@ async def health(request: Request):
 
 
 @app.post("/api/chat")
-async def chat(req: ChatRequest, request: Request):
+async def chat(
+    req: ChatRequest,
+    request: Request,
+    auth=Depends(get_request_auth),
+):
     from app.agent import agent_stream
 
-    request_context = req.build_request_context(
-        request_id=req.request_id or getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8]
+    _reject_body_auth_override_in_jwt_mode(req)
+
+    request_context = RequestContext(
+        request_id=req.request_id or getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+        session_id=req.resolved_session_id,
+        kb_id=req.kb_id,
+        kb_key=req.kb_key,
+        auth=auth,
     )
     AppStatus.should_exit = False
     AppStatus.should_exit_event = None
@@ -241,10 +269,38 @@ async def chat(req: ChatRequest, request: Request):
     return EventSourceResponse(event_generator())
 
 
+@app.get("/api/chat/kbs", response_model=list[KnowledgeBaseSummary])
+async def chat_visible_kbs(request: Request, auth=Depends(get_request_auth)):
+    db = await open_db()
+    try:
+        return await list_accessible_kbs(
+            db,
+            auth,
+            request_context={"request_id": getattr(request.state, "request_id", None), "auth": auth},
+        )
+    finally:
+        await db.close()
+
+
+@app.get("/api/me", response_model=CurrentUserProfile)
+async def current_user_profile(auth=Depends(get_request_auth)):
+    return CurrentUserProfile(
+        authenticated=bool(auth.user_id or auth.roles),
+        auth_mode=settings.normalized_auth_mode,
+        debug_auth_inputs_enabled=settings.normalized_auth_mode == "dev" and settings.allow_header_auth_in_dev,
+        user_id=auth.user_id,
+        roles=auth.roles,
+        channel=auth.channel,
+        tenant_id=auth.tenant_id,
+        org_id=auth.org_id,
+    )
+
+
 @app.get("/api/kb/stats", response_model=KBStats)
 async def kb_stats(
     kb_id: int | None = Query(default=None, ge=1),
     kb_key: str | None = Query(default=None),
+    _=Depends(require_admin),
 ):
     return await _build_stats_response(kb_id=kb_id, kb_key=kb_key)
 
@@ -253,6 +309,7 @@ async def kb_stats(
 async def kb_sources(
     kb_id: int | None = Query(default=None, ge=1),
     kb_key: str | None = Query(default=None),
+    _=Depends(require_admin),
 ):
     kb_scope = await _resolve_optional_kb_scope(kb_id=kb_id, kb_key=kb_key)
     if kb_scope:
@@ -299,6 +356,7 @@ async def kb_sources(
 async def api_sources_stats(
     kb_id: int | None = Query(default=None, ge=1),
     kb_key: str | None = Query(default=None),
+    _=Depends(require_admin),
 ):
     from app.vector_store import vector_store
 
@@ -309,7 +367,7 @@ async def api_sources_stats(
 
 
 @app.get("/api/documents", response_model=list[DocumentSummary])
-async def documents():
+async def documents(_=Depends(require_admin)):
     rows = await fetch_all("SELECT * FROM uploaded_files ORDER BY created_at DESC")
     docs = []
     for row in rows:
@@ -328,7 +386,10 @@ async def documents():
 
 
 @app.get("/api/admin/chat-logs", response_model=list[ChatLogItem])
-async def admin_chat_logs(limit: int = Query(default=settings.chat_log_limit_default, ge=1, le=500)):
+async def admin_chat_logs(
+    limit: int = Query(default=settings.chat_log_limit_default, ge=1, le=500),
+    _=Depends(require_admin),
+):
     rows = await fetch_all(
         """
         SELECT id, session_id, request_id, user_id, roles_json, channel,
@@ -366,7 +427,10 @@ async def admin_chat_logs(limit: int = Query(default=settings.chat_log_limit_def
 
 
 @app.get("/api/admin/tool-audit-logs", response_model=list[ToolAuditLogItem])
-async def admin_tool_audit_logs(limit: int = Query(default=settings.chat_log_limit_default, ge=1, le=500)):
+async def admin_tool_audit_logs(
+    limit: int = Query(default=settings.chat_log_limit_default, ge=1, le=500),
+    _=Depends(require_admin),
+):
     rows = await fetch_all(
         """
         SELECT id, tool_call_id, request_id, session_id, user_id, roles_json, channel,
@@ -404,15 +468,52 @@ async def admin_tool_audit_logs(limit: int = Query(default=settings.chat_log_lim
     ]
 
 
+@app.get("/api/admin/auth-audit-logs", response_model=list[AuthAuditLogItem])
+async def admin_auth_audit_logs(
+    limit: int = Query(default=settings.chat_log_limit_default, ge=1, le=500),
+    _=Depends(require_admin),
+):
+    rows = await fetch_all(
+        """
+        SELECT id, request_id, user_id, roles_json, channel,
+               tenant_id, org_id, resource_type, resource_id, action,
+               decision, reason, created_at
+        FROM auth_audit_logs
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+
+    return [
+        AuthAuditLogItem(
+            id=row["id"],
+            request_id=row.get("request_id"),
+            user_id=row.get("user_id"),
+            roles=_parse_roles_json(row.get("roles_json")),
+            channel=row.get("channel"),
+            tenant_id=row.get("tenant_id"),
+            org_id=row.get("org_id"),
+            resource_type=row.get("resource_type") or "",
+            resource_id=row.get("resource_id"),
+            action=row.get("action") or "",
+            decision=row.get("decision") or "",
+            reason=row.get("reason"),
+            created_at=row.get("created_at") or "",
+        )
+        for row in rows
+    ]
+
+
 @app.get("/api/admin/tools")
-async def admin_tools_registry():
+async def admin_tools_registry(_=Depends(require_admin)):
     from app.tools import tool_registry
 
     return [item.model_dump() for item in tool_registry.list_definitions()]
 
 
 @app.post("/api/cache/clear")
-async def cache_clear():
+async def cache_clear(_=Depends(require_admin)):
     from app.cache import clear_cache
 
     clear_cache()
@@ -420,7 +521,7 @@ async def cache_clear():
 
 
 @app.get("/api/cache/stats", response_model=CacheStats)
-async def cache_stats_endpoint():
+async def cache_stats_endpoint(_=Depends(require_admin)):
     from app.cache import get_stats
 
     stats = get_stats()
@@ -432,6 +533,7 @@ async def system_info(
     request: Request,
     kb_id: int | None = Query(default=None, ge=1),
     kb_key: str | None = Query(default=None),
+    _=Depends(require_admin),
 ):
     from app.cache import get_stats as get_cache_stats
     from app.llm_client import active_provider_name
@@ -462,6 +564,7 @@ async def system_info(
         },
         "agent_runtime": {
             "serving_stack": settings.normalized_agent_serving_stack,
+            "brain_mode": settings.normalized_agent_brain_mode,
             "tool_protocol": settings.normalized_agent_tool_protocol,
             "native_tool_calling": settings.agent_native_tool_calling,
             "tool_choice_mode": settings.normalized_agent_tool_choice_mode,
@@ -512,6 +615,7 @@ async def debug_similarity(
     top_k: int = 10,
     kb_id: int | None = Query(default=None, ge=1),
     kb_key: str | None = Query(default=None),
+    _=Depends(require_admin),
 ):
     from app.rag import _resolve_kb_scope, decide_mode, retrieve
 
@@ -549,6 +653,7 @@ async def debug_retrieval(
     top_k: int = 10,
     kb_id: int | None = Query(default=None, ge=1),
     kb_key: str | None = Query(default=None),
+    _=Depends(require_admin),
 ):
     """
     Rich retrieval debug: returns top_k results with score, lang, category,

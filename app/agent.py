@@ -16,14 +16,30 @@ from pydantic import BaseModel, Field
 
 import app.rag as rag
 from app.config import settings
+from app.conversation_memory import (
+    build_conversation_context,
+    detect_followup_reaction,
+    load_recent_turns,
+    resolve_followup_query,
+)
+from app.database import fetch_one_sync
 from app.lang import detect_language
-from app.llm_client import active_provider_name, complete_chat, generate_stream, is_llm_ready
+from app.llm_client import LLMTemporaryFailure, active_provider_name, complete_chat, generate_stream, is_llm_ready
 from app.models import RequestContext
 from app.session_memory import load_slots, merge_slots
 from app.tools import tool_registry
 from app.tools.registry import ToolAuthorizationError, ToolExecutionError, ToolValidationError
 
 logger = logging.getLogger(__name__)
+
+_FOLLOWUP_REACTION_SYSTEM_PROMPT = """
+You write short conversational follow-up replies.
+Use the previous user question, the previous assistant answer, and the latest short follow-up reaction.
+Reply naturally in the requested language.
+Keep it to 1 or 2 short sentences.
+Stay grounded in the previous answer. Do not invent new facts or numbers.
+Do not repeat the full previous answer unless needed.
+""".strip()
 
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+", re.IGNORECASE)
 _PHONE_RE = re.compile(r"(?:\+?\d[\d\s().-]{7,}\d)")
@@ -114,11 +130,11 @@ _CANCEL_KEYWORDS = (
 
 _ROUTER_SYSTEM_PROMPT = """
 You are an orchestration router.
-Choose exactly one route: rag, tool, clarify, or fallback.
+Choose exactly one route: rag, tool, memory, clarify, or fallback.
 
 Return JSON only with this shape:
 {
-  "route": "rag" | "tool" | "clarify" | "fallback",
+  "route": "rag" | "tool" | "memory" | "clarify" | "fallback",
   "tool_name": string | null,
   "arguments": object,
   "message": string | null,
@@ -128,8 +144,11 @@ Return JSON only with this shape:
 Rules:
 - Use route="rag" for document or knowledge-base questions.
 - Use route="tool" for backend actions or admin data lookups.
+- Use route="memory" for short contextual follow-ups that should be answered directly from recent conversation state.
 - Use route="clarify" when required arguments are missing.
 - Use route="fallback" for greeting, small talk, or out-of-scope requests.
+- Use recent conversation history to resolve short follow-up messages, pronouns, and elliptical replies.
+- Use slot memory when it helps you keep track of the current subject, recent KB, recent ticket, or recent order.
 - Never invent tool names.
 - If route="tool", provide only one tool name.
 """.strip()
@@ -141,8 +160,12 @@ Use the provided tools when one of them is the best way to handle the request.
 Rules:
 - Use search_kb for document or knowledge-base questions.
 - Use business/admin tools only when the user clearly asks for them.
+- Use recent conversation history to resolve short follow-up messages, pronouns, and elliptical replies.
+- Use slot memory when it helps you keep track of the current subject, recent KB, recent ticket, or recent order.
 - If required arguments are missing, do not call a tool. Return compact JSON:
   {"route":"clarify","message":"...","reason":"..."}
+- If the request is best answered from recent conversation state without retrieval or tools, return compact JSON:
+  {"route":"memory","message":"...","reason":"..."}
 - For greeting, small talk, or out-of-scope requests, do not call a tool. Return compact JSON:
   {"route":"fallback","message":"...","reason":"..."}
 - If no tool is needed and the request is still best handled by the normal RAG answer flow, return compact JSON:
@@ -213,94 +236,6 @@ def _infer_issue_type(text: str) -> str:
 def _fallback_message(lang: str) -> str:
     if lang == "vi":
         return (
-            "Mình có thể hỗ trợ tra cứu KB, tạo ticket hỗ trợ, hoặc xem thông tin KB "
-            "nếu bạn có quyền phù hợp."
-        )
-    return "I can help search KB content, create support tickets, or inspect KB information when you have permission."
-
-
-def _ticket_contact_clarify(lang: str) -> str:
-    if lang == "vi":
-        return "Mình cần email hoặc số điện thoại liên hệ để tạo ticket hỗ trợ cho bạn."
-    return "I need an email address or phone number to create a support ticket for you."
-
-
-def _permission_message(tool_name: str, lang: str) -> str:
-    if lang == "vi":
-        return f"Bạn chưa có quyền dùng tool `{tool_name}`."
-    return f"You do not have permission to use tool `{tool_name}`."
-
-
-def _tool_error_message(tool_name: str, lang: str) -> str:
-    if lang == "vi":
-        return f"Mình chưa thể thực hiện tool `{tool_name}` lúc này."
-    return f"I could not complete tool `{tool_name}` right now."
-
-
-def _clarify_message(lang: str) -> str:
-    if lang == "vi":
-        return "Bạn có thể nói rõ hơn yêu cầu của mình không?"
-    return "Could you clarify your request?"
-
-
-def _compose_tool_answer(tool_name: str, payload: dict[str, Any], lang: str) -> str:
-    if tool_name == "create_support_ticket":
-        if lang == "vi":
-            return (
-                f"Mình đã tạo ticket {payload['ticket_code']} cho vấn đề {payload['issue_type']}. "
-                f"Trạng thái hiện tại là {payload['status']}."
-            )
-        return (
-            f"I created ticket {payload['ticket_code']} for {payload['issue_type']}. "
-            f"The current status is {payload['status']}."
-        )
-
-    if tool_name == "list_kbs":
-        items = payload.get("items") or []
-        names = ", ".join(item.get("name") or item.get("key") or "-" for item in items[:5])
-        if lang == "vi":
-            return f"Hiện có {payload.get('total', 0)} KB. Một số KB: {names}."
-        return f"There are {payload.get('total', 0)} KBs. Some of them: {names}."
-
-    if tool_name == "get_kb_stats":
-        kb_name = payload.get("kb_name") or payload.get("kb_key")
-        if lang == "vi":
-            return (
-                f"KB {kb_name} hiện có {payload.get('total_files', 0)} file, "
-                f"{payload.get('ingested_files', 0)} file đã ingest và {payload.get('total_vectors', 0)} vectors."
-            )
-        return (
-            f"KB {kb_name} currently has {payload.get('total_files', 0)} files, "
-            f"{payload.get('ingested_files', 0)} ingested files, and {payload.get('total_vectors', 0)} vectors."
-        )
-
-    if tool_name == "search_kb":
-        hits = payload.get("hits") or []
-        if not hits:
-            return "Mình chưa tìm thấy kết quả phù hợp trong KB." if lang == "vi" else "I could not find a relevant result in the KB."
-        top_hit = hits[0]
-        if lang == "vi":
-            return f"Kết quả gần nhất đến từ {top_hit.get('filename')}: {top_hit.get('preview')}"
-        return f"The closest result is from {top_hit.get('filename')}: {top_hit.get('preview')}"
-
-    return json.dumps(payload, ensure_ascii=False)
-
-
-def _tool_result_summary(tool_name: str, payload: dict[str, Any]) -> str:
-    if tool_name == "create_support_ticket":
-        return f"created {payload.get('ticket_code')}"
-    if tool_name == "list_kbs":
-        return f"{payload.get('total', 0)} KB(s)"
-    if tool_name == "get_kb_stats":
-        return f"{payload.get('total_vectors', 0)} vector(s)"
-    if tool_name == "search_kb":
-        return f"{payload.get('total_hits', 0)} hit(s)"
-    return "completed"
-
-
-def _fallback_message(lang: str) -> str:
-    if lang == "vi":
-        return (
             "Mình có thể hỗ trợ tra cứu KB, tạo ticket, tra trạng thái đơn hàng, "
             "gợi ý đơn gần đây, hoặc xem số người online trong game khi backend đã kết nối."
         )
@@ -310,10 +245,28 @@ def _fallback_message(lang: str) -> str:
     )
 
 
+def _permission_message(tool_name: str, lang: str) -> str:
+    if lang == "vi":
+        return f"Bạn không có quyền dùng công cụ {tool_name}."
+    return f"You are not allowed to use the {tool_name} tool."
+
+
+def _tool_error_message(tool_name: str, lang: str) -> str:
+    if lang == "vi":
+        return f"Mình chưa thể hoàn tất công cụ {tool_name} lúc này. Bạn thử lại sau nhé."
+    return f"I could not complete the {tool_name} tool right now. Please try again later."
+
+
 def _ticket_contact_clarify(lang: str) -> str:
     if lang == "vi":
         return "Mình cần email hoặc số điện thoại liên hệ để tạo ticket hỗ trợ cho bạn."
     return "I need an email address or phone number to create a support ticket for you."
+
+
+def _clarify_message(lang: str) -> str:
+    if lang == "vi":
+        return "Mình cần thêm thông tin để xử lý yêu cầu này."
+    return "I need a bit more information to handle this request."
 
 
 def _order_code_clarify(lang: str, *, logged_in: bool) -> str:
@@ -454,12 +407,137 @@ def _ticket_memory_message(slots: dict[str, Any], lang: str) -> str | None:
     return f"The most recent ticket is {ticket_code} for {issue_type}."
 
 
-def _memory_decision(query: str, request_context: RequestContext, lang: str) -> AgentDecision | None:
-    slots = _load_session_slots(request_context)
-    if not slots:
+def _recent_kb_from_tool_audit(session_id: str | None) -> tuple[int | None, str | None]:
+    if not session_id:
+        return None, None
+
+    try:
+        row = fetch_one_sync(
+            """
+            SELECT kb_id, kb_key, args_json
+            FROM tool_audit_logs
+            WHERE session_id = ?
+              AND tool_name = 'get_kb_stats'
+              AND tool_status = 'success'
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            """,
+            (session_id,),
+        )
+    except Exception:
+        return None, None
+
+    if not row:
+        return None, None
+
+    kb_id = row.get("kb_id")
+    kb_key = row.get("kb_key")
+    if kb_id or kb_key:
+        return kb_id, kb_key
+
+    try:
+        args_payload = json.loads(row.get("args_json") or "{}")
+    except Exception:
+        args_payload = {}
+    return args_payload.get("kb_id"), args_payload.get("kb_key")
+
+
+def _recent_turns_for_memory(request_context: RequestContext) -> list[dict[str, Any]]:
+    if not request_context.session_id:
+        return []
+
+    scoped_session_id = _resolved_scoped_session_id(request_context.session_id, request_context)
+    return load_recent_turns(scoped_session_id, limit=settings.conversation_memory_turn_limit)
+
+
+def _is_price_like_topic(last_user: str, last_answer: str) -> bool:
+    combined = _ascii_hint(f"{last_user} {last_answer}")
+    return any(token in combined for token in ("hoc phi", "tuition", "price", "gia", "phi", "cost", "fee"))
+
+
+def _followup_reaction_fallback_message(reaction: str, lang: str) -> str:
+    if lang == "vi":
+        if reaction == "high":
+            return (
+                "Dung la muc nay kha cao. Neu ban muon, minh co the so sanh voi lua chon khac "
+                "hoac tach chi phi theo tung phan de de can nhac hon."
+            )
+        return (
+            "Muc nay kha de chiu. Neu ban muon, minh co the so sanh them voi cac lua chon khac "
+            "de xem no dang o mat bang nao."
+        )
+    if reaction == "high":
+        return "That does sound fairly expensive. If you want, I can compare it with other options."
+    return "That sounds fairly affordable. If you want, I can compare it with other options."
+
+
+def _followup_reaction_message(query: str, turns: list[dict[str, Any]], lang: str) -> str | None:
+    if not turns:
         return None
 
+    reaction = detect_followup_reaction(query)
+    if not reaction:
+        return None
+
+    latest_turn = turns[-1]
+    last_user = " ".join(str(latest_turn.get("user_message") or "").split())
+    last_answer = " ".join(str(latest_turn.get("answer_text") or "").split())
+    if not last_user or not last_answer or not _is_price_like_topic(last_user, last_answer):
+        return None
+
+    fallback_message = _followup_reaction_fallback_message(reaction, lang)
+    if not is_llm_ready():
+        return fallback_message
+
+    prompt = json.dumps(
+        {
+            "lang": lang,
+            "reaction": reaction,
+            "previous_user": last_user,
+            "previous_answer": last_answer,
+            "followup": query,
+        },
+        ensure_ascii=False,
+    )
+    try:
+        result = complete_chat(
+            prompt,
+            system_prompt=_FOLLOWUP_REACTION_SYSTEM_PROMPT,
+            timeout_seconds=settings.agent_followup_reaction_llm_timeout_seconds,
+            max_tokens=settings.agent_followup_reaction_llm_max_tokens,
+        )
+    except LLMTemporaryFailure as err:
+        logger.warning("Follow-up reaction generation unavailable, using fallback template: %s", err)
+        return fallback_message
+    except Exception:
+        logger.exception("Follow-up reaction generation failed")
+        return fallback_message
+
+    text = " ".join(result.text.split())
+    return text or fallback_message
+
+
+def _kb_stats_arguments(kb_id: int | None, kb_key: str | None) -> dict[str, Any]:
+    arguments: dict[str, Any] = {}
+    if kb_id is not None:
+        arguments["kb_id"] = kb_id
+    if kb_key:
+        arguments["kb_key"] = kb_key
+    return arguments
+
+
+def _memory_decision(query: str, request_context: RequestContext, lang: str) -> AgentDecision | None:
+    recent_turns = _recent_turns_for_memory(request_context)
+    reaction_message = _followup_reaction_message(query, recent_turns, lang)
+    if reaction_message:
+        return AgentDecision(
+            route="memory",
+            message=reaction_message,
+            reason="reply_from_recent_followup_reaction",
+        )
+
     lowered = _ascii_hint(query).strip(" .,!?:;")
+    slots = _load_session_slots(request_context)
 
     if slots.get("pending_tool_name") == "create_support_ticket":
         if any(keyword in lowered for keyword in _CANCEL_KEYWORDS):
@@ -494,18 +572,20 @@ def _memory_decision(query: str, request_context: RequestContext, lang: str) -> 
             )
 
     if any(keyword in lowered for keyword in _KB_STATS_FOLLOWUP_KEYWORDS):
-        kb_id = slots.get("last_kb_id")
-        kb_key = slots.get("last_kb_key")
+        kb_id = slots.get("last_kb_id") if slots else None
+        kb_key = slots.get("last_kb_key") if slots else None
+        if not kb_id and not kb_key:
+            kb_id, kb_key = _recent_kb_from_tool_audit(request_context.session_id)
         if kb_id or kb_key:
             return AgentDecision(
                 route="tool",
                 tool_name="get_kb_stats",
-                arguments={
-                    "kb_id": kb_id,
-                    "kb_key": kb_key,
-                },
+                arguments=_kb_stats_arguments(kb_id, kb_key),
                 reason="reuse_last_kb_slots",
             )
+
+    if not slots:
+        return None
 
     return None
 
@@ -674,6 +754,15 @@ def _heuristic_route(query: str, request_context: RequestContext, lang: str) -> 
             reason="admin_kb_stats_intent",
         )
 
+    if any(keyword in lowered for keyword in _KB_STATS_FOLLOWUP_KEYWORDS):
+        kb_id, kb_key = _recent_kb_from_tool_audit(request_context.session_id)
+        return AgentDecision(
+            route="tool",
+            tool_name="get_kb_stats",
+            arguments=_kb_stats_arguments(kb_id, kb_key),
+            reason="reuse_recent_kb_audit" if (kb_id or kb_key) else "kb_stats_followup_intent",
+        )
+
     if any(keyword in lowered for keyword in _TICKET_KEYWORDS):
         contact = _extract_contact(query)
         if not auth.user_id and not contact:
@@ -749,17 +838,25 @@ def _llm_route(query: str, request_context: RequestContext, lang: str) -> AgentD
         return None
 
     tool_summaries = [item.model_dump() for item in tool_registry.list_definitions()]
+    recent_turns, conversation_context = _recent_conversation_payload(request_context)
+    slot_memory = _slot_memory_payload(request_context)
     prompt = json.dumps(
         {
             "query": query,
             "lang": lang,
             "request_context": request_context.model_dump(),
             "tools": tool_summaries,
+            "recent_turns": recent_turns,
+            "conversation_context": conversation_context or None,
+            "slot_memory": slot_memory or None,
         },
         ensure_ascii=False,
     )
     try:
         raw_text = "".join(generate_stream(prompt, system_prompt=_ROUTER_SYSTEM_PROMPT)).strip()
+    except LLMTemporaryFailure as err:
+        logger.warning("LLM router unavailable, falling back to heuristic router: %s", err)
+        return None
     except Exception:
         logger.exception("LLM router failed")
         return None
@@ -788,11 +885,16 @@ def _native_tool_route(query: str, request_context: RequestContext, lang: str) -
         return None
 
     tools = tool_registry.list_openai_tools()
+    recent_turns, conversation_context = _recent_conversation_payload(request_context)
+    slot_memory = _slot_memory_payload(request_context)
     prompt = json.dumps(
         {
             "query": query,
             "lang": lang,
             "request_context": request_context.model_dump(),
+            "recent_turns": recent_turns,
+            "conversation_context": conversation_context or None,
+            "slot_memory": slot_memory or None,
         },
         ensure_ascii=False,
     )
@@ -803,6 +905,9 @@ def _native_tool_route(query: str, request_context: RequestContext, lang: str) -
             tools=tools,
             tool_choice=settings.normalized_agent_tool_choice_mode,
         )
+    except LLMTemporaryFailure as err:
+        logger.warning("Native tool router unavailable, falling back to heuristic router: %s", err)
+        return None
     except Exception:
         logger.exception("Native tool router failed")
         return None
@@ -857,24 +962,45 @@ def decide_route(
         request_context or {"request_id": uuid.uuid4().hex[:8]}
     )
     resolved_lang = detect_language(query, explicit_lang=lang)
+    if settings.normalized_agent_brain_mode == "ai_first":
+        ai_decision = _ai_first_route(query, context, resolved_lang)
+        if ai_decision is not None:
+            return ai_decision
+
+        memory = _memory_decision(query, context, resolved_lang)
+        if memory is not None:
+            return _decision_with_hydrated_arguments(memory, query=query, request_context=context)
+
+        resolved_query = _resolve_query_with_history(query, context)
+        return _decision_with_hydrated_arguments(
+            _heuristic_route(resolved_query, context, resolved_lang),
+            query=resolved_query,
+            request_context=context,
+        )
+
     memory = _memory_decision(query, context, resolved_lang)
     if memory is not None:
         return _decision_with_hydrated_arguments(memory, query=query, request_context=context)
 
+    resolved_query = _resolve_query_with_history(query, context)
+
     if settings.agent_native_tool_ready:
-        native = _native_tool_route(query, context, resolved_lang)
+        native = _native_tool_route(resolved_query, context, resolved_lang)
         if native is not None:
             return native
 
     heuristic = _decision_with_hydrated_arguments(
-        _heuristic_route(query, context, resolved_lang),
-        query=query,
+        _heuristic_route(resolved_query, context, resolved_lang),
+        query=resolved_query,
         request_context=context,
     )
     if heuristic.route != "rag":
         return heuristic
 
-    llm_decision = _llm_route(query, context, resolved_lang)
+    if not settings.agent_enable_llm_router:
+        return heuristic
+
+    llm_decision = _llm_route(resolved_query, context, resolved_lang)
     return llm_decision or heuristic
 
 
@@ -935,6 +1061,43 @@ def _resolved_scoped_session_id(session_id: str, request_context: RequestContext
     if request_context.kb_id:
         return rag._scoped_session_id(session_id, request_context.kb_id)
     return session_id
+
+
+def _recent_conversation_payload(request_context: RequestContext) -> tuple[list[dict[str, Any]], str]:
+    if not request_context.session_id:
+        return [], ""
+
+    scoped_session_id = _resolved_scoped_session_id(request_context.session_id, request_context)
+    recent_turns = load_recent_turns(scoped_session_id, limit=settings.conversation_memory_turn_limit)
+    return recent_turns, build_conversation_context(recent_turns)
+
+
+def _slot_memory_payload(request_context: RequestContext) -> dict[str, Any]:
+    slots = _load_session_slots(request_context)
+    if not slots:
+        return {}
+    return {
+        key: value
+        for key, value in slots.items()
+        if value not in (None, "", [], {})
+    }
+
+
+def _resolve_query_with_history(query: str, request_context: RequestContext) -> str:
+    recent_turns, _ = _recent_conversation_payload(request_context)
+    resolved_query, resolution_reason = resolve_followup_query(query, recent_turns)
+    if resolution_reason:
+        logger.debug("Resolved agent query with recent history for session %s", request_context.session_id)
+    return resolved_query
+
+
+def _ai_first_route(query: str, request_context: RequestContext, lang: str) -> AgentDecision | None:
+    if settings.agent_native_tool_ready:
+        native = _native_tool_route(query, request_context, lang)
+        if native is not None:
+            return native
+
+    return _llm_route(query, request_context, lang)
 
 
 async def agent_stream(

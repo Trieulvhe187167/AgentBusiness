@@ -160,11 +160,16 @@ class NumpyVectorStore:
             "content_preview": chunk.get("content_preview", ""),
         }
         for key in (
+            "access_level",
+            "tenant_id",
+            "org_id",
+            "owner_user_id",
             "page_num",
             "sheet_name",
             "row_num",
             "category",
             "keywords",
+            "lang",
         ):
             value = chunk.get(key)
             if value is not None:
@@ -247,6 +252,11 @@ class NumpyVectorStore:
                 "dimension": int(self._vectors.shape[1]) if self._vectors is not None else 0,
                 "collection_name": "numpy-local",
             }
+
+    def healthcheck(self) -> dict[str, Any]:
+        stats = self.get_stats()
+        stats["status"] = "ok"
+        return stats
 
     def count_by_where(self, where: dict[str, Any] | None = None) -> int:
         with self._lock:
@@ -348,11 +358,16 @@ class ChromaVectorStore:
             "content_preview": chunk.get("content_preview", ""),
         }
         for key in (
+            "access_level",
+            "tenant_id",
+            "org_id",
+            "owner_user_id",
             "page_num",
             "sheet_name",
             "row_num",
             "category",
             "keywords",
+            "lang",
         ):
             value = chunk.get(key)
             if value is not None:
@@ -425,6 +440,11 @@ class ChromaVectorStore:
             "dimension": self._dimension or 0,
             "collection_name": settings.chroma_collection_name,
         }
+
+    def healthcheck(self) -> dict[str, Any]:
+        stats = self.get_stats()
+        stats["status"] = "ok" if self._collection is not None else "unavailable"
+        return stats
 
     def count_by_where(self, where: dict[str, Any] | None = None) -> int:
         if not self._collection:
@@ -537,6 +557,11 @@ class VectorStoreFacade:
         stats = self._backend.get_stats()
         stats["backend"] = self._backend_name
         return stats
+
+    def healthcheck(self) -> dict[str, Any]:
+        status = self._backend.healthcheck()
+        status["backend"] = self._backend_name
+        return status
 
     def count_by_where(self, where: dict[str, Any] | None = None) -> int:
         return self._backend.count_by_where(where)

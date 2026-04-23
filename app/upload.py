@@ -1,59 +1,29 @@
-"""
-Secure file upload endpoint.
-- Extension whitelist + magic bytes check (no python-magic-bin)
-- SHA256 file hash for dedup
-- UUID filename prefix to prevent collisions
-- Path traversal protection
-"""
+"""Secure file upload endpoints."""
 
-import hashlib
-import mimetypes
 import uuid
-from datetime import datetime, timezone
-from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+
+from app.auth import require_admin
 from app.config import settings
 from app.database import execute_with_retry, fetch_all, fetch_one, get_db
 from app.kb_service import bump_kb_version
 from app.models import FileInfo, UploadResponse
+from app.upload_validation import (
+    UploadValidationError,
+    compute_file_hash,
+    validate_upload,
+)
 
-router = APIRouter(prefix="/api", tags=["upload"])
-
-# Magic bytes signatures for validation
-MAGIC_BYTES = {
-    ".pdf":  [b"%PDF"],
-    ".xlsx": [b"PK\x03\x04"],          # ZIP-based
-    ".xls":  [b"\xd0\xcf\x11\xe0"],    # OLE2
-    ".html": [b"<!DOCTYPE", b"<html", b"<!doctype", b"<HTML"],
-    ".htm":  [b"<!DOCTYPE", b"<html", b"<!doctype", b"<HTML"],
-    ".txt":  [],
-    ".md":   [],
-    ".csv":  [],                        # No reliable magic bytes for CSV
-}
+router = APIRouter(prefix="/api", tags=["upload"], dependencies=[Depends(require_admin)])
 
 
-def sanitize_filename(name: str) -> str:
-    """Remove path traversal and dangerous characters."""
-    name = Path(name).name  # strip directory components
-    name = name.replace("..", "").replace("/", "").replace("\\", "")
-    # Remove non-ASCII control characters
-    name = "".join(c for c in name if ord(c) >= 32)
-    return name.strip() or "unnamed"
-
-
-def check_magic_bytes(content: bytes, extension: str) -> bool:
-    """Validate file content matches expected magic bytes."""
-    signatures = MAGIC_BYTES.get(extension, [])
-    if not signatures:
-        return True  # No signature to check (e.g., CSV)
-    return any(content[:20].startswith(sig) or sig in content[:100]
-               for sig in signatures)
-
-
-def compute_file_hash(content: bytes) -> str:
-    """SHA256 hash of file content."""
-    return hashlib.sha256(content).hexdigest()
+def _upload_error(status_code: int, code: str, message: str, **meta):
+    detail = {"code": code, "message": message}
+    clean_meta = {key: value for key, value in meta.items() if value is not None}
+    if clean_meta:
+        detail["meta"] = clean_meta
+    raise HTTPException(status_code=status_code, detail=detail)
 
 
 def file_row_to_info(row: dict) -> FileInfo:
@@ -65,6 +35,10 @@ def file_row_to_info(row: dict) -> FileInfo:
         file_size=row["file_size"],
         file_hash=row["file_hash"],
         status=row["status"],
+        access_level=row.get("access_level") or "public",
+        tenant_id=row.get("tenant_id"),
+        org_id=row.get("org_id"),
+        owner_user_id=row.get("owner_user_id"),
         parser_type=row.get("parser_type"),
         pages_or_rows=row.get("pages_or_rows"),
         ingested_at=row.get("ingested_at"),
@@ -76,65 +50,34 @@ def file_row_to_info(row: dict) -> FileInfo:
 @router.post("/upload", response_model=UploadResponse)
 async def upload_file(file: UploadFile = File(...)):
     """Upload a file with security validation."""
-    # 1. Check filename exists
-    if not file.filename:
-        raise HTTPException(400, "No filename provided")
-
-    original_name = sanitize_filename(file.filename)
-
-    # 2. Check extension
-    ext = Path(original_name).suffix.lower()
-    if ext not in settings.allowed_extensions:
-        raise HTTPException(
-            400,
-            f"File type '{ext}' not allowed. Allowed: {settings.allowed_extensions}"
-        )
-
-    # 3. Read content and check size
     content = await file.read()
-    if len(content) == 0:
-        raise HTTPException(400, "Empty file rejected")
-    if len(content) > settings.max_upload_bytes:
-        raise HTTPException(
-            400,
-            f"File too large ({len(content) / 1024 / 1024:.1f}MB). "
-            f"Max: {settings.max_upload_size_mb}MB"
+    try:
+        validated = validate_upload(
+            filename=file.filename,
+            content=content,
+            allowed_extensions=settings.allowed_extensions,
+            max_upload_bytes=settings.max_upload_bytes,
+            max_upload_size_mb=settings.max_upload_size_mb,
         )
+    except UploadValidationError as err:
+        _upload_error(400, err.code, err.message, **err.meta)
 
-    # 4. Magic bytes validation
-    if not check_magic_bytes(content, ext):
-        raise HTTPException(400, f"File content does not match '{ext}' format")
-
-    # 5. Compute hash for dedup
+    original_name = validated.original_name
+    ext = validated.extension
     file_hash = compute_file_hash(content)
 
-    # 6. Save file with UUID prefix
     safe_name = f"{uuid.uuid4().hex[:8]}_{original_name}"
     save_path = settings.raw_upload_dir / safe_name
     settings.raw_upload_dir.mkdir(parents=True, exist_ok=True)
     save_path.write_bytes(content)
 
-    # 7. Detect parser type from extension
-    parser_map = {
-        ".xlsx": "excel", ".xls": "excel",
-        ".csv": "csv",
-        ".pdf": "pdf",
-        ".html": "html", ".htm": "html",
-        ".txt": "text", ".md": "text",
-        ".docx": "docx",
-        ".json": "json", ".jsonl": "jsonl",
-    }
-    parser_type = parser_map.get(ext, "unknown")
-
-    # 8. Insert into database
     cursor = await execute_with_retry(
         """INSERT INTO uploaded_files
            (filename, original_name, file_type, file_size, file_hash, status, parser_type)
            VALUES (?, ?, ?, ?, ?, 'uploaded', ?)""",
-        (safe_name, original_name, ext, len(content), file_hash, parser_type)
+        (safe_name, original_name, ext, len(content), file_hash, validated.parser_type)
     )
 
-    # 9. Fetch inserted record
     row = await fetch_one("SELECT * FROM uploaded_files WHERE id = ?",
                           (cursor.lastrowid,))
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import app.database as database
 from fastapi.testclient import TestClient
 
-from tests.conftest import add_vector, attach_file, fetch_default_kb, insert_file, isolated_client, mark_ingested
+from tests.conftest import add_vector, attach_file, auth_headers, fetch_default_kb, insert_file, isolated_client, mark_ingested
 
 
 def _patch_retrieval(monkeypatch):
@@ -49,7 +49,7 @@ def test_chat_agent_routes_kb_questions_to_rag(isolated_client: TestClient, monk
     assert '"kb_key": "default"' in chat.text
     assert "event: done" in chat.text
 
-    chat_logs = isolated_client.get("/api/admin/chat-logs", params={"limit": 10})
+    chat_logs = isolated_client.get("/api/admin/chat-logs", params={"limit": 10}, headers=auth_headers(user_id="admin-1", roles=["admin"]))
     assert chat_logs.status_code == 200, chat_logs.text
     assert any(item["session_id"] == f"phase14-rag::kb:{kb_id}" for item in chat_logs.json())
 
@@ -59,7 +59,7 @@ def test_chat_agent_creates_support_ticket_via_tool(isolated_client: TestClient)
         "/api/chat",
         json={
             "session_id": "phase14-ticket",
-            "message": "Tao ticket giao hang, lien he user@example.com",
+            "message": "Tạo ticket giao hàng, liên hệ user@example.com",
             "lang": "vi",
         },
     )
@@ -106,7 +106,7 @@ def test_chat_agent_clarifies_when_ticket_contact_is_missing(isolated_client: Te
         "/api/chat",
         json={
             "session_id": "phase14-ticket-clarify",
-            "message": "Tao ticket giao hang giup toi",
+            "message": "Tạo ticket giao hàng giúp tôi",
             "lang": "vi",
         },
     )
@@ -154,16 +154,33 @@ def test_chat_agent_rejects_admin_tool_without_role(isolated_client: TestClient)
     }
 
 
-def test_chat_agent_runs_admin_tool_with_role(isolated_client: TestClient):
+def test_chat_agent_ignores_admin_role_supplied_in_body(isolated_client: TestClient):
     chat = isolated_client.post(
         "/api/chat",
         json={
-            "session_id": "phase14-admin-ok",
+            "session_id": "phase14-admin-body-only",
             "message": "list kbs",
             "lang": "en",
             "user_id": "admin-1",
             "roles": ["admin"],
             "channel": "admin",
+        },
+    )
+
+    assert chat.status_code == 200, chat.text
+    assert '"tool_name": "list_kbs"' in chat.text
+    assert '"status": "failed"' in chat.text
+    assert "permission_denied" in chat.text
+
+
+def test_chat_agent_runs_admin_tool_with_role(isolated_client: TestClient):
+    chat = isolated_client.post(
+        "/api/chat",
+        headers=auth_headers(user_id="admin-1", roles=["admin"], channel="admin"),
+        json={
+            "session_id": "phase14-admin-ok",
+            "message": "list kbs",
+            "lang": "en",
         },
     )
 

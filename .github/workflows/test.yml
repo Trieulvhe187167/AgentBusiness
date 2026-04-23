@@ -1,0 +1,45 @@
+﻿name: Test
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - codex/**
+  pull_request:
+
+jobs:
+  smoke-core:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.11']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install core profile
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-core.txt pytest==9.0.2
+      - name: Run smoke suite
+        run: |
+          pytest tests/api/test_phase9_smoke_api.py tests/kb/test_phase5_kb_scope.py tests/api/test_upload_security.py -q
+
+  full-suite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install full dev profile
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+      - name: Run full suite
+        run: |
+          pytest tests -q
