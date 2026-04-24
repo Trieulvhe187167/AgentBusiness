@@ -37,6 +37,15 @@ def test_registry_exports_openai_tool_schemas(tmp_path, monkeypatch):
         "get_online_member_count",
         "list_kbs",
         "get_kb_stats",
+        "list_google_drive_sources",
+        "create_google_drive_source",
+        "sync_google_drive_source",
+        "get_google_drive_sync_status",
+        "delete_google_drive_source",
+        "list_support_emails",
+        "read_email_thread",
+        "create_ticket_from_email",
+        "send_email_reply",
     }
     search_tool = next(item for item in tools if item["function"]["name"] == "search_kb")
     assert search_tool["type"] == "function"
