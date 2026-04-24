@@ -29,6 +29,8 @@ ENV/
 # Environment / secrets
 # ============================================================
 .env
+secrets/*.json
+secrets/*.pem
 # .env.example is intentionally tracked
 
 # ============================================================

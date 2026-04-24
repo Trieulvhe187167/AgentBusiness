@@ -161,6 +161,7 @@ This gives you a local KB app with Chroma, but without requiring an external mod
 - `docs/schema.md`
 - `docs/windows-setup.md`
 - `docs/external-integrations.md`
+- `docs/google-drive-sync.md`
 - `docs/website-gateway-integration.md`
 
 ## Tests

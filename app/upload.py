@@ -1,29 +1,15 @@
 """Secure file upload endpoints."""
 
-import uuid
-
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from app.auth import require_admin
 from app.config import settings
-from app.database import execute_with_retry, fetch_all, fetch_one, get_db
+from app.database import fetch_all, fetch_one, get_db
 from app.kb_service import bump_kb_version
 from app.models import FileInfo, UploadResponse
-from app.upload_validation import (
-    UploadValidationError,
-    compute_file_hash,
-    validate_upload,
-)
+from app.upload_service import import_content_to_uploaded_file
 
 router = APIRouter(prefix="/api", tags=["upload"], dependencies=[Depends(require_admin)])
-
-
-def _upload_error(status_code: int, code: str, message: str, **meta):
-    detail = {"code": code, "message": message}
-    clean_meta = {key: value for key, value in meta.items() if value is not None}
-    if clean_meta:
-        detail["meta"] = clean_meta
-    raise HTTPException(status_code=status_code, detail=detail)
 
 
 def file_row_to_info(row: dict) -> FileInfo:
@@ -51,57 +37,10 @@ def file_row_to_info(row: dict) -> FileInfo:
 async def upload_file(file: UploadFile = File(...)):
     """Upload a file with security validation."""
     content = await file.read()
-    try:
-        validated = validate_upload(
-            filename=file.filename,
-            content=content,
-            allowed_extensions=settings.allowed_extensions,
-            max_upload_bytes=settings.max_upload_bytes,
-            max_upload_size_mb=settings.max_upload_size_mb,
-        )
-    except UploadValidationError as err:
-        _upload_error(400, err.code, err.message, **err.meta)
-
-    original_name = validated.original_name
-    ext = validated.extension
-    file_hash = compute_file_hash(content)
-
-    safe_name = f"{uuid.uuid4().hex[:8]}_{original_name}"
-    save_path = settings.raw_upload_dir / safe_name
-    settings.raw_upload_dir.mkdir(parents=True, exist_ok=True)
-    save_path.write_bytes(content)
-
-    cursor = await execute_with_retry(
-        """INSERT INTO uploaded_files
-           (filename, original_name, file_type, file_size, file_hash, status, parser_type)
-           VALUES (?, ?, ?, ?, ?, 'uploaded', ?)""",
-        (safe_name, original_name, ext, len(content), file_hash, validated.parser_type)
-    )
-
-    row = await fetch_one("SELECT * FROM uploaded_files WHERE id = ?",
-                          (cursor.lastrowid,))
-
-    db = await get_db()
-    try:
-        kb_cursor = await db.execute(
-            "SELECT id FROM knowledge_bases WHERE is_default = 1 LIMIT 1"
-        )
-        default_kb = await kb_cursor.fetchone()
-        if default_kb:
-            await db.execute(
-                """
-                INSERT OR IGNORE INTO kb_files (
-                    kb_id, file_id, status, chunk_count, attached_at
-                ) VALUES (?, ?, 'attached', 0, datetime('now'))
-                """,
-                (default_kb["id"], row["id"]),
-            )
-            await db.commit()
-    finally:
-        await db.close()
+    row = await import_content_to_uploaded_file(filename=file.filename, content=content)
 
     return UploadResponse(
-        message=f"File '{original_name}' uploaded successfully",
+        message=f"File '{row['original_name']}' uploaded successfully",
         file=file_row_to_info(row)
     )
 

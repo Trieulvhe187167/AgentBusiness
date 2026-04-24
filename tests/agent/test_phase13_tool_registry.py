@@ -52,6 +52,15 @@ def test_registry_defines_phase2_tools(tmp_path, monkeypatch):
         "get_online_member_count",
         "list_kbs",
         "get_kb_stats",
+        "list_google_drive_sources",
+        "create_google_drive_source",
+        "sync_google_drive_source",
+        "get_google_drive_sync_status",
+        "delete_google_drive_source",
+        "list_support_emails",
+        "read_email_thread",
+        "create_ticket_from_email",
+        "send_email_reply",
     }
     assert definitions["search_kb"].auth_policy["allow_anonymous"] is True
     assert definitions["search_kb"].idempotent is True
@@ -62,6 +71,11 @@ def test_registry_defines_phase2_tools(tmp_path, monkeypatch):
     assert definitions["list_kbs"].auth_policy["required_roles"] == ["admin"]
     assert definitions["list_kbs"].auth_policy["allowed_channels"] == ["admin"]
     assert definitions["list_kbs"].auth_policy["risk_level"] == "high"
+    assert definitions["list_google_drive_sources"].auth_policy["required_roles"] == ["admin"]
+    assert definitions["sync_google_drive_source"].idempotent is False
+    assert definitions["delete_google_drive_source"].idempotent is False
+    assert definitions["list_support_emails"].auth_policy["required_roles"] == ["admin"]
+    assert definitions["send_email_reply"].auth_policy["risk_level"] == "critical"
     assert definitions["get_order_status"].auth_policy["requires_tenant_match"] is True
     assert definitions["get_kb_stats"].auth_policy["required_roles"] == ["admin"]
 

@@ -48,6 +48,8 @@ _ALLIANCE_ID_PATTERNS = (
     re.compile(r"(?:alliance|lien minh)\s*(?:id)?\s*[:#-]?\s*([a-z0-9_-]{2,40})", re.IGNORECASE),
     re.compile(r"(?:group|clan)\s*(?:id)?\s*[:#-]?\s*([a-z0-9_-]{2,40})", re.IGNORECASE),
 )
+_SOURCE_ID_RE = re.compile(r"(?:source|nguon)\s*(?:id)?\s*[:#-]?\s*(\d+)", re.IGNORECASE)
+_SUPPORT_EMAIL_ID_RE = re.compile(r"(?:email|mail)\s*(?:id)?\s*[:#-]?\s*(\d+)", re.IGNORECASE)
 _JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 _GREETING_KEYWORDS = {
@@ -71,6 +73,52 @@ _KB_STATS_KEYWORDS = (
     "thong tin kb",
     "so lieu kb",
     "vector cua kb",
+)
+_DRIVE_SOURCE_LIST_KEYWORDS = (
+    "list google drive sources",
+    "list drive sources",
+    "danh sach google drive source",
+    "danh sach drive source",
+)
+_DRIVE_SYNC_KEYWORDS = (
+    "sync google drive",
+    "sync drive source",
+    "dong bo google drive",
+    "dong bo drive",
+)
+_DRIVE_STATUS_KEYWORDS = (
+    "drive sync status",
+    "google drive sync status",
+    "trang thai sync drive",
+    "trang thai google drive",
+)
+_SUPPORT_EMAIL_LIST_KEYWORDS = (
+    "list support emails",
+    "support emails",
+    "support inbox",
+    "email support",
+    "mail support",
+    "hop thu ho tro",
+    "email ho tro",
+)
+_SUPPORT_EMAIL_READ_KEYWORDS = (
+    "read email thread",
+    "read support email",
+    "xem email",
+    "doc email",
+    "doc mail",
+)
+_SUPPORT_EMAIL_TICKET_KEYWORDS = (
+    "create ticket from email",
+    "tao ticket tu email",
+    "mo ticket tu email",
+    "ticket from email",
+)
+_SUPPORT_EMAIL_REPLY_KEYWORDS = (
+    "send email reply",
+    "reply email",
+    "tra loi email",
+    "phan hoi email",
 )
 _TICKET_KEYWORDS = (
     "tao ticket",
@@ -218,6 +266,26 @@ def _extract_alliance_id(text: str) -> str | None:
     return None
 
 
+def _extract_source_id(text: str) -> int | None:
+    match = _SOURCE_ID_RE.search(_ascii_hint(text))
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
+
+
+def _extract_support_email_id(text: str) -> int | None:
+    match = _SUPPORT_EMAIL_ID_RE.search(_ascii_hint(text))
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
+
+
 def _infer_issue_type(text: str) -> str:
     lowered = _ascii_hint(text)
     if any(token in lowered for token in ("thanh toan", "payment", "card", "the ")):
@@ -361,6 +429,83 @@ def _compose_tool_answer(tool_name: str, payload: dict[str, Any], lang: str) -> 
             f"Observed at {payload.get('observed_at')}."
         )
 
+    if tool_name == "list_google_drive_sources":
+        items = payload.get("items") or []
+        preview = ", ".join(f"{item.get('id')}:{item.get('name')}" for item in items[:5])
+        if lang == "vi":
+            return f"Hien co {payload.get('total', 0)} nguon Google Drive. Mot so nguon: {preview}."
+        return f"There are {payload.get('total', 0)} Google Drive sources. Some of them: {preview}."
+
+    if tool_name == "create_google_drive_source":
+        if lang == "vi":
+            return (
+                f"Minh da tao nguon Google Drive {payload.get('id')} cho KB {payload.get('kb_id')}. "
+                f"Ten nguon la {payload.get('name')}."
+            )
+        return (
+            f"I created Google Drive source {payload.get('id')} for KB {payload.get('kb_id')}. "
+            f"The source name is {payload.get('name')}."
+        )
+
+    if tool_name == "sync_google_drive_source":
+        if lang == "vi":
+            return (
+                f"Da sync nguon Google Drive {payload.get('source_id')}. "
+                f"Quet {payload.get('scanned_count', 0)} file, import {payload.get('imported_count', 0)} file, "
+                f"loi {payload.get('failed_count', 0)} file."
+            )
+        return (
+            f"Google Drive source {payload.get('source_id')} synced. "
+            f"Scanned {payload.get('scanned_count', 0)} files, imported {payload.get('imported_count', 0)}, "
+            f"failed {payload.get('failed_count', 0)}."
+        )
+
+    if tool_name == "get_google_drive_sync_status":
+        last_run = payload.get("last_run") or {}
+        if lang == "vi":
+            return (
+                f"Nguon Google Drive {payload.get('id')} hien o trang thai {payload.get('status')}. "
+                f"Lan sync gan nhat: {payload.get('last_sync_at') or 'chua co'}. "
+                f"Ket qua run gan nhat: {last_run.get('status') or 'chua co'}."
+            )
+        return (
+            f"Google Drive source {payload.get('id')} is currently {payload.get('status')}. "
+            f"Last sync: {payload.get('last_sync_at') or 'n/a'}. "
+            f"Latest run status: {last_run.get('status') or 'n/a'}."
+        )
+
+    if tool_name == "list_support_emails":
+        items = payload.get("items") or []
+        preview = ", ".join(f"{item.get('id')}:{item.get('subject') or '(no subject)'}" for item in items[:5])
+        if lang == "vi":
+            return f"Co {payload.get('total', 0)} email ho tro gan day. Mot so email: {preview}."
+        return f"There are {payload.get('total', 0)} recent support emails. Some of them: {preview}."
+
+    if tool_name == "read_email_thread":
+        messages = payload.get("messages") or []
+        first = messages[0] if messages else {}
+        if lang == "vi":
+            return (
+                f"Thread {payload.get('thread_id')} co {payload.get('total', 0)} message. "
+                f"Chu de: {first.get('subject') or '(no subject)'}. Noi dung dau: {first.get('snippet') or ''}"
+            )
+        return (
+            f"Thread {payload.get('thread_id')} has {payload.get('total', 0)} message(s). "
+            f"Subject: {first.get('subject') or '(no subject)'}. First snippet: {first.get('snippet') or ''}"
+        )
+
+    if tool_name == "create_ticket_from_email":
+        if lang == "vi":
+            order_part = f" Ma don: {payload.get('order_code')}." if payload.get("order_code") else ""
+            return f"Da tao ticket {payload.get('ticket_code')} tu email {payload.get('email_id')}.{order_part}"
+        order_part = f" Order code: {payload.get('order_code')}." if payload.get("order_code") else ""
+        return f"Created ticket {payload.get('ticket_code')} from email {payload.get('email_id')}.{order_part}"
+
+    if tool_name == "send_email_reply":
+        if lang == "vi":
+            return f"Da gui phan hoi email {payload.get('email_id')} toi {payload.get('to_address')}."
+        return f"Sent reply for email {payload.get('email_id')} to {payload.get('to_address')}."
+
     return json.dumps(payload, ensure_ascii=False)
 
 
@@ -379,6 +524,22 @@ def _tool_result_summary(tool_name: str, payload: dict[str, Any]) -> str:
         return f"{payload.get('total', 0)} recent order(s)"
     if tool_name == "get_online_member_count":
         return f"{payload.get('online_count', 0)} online"
+    if tool_name == "list_google_drive_sources":
+        return f"{payload.get('total', 0)} Google Drive source(s)"
+    if tool_name == "create_google_drive_source":
+        return f"created source {payload.get('id')}"
+    if tool_name == "sync_google_drive_source":
+        return f"synced source {payload.get('source_id')}"
+    if tool_name == "get_google_drive_sync_status":
+        return f"status for source {payload.get('id')}"
+    if tool_name == "list_support_emails":
+        return f"{payload.get('total', 0)} support email(s)"
+    if tool_name == "read_email_thread":
+        return f"{payload.get('total', 0)} thread message(s)"
+    if tool_name == "create_ticket_from_email":
+        return f"created {payload.get('ticket_code')} from email {payload.get('email_id')}"
+    if tool_name == "send_email_reply":
+        return f"sent reply to {payload.get('to_address')}"
     return "completed"
 
 
@@ -687,6 +848,62 @@ def _slot_updates_for_tool(
                 "last_kb_count": payload.get("total"),
             }
         )
+    elif tool_name == "list_google_drive_sources":
+        items = payload.get("items") or []
+        first_item = items[0] if items else {}
+        updates.update(
+            {
+                "subject_type": "google_drive_source_list",
+                "last_drive_source_count": payload.get("total"),
+                "last_drive_source_id": first_item.get("id"),
+                "last_drive_kb_id": first_item.get("kb_id"),
+            }
+        )
+    elif tool_name == "create_google_drive_source":
+        updates.update(
+            {
+                "subject_type": "google_drive_source",
+                "last_drive_source_id": payload.get("id"),
+                "last_drive_kb_id": payload.get("kb_id"),
+            }
+        )
+    elif tool_name == "sync_google_drive_source":
+        updates.update(
+            {
+                "subject_type": "google_drive_sync",
+                "last_drive_source_id": payload.get("source_id"),
+                "last_drive_kb_id": payload.get("kb_id"),
+                "last_drive_sync_run_id": payload.get("run_id"),
+            }
+        )
+    elif tool_name == "get_google_drive_sync_status":
+        updates.update(
+            {
+                "subject_type": "google_drive_sync_status",
+                "last_drive_source_id": payload.get("id"),
+                "last_drive_kb_id": payload.get("kb_id"),
+            }
+        )
+    elif tool_name == "list_support_emails":
+        items = payload.get("items") or []
+        first_item = items[0] if items else {}
+        updates.update(
+            {
+                "subject_type": "support_email_list",
+                "last_support_email_count": payload.get("total"),
+                "last_support_email_id": first_item.get("id"),
+                "last_support_email_thread_id": first_item.get("thread_id"),
+            }
+        )
+    elif tool_name in {"read_email_thread", "create_ticket_from_email", "send_email_reply"}:
+        updates.update(
+            {
+                "subject_type": "support_email",
+                "last_support_email_id": payload.get("email_id") or arguments.get("email_id"),
+                "last_support_email_thread_id": payload.get("thread_id") or arguments.get("thread_id"),
+                "last_ticket_code": payload.get("ticket_code") or updates.get("last_ticket_code"),
+            }
+        )
 
     return updates
 
@@ -699,6 +916,7 @@ def _decision_with_hydrated_arguments(
 ) -> AgentDecision:
     arguments = dict(decision.arguments or {})
     tool_name = decision.tool_name
+    slots = _load_session_slots(request_context)
 
     if tool_name == "search_kb":
         arguments.setdefault("query", query)
@@ -730,6 +948,20 @@ def _decision_with_hydrated_arguments(
             arguments.setdefault("kb_id", request_context.kb_id)
         if request_context.kb_key:
             arguments.setdefault("kb_key", request_context.kb_key)
+    elif tool_name in {"sync_google_drive_source", "get_google_drive_sync_status"}:
+        source_id = _extract_source_id(query)
+        if source_id is not None:
+            arguments.setdefault("source_id", source_id)
+        elif slots.get("last_drive_source_id") is not None:
+            arguments.setdefault("source_id", slots.get("last_drive_source_id"))
+    elif tool_name in {"read_email_thread", "create_ticket_from_email", "send_email_reply"}:
+        email_id = _extract_support_email_id(query)
+        if email_id is not None:
+            arguments.setdefault("email_id", email_id)
+        elif slots.get("last_support_email_id") is not None:
+            arguments.setdefault("email_id", slots.get("last_support_email_id"))
+        if tool_name == "create_ticket_from_email":
+            arguments.setdefault("issue_type", _infer_issue_type(query))
 
     return decision.model_copy(update={"arguments": arguments})
 
@@ -761,6 +993,106 @@ def _heuristic_route(query: str, request_context: RequestContext, lang: str) -> 
             tool_name="get_kb_stats",
             arguments=_kb_stats_arguments(kb_id, kb_key),
             reason="reuse_recent_kb_audit" if (kb_id or kb_key) else "kb_stats_followup_intent",
+        )
+
+    if any(keyword in lowered for keyword in _DRIVE_SOURCE_LIST_KEYWORDS):
+        return AgentDecision(
+            route="tool",
+            tool_name="list_google_drive_sources",
+            reason="admin_list_google_drive_sources_intent",
+        )
+
+    if any(keyword in lowered for keyword in _DRIVE_SYNC_KEYWORDS):
+        source_id = _extract_source_id(query)
+        if source_id is None:
+            return AgentDecision(
+                route="clarify",
+                tool_name="sync_google_drive_source",
+                message="Can you share the Google Drive source ID?" if lang != "vi" else "Ban cho minh source ID cua Google Drive de sync nhe.",
+                reason="missing_google_drive_source_id",
+            )
+        return AgentDecision(
+            route="tool",
+            tool_name="sync_google_drive_source",
+            arguments={"source_id": source_id},
+            reason="admin_sync_google_drive_source_intent",
+        )
+
+    if any(keyword in lowered for keyword in _DRIVE_STATUS_KEYWORDS):
+        source_id = _extract_source_id(query)
+        if source_id is None:
+            return AgentDecision(
+                route="clarify",
+                tool_name="get_google_drive_sync_status",
+                message="Can you share the Google Drive source ID?" if lang != "vi" else "Ban cho minh source ID cua Google Drive de xem trang thai nhe.",
+                reason="missing_google_drive_status_source_id",
+            )
+        return AgentDecision(
+            route="tool",
+            tool_name="get_google_drive_sync_status",
+            arguments={"source_id": source_id},
+            reason="admin_google_drive_status_intent",
+        )
+
+    if any(keyword in lowered for keyword in _SUPPORT_EMAIL_TICKET_KEYWORDS):
+        email_id = _extract_support_email_id(query)
+        if email_id is None:
+            return AgentDecision(
+                route="clarify",
+                tool_name="create_ticket_from_email",
+                message="Can you share the support email ID?" if lang != "vi" else "Ban cho minh email ID de tao ticket nhe.",
+                reason="missing_support_email_id",
+            )
+        return AgentDecision(
+            route="tool",
+            tool_name="create_ticket_from_email",
+            arguments={"email_id": email_id, "issue_type": _infer_issue_type(query)},
+            reason="admin_create_ticket_from_email_intent",
+        )
+
+    if any(keyword in lowered for keyword in _SUPPORT_EMAIL_REPLY_KEYWORDS):
+        email_id = _extract_support_email_id(query)
+        if email_id is None:
+            return AgentDecision(
+                route="clarify",
+                tool_name="send_email_reply",
+                message="Can you share the support email ID?" if lang != "vi" else "Ban cho minh email ID can phan hoi nhe.",
+                reason="missing_support_email_reply_id",
+            )
+        return AgentDecision(
+            route="clarify",
+            tool_name="send_email_reply",
+            arguments={"email_id": email_id},
+            message=(
+                "Please provide the reply body before I send the email."
+                if lang != "vi"
+                else "Ban nhap noi dung phan hoi truoc khi minh gui email nhe."
+            ),
+            reason="missing_support_email_reply_body",
+        )
+
+    if any(keyword in lowered for keyword in _SUPPORT_EMAIL_READ_KEYWORDS):
+        email_id = _extract_support_email_id(query)
+        if email_id is None:
+            return AgentDecision(
+                route="clarify",
+                tool_name="read_email_thread",
+                message="Can you share the support email ID?" if lang != "vi" else "Ban cho minh email ID de doc thread nhe.",
+                reason="missing_support_email_read_id",
+            )
+        return AgentDecision(
+            route="tool",
+            tool_name="read_email_thread",
+            arguments={"email_id": email_id},
+            reason="admin_read_support_email_intent",
+        )
+
+    if any(keyword in lowered for keyword in _SUPPORT_EMAIL_LIST_KEYWORDS):
+        return AgentDecision(
+            route="tool",
+            tool_name="list_support_emails",
+            arguments={"limit": 20, "sync_first": True},
+            reason="admin_list_support_emails_intent",
         )
 
     if any(keyword in lowered for keyword in _TICKET_KEYWORDS):

@@ -205,6 +205,44 @@ class Settings(BaseSettings):
     game_api_online_path: str = "/alliances/online"
 
     # ------------------------------------------------------------------
+    # Google Drive sync
+    # MVP required: no
+    # Admin-only Knowledge Base sync source
+    # ------------------------------------------------------------------
+    google_drive_enabled: bool = False
+    google_drive_service_account_file: str = ""
+    google_drive_delegated_subject: str = ""
+    google_drive_timeout_seconds: int = 30
+    google_drive_export_google_doc_as: str = "docx"
+    google_drive_export_google_sheet_as: str = "xlsx"
+    google_drive_export_google_slide_as: str = "pdf"
+    google_drive_sync_batch_size: int = 50
+
+    # ------------------------------------------------------------------
+    # Support email action tools
+    # MVP required: no
+    # Gmail/Outlook compatible mailbox adapter via IMAP + SMTP
+    # ------------------------------------------------------------------
+    email_integration_enabled: bool = False
+    email_provider: str = "imap_smtp"
+    email_imap_host: str = ""
+    email_imap_port: int = 993
+    email_imap_username: str = ""
+    email_imap_password: str = ""
+    email_imap_mailbox: str = "INBOX"
+    email_imap_use_ssl: bool = True
+    email_smtp_host: str = ""
+    email_smtp_port: int = 587
+    email_smtp_username: str = ""
+    email_smtp_password: str = ""
+    email_smtp_use_tls: bool = True
+    email_smtp_use_ssl: bool = False
+    email_from_address: str = ""
+    email_support_address: str = ""
+    email_lookback_days: int = 7
+    email_fetch_limit: int = 20
+
+    # ------------------------------------------------------------------
     # Cache
     # MVP required: optional but enabled by default
     # ------------------------------------------------------------------

@@ -58,7 +58,7 @@
         .scroll { max-height:360px; overflow:auto; }
         .status { display:inline-flex; align-items:center; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; }
         .status.uploaded,.status.queued,.status.running,.status.ingesting,.status.attached,.status.clarify { background:#fff2d9; color:var(--warn); }
-        .status.ingested,.status.done,.status.active,.status.answer { background:#ddf4e7; color:var(--ok); }
+        .status.ingested,.status.done,.status.active,.status.answer,.status.success { background:#ddf4e7; color:var(--ok); }
         .status.failed,.status.error,.status.fallback,.status.archived { background:#fbe1dc; color:var(--bad); }
         .mono { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px; }
         .toast { position:fixed; right:18px; bottom:18px; z-index:99; border-radius:10px; padding:10px 14px; color:#fff; font-weight:700; font-size:13px; }
@@ -217,6 +217,73 @@
                     <div class="note">Ingest handles only attached files that are pending, failed, or stale. Reindex rebuilds all attached files.</div>
                 </section>
 
+                <section class="card span-4">
+                    <div class="section-head">
+                        <h2>Google Drive Source</h2>
+                        <p>Create a Drive sync source bound to the currently selected Knowledge Base.</p>
+                    </div>
+                    <div class="field-stack" style="margin-bottom:10px;">
+                        <label for="driveSourceName">Source Name</label>
+                        <input id="driveSourceName" type="text" placeholder="Ops Drive" title="Human-readable name for this Google Drive source.">
+                        <small>Tên dễ nhận biết của nguồn sync, ví dụ `Ops Drive` hoặc `Admissions Docs`.</small>
+                    </div>
+                    <div class="field-stack" style="margin-bottom:10px;">
+                        <label for="driveFolderId">Folder ID</label>
+                        <input id="driveFolderId" type="text" placeholder="Google Drive folder ID" title="Google Drive folder ID to scan.">
+                        <small>ID thư mục Google Drive sẽ được quét và import vào KB đang chọn.</small>
+                    </div>
+                    <div class="field-stack" style="margin-bottom:10px;">
+                        <label for="driveSharedDriveId">Shared Drive ID</label>
+                        <input id="driveSharedDriveId" type="text" placeholder="Optional shared drive ID" title="Optional shared drive ID if the folder belongs to a shared drive.">
+                        <small>Để trống nếu source nằm trong thư mục thường. Chỉ điền khi folder thuộc Shared Drive.</small>
+                    </div>
+                    <div class="row" style="margin-bottom:10px;">
+                        <div class="field-stack">
+                            <label for="driveRecursive">Scan Mode</label>
+                            <select id="driveRecursive" title="Choose whether the sync should scan nested folders.">
+                                <option value="true">Recursive</option>
+                                <option value="false">Current folder only</option>
+                            </select>
+                        </div>
+                        <div class="field-stack">
+                            <label for="driveForceSync">Sync Mode</label>
+                            <select id="driveForceSync" title="Choose whether to sync only changes or force a full refresh when clicking sync.">
+                                <option value="false">Changed files only</option>
+                                <option value="true">Force full sync</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="field-stack" style="margin-bottom:10px;">
+                        <label for="driveIncludePatterns">Include Patterns</label>
+                        <input id="driveIncludePatterns" type="text" placeholder="*.csv,*.pdf" title="Optional comma-separated filename patterns to include.">
+                        <small>Danh sách pattern phân tách bằng dấu phẩy. Để trống để lấy mọi file hợp lệ.</small>
+                    </div>
+                    <div class="field-stack" style="margin-bottom:10px;">
+                        <label for="driveExcludePatterns">Exclude Patterns</label>
+                        <input id="driveExcludePatterns" type="text" placeholder="draft-*,tmp-*" title="Optional comma-separated filename patterns to exclude.">
+                        <small>Pattern loại trừ tên file không muốn import, ví dụ `draft-*` hoặc `tmp-*`.</small>
+                    </div>
+                    <div class="btn-row">
+                        <button class="btn-main" id="btnCreateDriveSource" title="Create a Google Drive source for the selected KB.">Create Source</button>
+                        <button class="btn-muted" id="btnRefreshDriveSources" title="Reload the Google Drive source list and latest sync status.">Refresh Sources</button>
+                    </div>
+                    <div class="note" id="driveSourceHint">Drive sources are always bound to the selected KB.</div>
+                </section>
+
+                <section class="card span-8">
+                    <div class="section-head">
+                        <h2>Google Drive Sync</h2>
+                        <p>Review configured sources, run sync, and inspect the latest Drive import result.</p>
+                    </div>
+                    <div class="note" id="driveStatusSummary">No Google Drive source loaded.</div>
+                    <div class="scroll">
+                        <table class="table" id="driveSourcesTable">
+                            <thead><tr><th>ID</th><th>Name</th><th>Folder</th><th>Last Sync</th><th>Latest Run</th><th>Actions</th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+
                 <section class="card span-7">
                     <div class="section-head">
                         <h2>Files In Selected KB</h2>
@@ -312,6 +379,39 @@
                 </section>
                 <section class="card span-12">
                     <div class="section-head">
+                        <h2>Support Email</h2>
+                        <p>Sync the support mailbox, create tickets from inbound emails, and reply through the backend SMTP adapter.</p>
+                    </div>
+                    <div class="toolbar" style="margin-bottom:10px;">
+                        <select id="emailSyncFirst" title="Choose whether Refresh also syncs the configured mailbox.">
+                            <option value="false">Snapshot only</option>
+                            <option value="true">Sync mailbox first</option>
+                        </select>
+                        <button class="btn-main" id="btnRefreshSupportEmails" title="Load support emails from snapshot or sync mailbox first.">Refresh Emails</button>
+                        <span class="note" id="supportEmailSummary">No support email loaded.</span>
+                    </div>
+                    <div class="grid">
+                        <div class="span-7">
+                            <div class="scroll">
+                                <table class="table" id="supportEmailsTable">
+                                    <thead><tr><th>ID</th><th>From</th><th>Subject</th><th>Status</th><th>Actions</th></tr></thead>
+                                    <tbody><tr><td colspan="5">Click Refresh Emails.</td></tr></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="span-5">
+                            <div class="note" id="supportEmailThreadSummary">No thread selected.</div>
+                            <textarea id="supportEmailThreadBody" readonly placeholder="Thread content will appear here." style="min-height:150px; margin:8px 0;"></textarea>
+                            <textarea id="supportEmailReplyBody" placeholder="Reply body..." style="min-height:90px;"></textarea>
+                            <div class="btn-row" style="margin-top:8px;">
+                                <button class="btn-main" id="btnSendSupportEmailReply" title="Send a reply to the selected support email.">Send Reply</button>
+                                <button class="btn-muted" id="btnClearSupportEmailSelection" title="Clear selected email and reply draft.">Clear</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                <section class="card span-12">
+                    <div class="section-head">
                         <h2>Runtime System</h2>
                         <p>See the selected KB payload and active runtime configuration returned by the backend.</p>
                     </div>
@@ -326,6 +426,9 @@
         let activeKb = null;
         let kbFiles = [];
         let libraryFiles = [];
+        let driveSources = [];
+        let supportEmails = [];
+        let selectedSupportEmailId = null;
 
         function loadAdminAuth() {
             const stored = JSON.parse(localStorage.getItem('campusrag_admin_auth') || '{}');
@@ -383,6 +486,17 @@
             return activeKb ? Number(activeKb.id) : null;
         }
 
+        function parseCommaList(value) {
+            return String(value || '')
+                .split(',')
+                .map((item) => item.trim())
+                .filter(Boolean);
+        }
+
+        function driveSourcesForSelectedKb() {
+            return driveSources.filter((item) => Number(item.kb_id) === Number(selectedKbId()));
+        }
+
         function updateKbHeader() {
             document.getElementById('kbKeyLabel').textContent = activeKb?.key || '-';
             document.getElementById('kbStatusLabel').textContent = activeKb?.status || '-';
@@ -391,6 +505,9 @@
             document.getElementById('kbDescription').textContent = activeKb?.description || 'No description.';
             document.getElementById('s-kb-version').textContent = activeKb?.kb_version || '-';
             document.getElementById('selectedKbAccessLevel').value = activeKb?.access_level || 'public';
+            document.getElementById('driveSourceHint').textContent = activeKb
+                ? `Drive sources created here will sync into KB "${activeKb.name}" (${activeKb.key}).`
+                : 'Drive sources are always bound to the selected KB.';
         }
 
         async function loadKnowledgeBases(preferredId = null) {
@@ -476,6 +593,62 @@
             `).join('');
         }
 
+        async function refreshDriveSources() {
+            driveSources = (await fetchJson('/api/admin/google-drive/sources')).items || [];
+            const items = driveSourcesForSelectedKb();
+            const tbody = document.querySelector('#driveSourcesTable tbody');
+            const summary = document.getElementById('driveStatusSummary');
+
+            if (!selectedKbId()) {
+                summary.textContent = 'Select a Knowledge Base to manage Google Drive sync.';
+                tbody.innerHTML = '<tr><td colspan="6">No Knowledge Base selected.</td></tr>';
+                return;
+            }
+
+            if (!items.length) {
+                summary.textContent = `No Google Drive source is configured for KB "${activeKb?.name || '-'}".`;
+                tbody.innerHTML = '<tr><td colspan="6">No Google Drive source for this KB.</td></tr>';
+                return;
+            }
+
+            const latest = items
+                .slice()
+                .sort((a, b) => String(b.last_sync_at || '').localeCompare(String(a.last_sync_at || '')))[0];
+            summary.textContent = `Found ${items.length} Google Drive source(s) for KB "${activeKb?.name || '-'}". Latest sync: ${latest?.last_sync_at || 'never'}.`;
+
+            tbody.innerHTML = items.map((item) => `
+                <tr>
+                    <td>${item.id}</td>
+                    <td><strong>${item.name}</strong><br><small class="note mono">${item.status}</small></td>
+                    <td class="mono">${item.folder_id}${item.shared_drive_id ? `<br><small>drive: ${item.shared_drive_id}</small>` : ''}</td>
+                    <td>${item.last_sync_at || '-'}</td>
+                    <td id="drive-run-${item.id}">-</td>
+                    <td>
+                        <button class="btn-main" data-drive-sync="${item.id}">Sync</button>
+                        <button class="btn-muted" data-drive-status="${item.id}">Status</button>
+                        <button class="btn-danger" data-drive-delete="${item.id}">Delete</button>
+                    </td>
+                </tr>
+            `).join('');
+
+            await Promise.all(items.map(async (item) => {
+                try {
+                    const status = await fetchJson(`/api/admin/google-drive/sources/${item.id}/status`);
+                    const cell = document.getElementById(`drive-run-${item.id}`);
+                    if (!cell) return;
+                    const lastRun = status.last_run;
+                    if (!lastRun) {
+                        cell.textContent = 'No run yet';
+                        return;
+                    }
+                    cell.innerHTML = `<span class="status ${lastRun.status}">${lastRun.status}</span><br><small>${lastRun.imported_count} imported / ${lastRun.failed_count} failed</small>`;
+                } catch (_) {
+                    const cell = document.getElementById(`drive-run-${item.id}`);
+                    if (cell) cell.textContent = 'Status unavailable';
+                }
+            }));
+        }
+
         async function refreshSources() {
             if (!selectedKbId()) return;
             const sources = await fetchJson(`/api/kbs/${selectedKbId()}/sources/stats`);
@@ -525,10 +698,78 @@
             }).join('');
         }
 
+        async function refreshSupportEmails() {
+            const syncFirst = document.getElementById('emailSyncFirst').value === 'true';
+            const data = await fetchJson(`/api/admin/support-email/messages?limit=30&sync_first=${syncFirst ? 'true' : 'false'}`);
+            supportEmails = data.items || [];
+            const tbody = document.querySelector('#supportEmailsTable tbody');
+            const summary = document.getElementById('supportEmailSummary');
+            const syncText = data.sync ? ` Sync run ${data.sync.run_id}: ${data.sync.imported_count} imported.` : '';
+            summary.textContent = `Loaded ${supportEmails.length} support email(s) from ${data.source}.${syncText}`;
+            if (!supportEmails.length) {
+                tbody.innerHTML = '<tr><td colspan="5">No support emails found.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = supportEmails.map((item) => `
+                <tr>
+                    <td>${item.id}</td>
+                    <td>${item.from_address || '-'}<br><small class="note">${item.received_at || '-'}</small></td>
+                    <td><strong>${item.subject || '(no subject)'}</strong><br><small class="note">${item.snippet || ''}</small></td>
+                    <td><span class="status ${item.ticket_code ? 'done' : item.status}">${item.ticket_code || item.status}</span></td>
+                    <td>
+                        <button class="btn-muted" data-email-read="${item.id}">Read</button>
+                        <button class="btn-ok" data-email-ticket="${item.id}">Ticket</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        async function readSupportEmail(emailId) {
+            selectedSupportEmailId = Number(emailId);
+            const data = await fetchJson(`/api/admin/support-email/messages/${emailId}/thread`);
+            document.getElementById('supportEmailThreadSummary').textContent = `Thread ${data.thread_id}: ${data.total} message(s). Selected email ID ${emailId}.`;
+            document.getElementById('supportEmailThreadBody').value = (data.messages || []).map((msg) => {
+                const who = msg.direction === 'outbound' ? `Support -> ${(msg.to_addresses || []).join(', ')}` : `${msg.from_address || '-'}`;
+                return `[${msg.received_at || '-'}] ${who}\nSubject: ${msg.subject || '(no subject)'}\n\n${msg.body_text || msg.snippet || ''}`;
+            }).join('\n\n---\n\n');
+        }
+
+        async function createTicketFromSupportEmail(emailId) {
+            const result = await fetchJson(`/api/admin/support-email/messages/${emailId}/ticket`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ issue_type: 'other' }),
+            });
+            toast(`Created ticket ${result.ticket_code} from email ${emailId}`);
+            await refreshSupportEmails();
+        }
+
+        async function sendSupportEmailReply() {
+            if (!selectedSupportEmailId) return toast('Select a support email first.', false);
+            const body = document.getElementById('supportEmailReplyBody').value.trim();
+            if (!body) return toast('Reply body is required.', false);
+            const result = await fetchJson(`/api/admin/support-email/messages/${selectedSupportEmailId}/reply`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ body }),
+            });
+            toast(`Sent reply to ${result.to_address}`);
+            document.getElementById('supportEmailReplyBody').value = '';
+            await readSupportEmail(selectedSupportEmailId);
+            await refreshSupportEmails();
+        }
+
+        function clearSupportEmailSelection() {
+            selectedSupportEmailId = null;
+            document.getElementById('supportEmailThreadSummary').textContent = 'No thread selected.';
+            document.getElementById('supportEmailThreadBody').value = '';
+            document.getElementById('supportEmailReplyBody').value = '';
+        }
+
         async function refreshAll(preferredKbId = null) {
             await loadKnowledgeBases(preferredKbId);
             if (!selectedKbId()) return;
-            await Promise.all([refreshStatsAndSystem(), refreshKbFiles(), refreshLogs(), refreshAuthAudit(), refreshSources()]);
+            await Promise.all([refreshStatsAndSystem(), refreshKbFiles(), refreshLogs(), refreshAuthAudit(), refreshSources(), refreshDriveSources(), refreshSupportEmails()]);
             await refreshLibrary();
             renderJobSummary();
         }
@@ -617,6 +858,93 @@
             await refreshAll(created.id);
         }
 
+        async function createDriveSource() {
+            if (!selectedKbId()) return toast('Select a Knowledge Base first.', false);
+            const name = document.getElementById('driveSourceName').value.trim();
+            const folderId = document.getElementById('driveFolderId').value.trim();
+            const sharedDriveId = document.getElementById('driveSharedDriveId').value.trim();
+            const recursive = document.getElementById('driveRecursive').value === 'true';
+            const includePatterns = parseCommaList(document.getElementById('driveIncludePatterns').value);
+            const excludePatterns = parseCommaList(document.getElementById('driveExcludePatterns').value);
+
+            if (!name || !folderId) {
+                return toast('Source name and folder ID are required.', false);
+            }
+
+            const created = await fetchJson('/api/admin/google-drive/sources', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    kb_id: selectedKbId(),
+                    name,
+                    folder_id: folderId,
+                    shared_drive_id: sharedDriveId || null,
+                    recursive,
+                    include_patterns: includePatterns,
+                    exclude_patterns: excludePatterns,
+                }),
+            });
+
+            document.getElementById('driveSourceName').value = '';
+            document.getElementById('driveFolderId').value = '';
+            document.getElementById('driveSharedDriveId').value = '';
+            document.getElementById('driveRecursive').value = 'true';
+            document.getElementById('driveIncludePatterns').value = '';
+            document.getElementById('driveExcludePatterns').value = '';
+
+            toast(`Created Google Drive source ${created.id}`);
+            await refreshDriveSources();
+        }
+
+        async function syncDriveSource(sourceId) {
+            const forceFull = document.getElementById('driveForceSync').value === 'true';
+            const data = await fetchJson(`/api/admin/google-drive/sources/${sourceId}/sync?force_full=${forceFull ? 'true' : 'false'}`, {
+                method: 'POST',
+            });
+            toast(`Drive source ${sourceId}: ${data.imported_count} imported, ${data.failed_count} failed`);
+            (data.queued_job_ids || []).forEach((jobId) => pollJob(jobId));
+            await refreshDriveSources();
+        }
+
+        async function showDriveSourceStatus(sourceId) {
+            const status = await fetchJson(`/api/admin/google-drive/sources/${sourceId}/status`);
+            const lastRun = status.last_run;
+            const parts = [
+                `Source ${status.id}: ${status.name}`,
+                `Folder: ${status.folder_id}`,
+                `Last sync: ${status.last_sync_at || 'never'}`,
+            ];
+            if (lastRun) {
+                parts.push(`Run: ${lastRun.status}`);
+                parts.push(`Scanned ${lastRun.scanned_count}, imported ${lastRun.imported_count}, failed ${lastRun.failed_count}`);
+            }
+            document.getElementById('driveStatusSummary').textContent = parts.join(' | ');
+        }
+
+        async function deleteDriveSource(sourceId) {
+            const purge = confirm('OK = purge imported files from this KB too. Cancel = unlink source only.');
+            const confirmed = confirm(
+                purge
+                    ? 'Delete this Drive source and purge its imported files from the selected KB?'
+                    : 'Delete this Drive source link only and keep imported files?'
+            );
+            if (!confirmed) return;
+
+            const mode = purge ? 'purge' : 'unlink';
+            const result = await fetchJson(`/api/admin/google-drive/sources/${sourceId}?mode=${mode}`, {
+                method: 'DELETE',
+            });
+            toast(result.message || `Deleted Drive source ${sourceId}`);
+            document.getElementById('driveStatusSummary').textContent = [
+                `Deleted source ${result.source_id}`,
+                `mode=${result.mode}`,
+                `tracked=${result.tracked_file_count}`,
+                `deleted=${result.deleted_file_count}`,
+                `preserved=${result.preserved_file_count}`,
+            ].join(' | ');
+            await refreshAll(selectedKbId());
+        }
+
         async function saveKbAccessLevel() {
             if (!selectedKbId()) return;
             const accessLevel = document.getElementById('selectedKbAccessLevel').value;
@@ -695,6 +1023,8 @@
         document.getElementById('kbSelect').addEventListener('change', (e) => refreshAll(Number(e.target.value)).catch((err) => toast(explainAuthError(err), false)));
         document.getElementById('btnCreateKb').addEventListener('click', () => createKb().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnRefreshAll').addEventListener('click', () => refreshAll(selectedKbId()).catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnCreateDriveSource').addEventListener('click', () => createDriveSource().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnRefreshDriveSources').addEventListener('click', () => refreshDriveSources().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnClearCache').addEventListener('click', () => clearCache().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnIngestKb').addEventListener('click', () => ingestKb().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnReindexKb').addEventListener('click', () => reindexKb().catch((e) => toast(explainAuthError(e), false)));
@@ -702,6 +1032,9 @@
         document.getElementById('btnSaveKbAccess').addEventListener('click', () => saveKbAccessLevel().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnDeleteKb').addEventListener('click', () => deleteKb().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnCalib').addEventListener('click', () => runCalibrate().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnRefreshSupportEmails').addEventListener('click', () => refreshSupportEmails().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnSendSupportEmailReply').addEventListener('click', () => sendSupportEmailReply().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnClearSupportEmailSelection').addEventListener('click', clearSupportEmailSelection);
         document.getElementById('btnSaveAuth').addEventListener('click', () => {
             saveAdminAuth();
             toast('Saved admin auth headers');
@@ -721,6 +1054,22 @@
             if (attachBtn) return attachFile(Number(attachBtn.dataset.attach)).catch((e) => toast(explainAuthError(e), false));
             const delBtn = event.target.closest('[data-del]');
             if (delBtn) return deleteFile(Number(delBtn.dataset.del)).catch((e) => toast(explainAuthError(e), false));
+        });
+
+        document.querySelector('#driveSourcesTable tbody').addEventListener('click', (event) => {
+            const syncBtn = event.target.closest('[data-drive-sync]');
+            if (syncBtn) return syncDriveSource(Number(syncBtn.dataset.driveSync)).catch((e) => toast(explainAuthError(e), false));
+            const statusBtn = event.target.closest('[data-drive-status]');
+            if (statusBtn) return showDriveSourceStatus(Number(statusBtn.dataset.driveStatus)).catch((e) => toast(explainAuthError(e), false));
+            const deleteBtn = event.target.closest('[data-drive-delete]');
+            if (deleteBtn) return deleteDriveSource(Number(deleteBtn.dataset.driveDelete)).catch((e) => toast(explainAuthError(e), false));
+        });
+
+        document.querySelector('#supportEmailsTable tbody').addEventListener('click', (event) => {
+            const readBtn = event.target.closest('[data-email-read]');
+            if (readBtn) return readSupportEmail(Number(readBtn.dataset.emailRead)).catch((e) => toast(explainAuthError(e), false));
+            const ticketBtn = event.target.closest('[data-email-ticket]');
+            if (ticketBtn) return createTicketFromSupportEmail(Number(ticketBtn.dataset.emailTicket)).catch((e) => toast(explainAuthError(e), false));
         });
 
         const uploadZone = document.getElementById('uploadZone');
@@ -751,6 +1100,7 @@
         setInterval(() => refreshStatsAndSystem().catch(() => {}), 15000);
         setInterval(() => refreshLogs().catch(() => {}), 12000);
         setInterval(() => refreshAuthAudit().catch(() => {}), 12000);
+        setInterval(() => refreshSupportEmails().catch(() => {}), 30000);
     </script>
 </body>
 </html>

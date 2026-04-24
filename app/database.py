@@ -328,6 +328,129 @@ CREATE INDEX IF NOT EXISTS idx_auth_audit_logs_user_time ON auth_audit_logs(user
 CREATE INDEX IF NOT EXISTS idx_auth_audit_logs_resource ON auth_audit_logs(resource_type, resource_id, created_at DESC);
 """
 
+# ---------------------------------------------------------------------------
+# Phase 26 / Google Drive sync sources
+# ---------------------------------------------------------------------------
+_PHASE26_GOOGLE_DRIVE_SYNC_SCHEMA = """
+CREATE TABLE IF NOT EXISTS google_drive_sources (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kb_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    folder_id TEXT NOT NULL,
+    shared_drive_id TEXT,
+    recursive INTEGER NOT NULL DEFAULT 1,
+    include_patterns_json TEXT,
+    exclude_patterns_json TEXT,
+    supported_mime_types_json TEXT,
+    delete_policy TEXT NOT NULL DEFAULT 'detach',
+    status TEXT NOT NULL DEFAULT 'active',
+    tenant_id TEXT,
+    org_id TEXT,
+    created_by_user_id TEXT,
+    last_sync_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (kb_id) REFERENCES knowledge_bases(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_google_drive_sources_kb_id ON google_drive_sources(kb_id);
+CREATE INDEX IF NOT EXISTS idx_google_drive_sources_status ON google_drive_sources(status);
+
+CREATE TABLE IF NOT EXISTS google_drive_files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_id INTEGER NOT NULL,
+    drive_file_id TEXT NOT NULL,
+    drive_parent_id TEXT,
+    name TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    export_ext TEXT,
+    revision_id TEXT,
+    md5_checksum TEXT,
+    etag TEXT,
+    size_bytes INTEGER,
+    modified_time TEXT,
+    uploaded_file_id INTEGER,
+    sync_status TEXT NOT NULL DEFAULT 'pending',
+    last_seen_at TEXT,
+    last_synced_at TEXT,
+    raw_json TEXT,
+    UNIQUE(source_id, drive_file_id),
+    FOREIGN KEY (source_id) REFERENCES google_drive_sources(id) ON DELETE CASCADE,
+    FOREIGN KEY (uploaded_file_id) REFERENCES uploaded_files(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_google_drive_files_source_id ON google_drive_files(source_id, sync_status);
+CREATE INDEX IF NOT EXISTS idx_google_drive_files_uploaded_file_id ON google_drive_files(uploaded_file_id);
+
+CREATE TABLE IF NOT EXISTS google_drive_sync_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_id INTEGER NOT NULL,
+    triggered_by_user_id TEXT,
+    trigger_mode TEXT NOT NULL,
+    status TEXT NOT NULL,
+    scanned_count INTEGER NOT NULL DEFAULT 0,
+    changed_count INTEGER NOT NULL DEFAULT 0,
+    imported_count INTEGER NOT NULL DEFAULT 0,
+    skipped_count INTEGER NOT NULL DEFAULT 0,
+    failed_count INTEGER NOT NULL DEFAULT 0,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    error_message TEXT,
+    FOREIGN KEY (source_id) REFERENCES google_drive_sources(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_google_drive_sync_runs_source_time
+    ON google_drive_sync_runs(source_id, started_at DESC);
+"""
+
+# ---------------------------------------------------------------------------
+# Phase 27 / support email tools
+# ---------------------------------------------------------------------------
+_PHASE27_SUPPORT_EMAIL_SCHEMA = """
+CREATE TABLE IF NOT EXISTS support_email_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL,
+    mailbox TEXT NOT NULL,
+    provider_message_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    message_id_header TEXT,
+    in_reply_to TEXT,
+    references_header TEXT,
+    from_address TEXT,
+    from_name TEXT,
+    to_addresses_json TEXT,
+    cc_addresses_json TEXT,
+    subject TEXT NOT NULL DEFAULT '',
+    body_text TEXT NOT NULL DEFAULT '',
+    snippet TEXT NOT NULL DEFAULT '',
+    received_at TEXT,
+    direction TEXT NOT NULL DEFAULT 'inbound',
+    status TEXT NOT NULL DEFAULT 'new',
+    ticket_code TEXT,
+    raw_json TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(provider, mailbox, provider_message_id)
+);
+CREATE INDEX IF NOT EXISTS idx_support_email_messages_thread_id
+    ON support_email_messages(thread_id, received_at, id);
+CREATE INDEX IF NOT EXISTS idx_support_email_messages_received_at
+    ON support_email_messages(received_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_support_email_messages_ticket_code
+    ON support_email_messages(ticket_code);
+
+CREATE TABLE IF NOT EXISTS support_email_sync_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL,
+    mailbox TEXT NOT NULL,
+    status TEXT NOT NULL,
+    scanned_count INTEGER NOT NULL DEFAULT 0,
+    imported_count INTEGER NOT NULL DEFAULT 0,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    error_message TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_support_email_sync_runs_time
+    ON support_email_sync_runs(started_at DESC, id DESC);
+"""
+
 MIGRATIONS: list[tuple[str, str]] = [
     ("001_core_schema", _CORE_SCHEMA),
     ("002_knowledge_bases", _KB_SCHEMA),
@@ -342,6 +465,8 @@ MIGRATIONS: list[tuple[str, str]] = [
     ("011_phase24_acl_tables", _PHASE24_ACL_TABLES_SCHEMA),
     ("012_phase24_order_scope", _PHASE24_ORDER_SCOPE_SCHEMA),
     ("013_phase25_auth_audit", _PHASE25_AUTH_AUDIT_SCHEMA),
+    ("014_phase26_google_drive_sync", _PHASE26_GOOGLE_DRIVE_SYNC_SCHEMA),
+    ("015_phase27_support_email", _PHASE27_SUPPORT_EMAIL_SCHEMA),
 ]
 
 

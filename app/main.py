@@ -39,6 +39,22 @@ from app.models import (
     ToolAuditLogItem,
 )
 from app.upload import router as upload_router
+from app.tools.drive_tools import (
+    CreateGoogleDriveSourceInput,
+    CreateGoogleDriveSourceOutput,
+    DeleteGoogleDriveSourceOutput,
+    GetGoogleDriveSyncStatusOutput,
+    ListGoogleDriveSourcesOutput,
+    SyncGoogleDriveSourceOutput,
+)
+from app.tools.email_tools import (
+    CreateTicketFromEmailRequest,
+    CreateTicketFromEmailOutput,
+    ListSupportEmailsOutput,
+    ReadEmailThreadOutput,
+    SendEmailReplyRequest,
+    SendEmailReplyOutput,
+)
 
 for stream in (sys.stdout, sys.stderr):
     if hasattr(stream, "reconfigure"):
@@ -510,6 +526,125 @@ async def admin_tools_registry(_=Depends(require_admin)):
     from app.tools import tool_registry
 
     return [item.model_dump() for item in tool_registry.list_definitions()]
+
+
+@app.get("/api/admin/google-drive/sources", response_model=ListGoogleDriveSourcesOutput)
+async def admin_list_google_drive_sources(_=Depends(require_admin)):
+    from app.drive_sync import list_google_drive_sources
+
+    return list_google_drive_sources()
+
+
+@app.post("/api/admin/google-drive/sources", response_model=CreateGoogleDriveSourceOutput)
+async def admin_create_google_drive_source(payload: CreateGoogleDriveSourceInput, auth=Depends(require_admin)):
+    from app.drive_sync import create_google_drive_source
+
+    return await create_google_drive_source(
+        kb_id=payload.kb_id,
+        kb_key=payload.kb_key,
+        name=payload.name,
+        folder_id=payload.folder_id,
+        shared_drive_id=payload.shared_drive_id,
+        recursive=payload.recursive,
+        include_patterns=payload.include_patterns,
+        exclude_patterns=payload.exclude_patterns,
+        supported_mime_types=payload.supported_mime_types,
+        delete_policy=payload.delete_policy,
+        auth=auth,
+    )
+
+
+@app.post("/api/admin/google-drive/sources/{source_id}/sync", response_model=SyncGoogleDriveSourceOutput)
+async def admin_sync_google_drive_source(
+    source_id: int,
+    force_full: bool = Query(default=False),
+    auth=Depends(require_admin),
+):
+    from app.drive_sync import sync_google_drive_source
+
+    return await sync_google_drive_source(
+        source_id,
+        triggered_by_user_id=auth.user_id,
+        trigger_mode="route",
+        force_full=force_full,
+    )
+
+
+@app.get("/api/admin/google-drive/sources/{source_id}/status", response_model=GetGoogleDriveSyncStatusOutput)
+async def admin_get_google_drive_sync_status(source_id: int, _=Depends(require_admin)):
+    from app.drive_sync import get_google_drive_sync_status
+
+    return get_google_drive_sync_status(source_id)
+
+
+@app.delete("/api/admin/google-drive/sources/{source_id}", response_model=DeleteGoogleDriveSourceOutput)
+async def admin_delete_google_drive_source(
+    source_id: int,
+    mode: str = Query(default="unlink"),
+    _=Depends(require_admin),
+):
+    from app.drive_sync import delete_google_drive_source
+
+    return delete_google_drive_source(source_id, mode=mode)
+
+
+@app.get("/api/admin/support-email/messages", response_model=ListSupportEmailsOutput)
+async def admin_list_support_email_messages(
+    limit: int = Query(default=settings.email_fetch_limit, ge=1, le=100),
+    unread_only: bool = Query(default=False),
+    sync_first: bool = Query(default=False),
+    _=Depends(require_admin),
+):
+    from app.integrations.support_email import list_support_emails
+
+    return await list_support_emails(limit=limit, unread_only=unread_only, sync_first=sync_first)
+
+
+@app.get("/api/admin/support-email/messages/{email_id}/thread", response_model=ReadEmailThreadOutput)
+async def admin_read_support_email_thread(email_id: int, _=Depends(require_admin)):
+    from app.integrations.support_email import read_support_email_thread
+
+    return read_support_email_thread(email_id=email_id)
+
+
+@app.post("/api/admin/support-email/messages/{email_id}/ticket", response_model=CreateTicketFromEmailOutput)
+async def admin_create_ticket_from_email(
+    email_id: int,
+    payload: CreateTicketFromEmailRequest,
+    request: Request,
+    auth=Depends(require_admin),
+):
+    from app.integrations.support_email import create_ticket_from_email
+
+    return create_ticket_from_email(
+        email_id=email_id,
+        issue_type=payload.issue_type,
+        message_override=payload.message_override,
+        context=RequestContext(
+            request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+            auth=auth,
+        ),
+    )
+
+
+@app.post("/api/admin/support-email/messages/{email_id}/reply", response_model=SendEmailReplyOutput)
+async def admin_send_support_email_reply(
+    email_id: int,
+    payload: SendEmailReplyRequest,
+    request: Request,
+    auth=Depends(require_admin),
+):
+    from app.integrations.support_email import send_email_reply
+
+    return await send_email_reply(
+        email_id=email_id,
+        body=payload.body,
+        to_address=payload.to_address,
+        context=RequestContext(
+            request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+            auth=auth,
+        ),
+    )
 
 
 @app.post("/api/cache/clear")

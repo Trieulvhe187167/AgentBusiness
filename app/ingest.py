@@ -5,6 +5,7 @@ Parse -> Chunk -> Embed -> Upsert to vector store.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import uuid
@@ -122,6 +123,15 @@ async def _fetch_kb_file(kb_id: int, file_id: int) -> dict[str, Any] | None:
 
 
 async def _queue_ingest_job(background_tasks: BackgroundTasks, kb_id: int, file_id: int) -> dict[str, Any]:
+    return await queue_ingest_job(kb_id, file_id, background_tasks=background_tasks)
+
+
+async def queue_ingest_job(
+    kb_id: int,
+    file_id: int,
+    *,
+    background_tasks: BackgroundTasks | None = None,
+) -> dict[str, Any]:
     job_id = uuid.uuid4().hex[:12]
     await execute_with_retry(
         "INSERT INTO ingest_jobs (job_id, file_id, kb_id, status) VALUES (?, ?, ?, 'queued')",
@@ -136,7 +146,10 @@ async def _queue_ingest_job(background_tasks: BackgroundTasks, kb_id: int, file_
         """,
         (job_id, kb_id, file_id),
     )
-    background_tasks.add_task(_run_ingest, job_id, kb_id, file_id)
+    if background_tasks is not None:
+        background_tasks.add_task(_run_ingest, job_id, kb_id, file_id)
+    else:
+        asyncio.create_task(_run_ingest(job_id, kb_id, file_id))
     return {"job_id": job_id, "kb_id": kb_id, "file_id": file_id, "status": "queued"}
 
 
