@@ -9,12 +9,12 @@ import json
 import logging
 from typing import Any
 
+from app.background_jobs import enqueue_background_job
 from app.database import execute_sync, fetch_all_sync, fetch_one_sync, utcnow_iso
-from app.ingest import queue_ingest_job
 from app.integrations.google_drive import GoogleDriveClient, normalize_google_drive_id
 from app.kb_service import open_db, resolve_kb_scope
 from app.config import settings
-from app.models import AuthContext
+from app.models import AuthContext, RequestContext
 from app.upload_service import import_content_to_uploaded_file
 from app.vector_store import vector_store
 
@@ -498,7 +498,21 @@ async def sync_google_drive_source(
                     """,
                     (source["kb_id"], imported["id"]),
                 )
-                job = await queue_ingest_job(source["kb_id"], int(imported["id"]))
+                job = enqueue_background_job(
+                    job_type="kb_file_ingest",
+                    payload={"kb_id": source["kb_id"], "file_id": int(imported["id"])},
+                    context=RequestContext(
+                        request_id=f"drive-sync-{run_id}-{imported['id']}",
+                        kb_id=source["kb_id"],
+                        auth=AuthContext(
+                            user_id=triggered_by_user_id or source.get("created_by_user_id"),
+                            roles=["admin"],
+                            channel="worker",
+                            tenant_id=source.get("tenant_id"),
+                            org_id=source.get("org_id"),
+                        ),
+                    ),
+                )
                 queued_jobs.append(job["job_id"])
                 imported_count += 1
                 _upsert_drive_file_row(

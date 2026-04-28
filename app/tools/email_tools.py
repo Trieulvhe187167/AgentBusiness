@@ -12,9 +12,9 @@ from app.integrations.support_email import (
     create_ticket_from_email,
     list_support_emails,
     read_support_email_thread,
-    send_email_reply,
 )
 from app.models import RequestContext
+from app.pending_actions import PendingActionItem, draft_email_reply_action
 from app.tools.registry import ToolAuthPolicy, ToolSpec
 
 
@@ -44,6 +44,13 @@ class SupportEmailSyncSummary(BaseModel):
     imported_count: int
 
 
+class BackgroundJobSummary(BaseModel):
+    job_id: str
+    job_type: str
+    status: str
+    progress: float = 0.0
+
+
 class ListSupportEmailsInput(BaseModel):
     limit: int = Field(default=20, ge=1, le=100)
     unread_only: bool = False
@@ -54,6 +61,7 @@ class ListSupportEmailsOutput(BaseModel):
     total: int
     items: list[SupportEmailItem]
     sync: SupportEmailSyncSummary | None = None
+    sync_job: BackgroundJobSummary | None = None
     source: str
 
 
@@ -130,7 +138,7 @@ async def _create_ticket_from_email_tool(payload: CreateTicketFromEmailInput, co
 
 
 async def _send_email_reply_tool(payload: SendEmailReplyInput, context: RequestContext) -> dict[str, Any]:
-    return await send_email_reply(
+    return draft_email_reply_action(
         email_id=payload.email_id,
         body=payload.body,
         to_address=payload.to_address,
@@ -192,9 +200,9 @@ def build_create_ticket_from_email_tool() -> ToolSpec:
 def build_send_email_reply_tool() -> ToolSpec:
     return ToolSpec(
         name="send_email_reply",
-        description="Send a plain-text reply to a support email thread through the configured SMTP backend.",
+        description="Draft a pending action to send a plain-text reply to a support email thread. The action must be approved and executed by an admin.",
         input_model=SendEmailReplyInput,
-        output_model=SendEmailReplyOutput,
+        output_model=PendingActionItem,
         auth_policy=_support_email_policy(risk_level="critical"),
         timeout_seconds=30,
         idempotent=False,

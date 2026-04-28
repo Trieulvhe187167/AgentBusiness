@@ -16,7 +16,8 @@ Instead:
 
 ```dotenv
 RAG_AUTH_MODE=gateway
-RAG_GATEWAY_SHARED_SECRET=change-me
+RAG_ALLOW_HEADER_AUTH_IN_DEV=false
+RAG_GATEWAY_SHARED_SECRET=replace-with-a-long-random-secret
 RAG_GATEWAY_SECRET_HEADER=X-Auth-Gateway-Secret
 RAG_GATEWAY_USER_ID_HEADER=X-Auth-User-Id
 RAG_GATEWAY_ROLES_HEADER=X-Auth-Roles
@@ -25,10 +26,24 @@ RAG_GATEWAY_TENANT_ID_HEADER=X-Auth-Tenant-Id
 RAG_GATEWAY_ORG_ID_HEADER=X-Auth-Org-Id
 ```
 
+The app validates this at startup. In `gateway` mode, startup fails if
+`RAG_GATEWAY_SHARED_SECRET` is missing, too short, or left as a placeholder.
+
+For Docker production deploy:
+
+```powershell
+$env:RAG_GATEWAY_SHARED_SECRET="your-long-random-secret"
+docker compose -f docker-compose.prod.yml up --build
+```
+
+`docker-compose.prod.yml` binds the agent to `127.0.0.1:8080` by default. Put
+your website backend or reverse proxy in front of it and inject the trusted
+headers there.
+
 ## Expected forwarded headers
 
 ```http
-X-Auth-Gateway-Secret: change-me
+X-Auth-Gateway-Secret: replace-with-a-long-random-secret
 X-Auth-User-Id: customer-001
 X-Auth-Roles: customer
 X-Auth-Channel: web
@@ -86,3 +101,5 @@ app.post("/website/chat", async (req, res) => {
 - Do not expose `RAG_GATEWAY_SHARED_SECRET` to the browser.
 - Do not let the browser call the agent directly in this mode.
 - Keep the agent behind the website backend or a reverse proxy that injects the trusted headers.
+- Set `RAG_ALLOW_HEADER_AUTH_IN_DEV=false` in production.
+- Rotate the gateway secret if it is ever logged or shared.

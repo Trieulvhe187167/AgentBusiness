@@ -7,6 +7,7 @@ import json
 import time
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
@@ -207,6 +208,22 @@ def test_gateway_mode_requires_trusted_headers_and_ignores_client_header_overrid
         )
         trusted_admin.raise_for_status()
         assert any(item["key"] == "default" for item in trusted_admin.json())
+
+
+def test_gateway_runtime_validation_rejects_missing_or_placeholder_secret(tmp_path: Path, monkeypatch):
+    configure_test_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(settings, "auth_mode", "gateway")
+
+    monkeypatch.setattr(settings, "gateway_shared_secret", "")
+    with pytest.raises(ValueError, match="RAG_GATEWAY_SHARED_SECRET"):
+        settings.validate_runtime_settings()
+
+    monkeypatch.setattr(settings, "gateway_shared_secret", "change-me")
+    with pytest.raises(ValueError, match="non-placeholder"):
+        settings.validate_runtime_settings()
+
+    monkeypatch.setattr(settings, "gateway_shared_secret", "phase26-gateway-secret")
+    settings.validate_runtime_settings()
 
 
 def test_jwt_mode_rejects_auth_fields_in_chat_body(tmp_path: Path, monkeypatch):

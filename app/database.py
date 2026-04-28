@@ -451,6 +451,70 @@ CREATE INDEX IF NOT EXISTS idx_support_email_sync_runs_time
     ON support_email_sync_runs(started_at DESC, id DESC);
 """
 
+# ---------------------------------------------------------------------------
+# Phase 28 / pending action approvals
+# ---------------------------------------------------------------------------
+_PHASE28_PENDING_ACTIONS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS pending_actions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action_type TEXT NOT NULL,
+    risk_level TEXT NOT NULL DEFAULT 'high',
+    status TEXT NOT NULL DEFAULT 'draft',
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    payload_json TEXT NOT NULL,
+    result_json TEXT,
+    error_message TEXT,
+    created_by_user_id TEXT,
+    approved_by_user_id TEXT,
+    executed_by_user_id TEXT,
+    tenant_id TEXT,
+    org_id TEXT,
+    kb_id INTEGER,
+    kb_key TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    approved_at TEXT,
+    executed_at TEXT,
+    expires_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_pending_actions_status_time
+    ON pending_actions(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pending_actions_action_type
+    ON pending_actions(action_type, created_at DESC);
+"""
+
+# ---------------------------------------------------------------------------
+# Phase 29 / background job queue
+# ---------------------------------------------------------------------------
+_PHASE29_BACKGROUND_JOBS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS background_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id TEXT NOT NULL UNIQUE,
+    job_type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued',
+    payload_json TEXT NOT NULL,
+    result_json TEXT,
+    error_message TEXT,
+    progress REAL NOT NULL DEFAULT 0.0,
+    created_by_user_id TEXT,
+    tenant_id TEXT,
+    org_id TEXT,
+    kb_id INTEGER,
+    kb_key TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_background_jobs_status_time
+    ON background_jobs(status, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_background_jobs_type_time
+    ON background_jobs(job_type, created_at DESC);
+"""
+
 MIGRATIONS: list[tuple[str, str]] = [
     ("001_core_schema", _CORE_SCHEMA),
     ("002_knowledge_bases", _KB_SCHEMA),
@@ -467,6 +531,8 @@ MIGRATIONS: list[tuple[str, str]] = [
     ("013_phase25_auth_audit", _PHASE25_AUTH_AUDIT_SCHEMA),
     ("014_phase26_google_drive_sync", _PHASE26_GOOGLE_DRIVE_SYNC_SCHEMA),
     ("015_phase27_support_email", _PHASE27_SUPPORT_EMAIL_SCHEMA),
+    ("016_phase28_pending_actions", _PHASE28_PENDING_ACTIONS_SCHEMA),
+    ("017_phase29_background_jobs", _PHASE29_BACKGROUND_JOBS_SCHEMA),
 ]
 
 

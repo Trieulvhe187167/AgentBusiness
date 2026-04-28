@@ -228,17 +228,39 @@ def poll_jobs(client: TestClient, jobs: list[dict], timeout_seconds: int = 20):
     pending = {job["job_id"] for job in jobs}
     while pending and time.time() < deadline:
         for job_id in list(pending):
-            response = client.get(f"/api/jobs/{job_id}", headers=admin_headers())
+            if str(job_id).startswith("BGJ-"):
+                response = client.get(f"/api/admin/background-jobs/{job_id}", headers=admin_headers())
+            else:
+                response = client.get(f"/api/jobs/{job_id}", headers=admin_headers())
             response.raise_for_status()
             payload = response.json()
             if payload["status"] == "failed":
                 raise AssertionError(f"Job {job_id} failed: {payload.get('error_message')}")
             if payload["status"] == "done":
                 pending.remove(job_id)
+                child_ids = (payload.get("result") or {}).get("queued_job_ids") or []
+                pending.update(str(child_id) for child_id in child_ids if str(child_id).startswith("BGJ-"))
         if pending:
             time.sleep(0.2)
 
     assert not pending, f"Jobs did not finish before timeout: {sorted(pending)}"
+
+
+def poll_background_job(client: TestClient, job_id: str, timeout_seconds: int = 20) -> dict:
+    import time
+
+    deadline = time.time() + timeout_seconds
+    payload: dict | None = None
+    while time.time() < deadline:
+        response = client.get(f"/api/admin/background-jobs/{job_id}", headers=admin_headers())
+        response.raise_for_status()
+        payload = response.json()
+        if payload["status"] == "failed":
+            raise AssertionError(f"Background job {job_id} failed: {payload.get('error_message')}")
+        if payload["status"] == "done":
+            return payload
+        time.sleep(0.2)
+    raise AssertionError(f"Background job did not finish before timeout: {job_id}; last={payload}")
 
 
 @pytest.fixture()

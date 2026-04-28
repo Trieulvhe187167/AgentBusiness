@@ -376,6 +376,22 @@ class Settings(BaseSettings):
             return "Set RAG_AGENT_TOOL_PARSER if your serving stack requires an explicit parser for auto tool choice."
         return None
 
+    def validate_runtime_settings(self) -> None:
+        if self.normalized_auth_mode != "gateway":
+            return
+
+        secret = self.gateway_shared_secret.strip()
+        weak_placeholders = {
+            "change-me",
+            "changeme",
+            "your-long-random-secret",
+            "replace-me",
+        }
+        if not secret:
+            raise ValueError("RAG_GATEWAY_SHARED_SECRET is required when RAG_AUTH_MODE=gateway")
+        if secret.lower() in weak_placeholders or len(secret) < 16:
+            raise ValueError("RAG_GATEWAY_SHARED_SECRET must be a non-placeholder secret with at least 16 characters")
+
     @property
     def effective_chat_model(self) -> str:
         provider = self.normalized_llm_provider

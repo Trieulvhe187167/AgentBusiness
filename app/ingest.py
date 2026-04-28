@@ -12,15 +12,16 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 
 from app.auth import require_admin
+from app.background_jobs import enqueue_background_job
 from app.chunker import chunk_records
 from app.config import settings
 from app.database import execute_with_retry, fetch_all, fetch_one
 from app.embeddings import embed_texts
 from app.kb_service import attach_file_to_kb, get_default_kb, get_kb_or_404, new_kb_version, open_db
-from app.models import IngestJobResponse, JobStatus
+from app.models import AuthContext, IngestJobResponse, JobStatus, RequestContext
 from app.parsers import parse_file
 from app.vector_store import vector_store
 
@@ -131,6 +132,7 @@ async def queue_ingest_job(
     file_id: int,
     *,
     background_tasks: BackgroundTasks | None = None,
+    start_immediately: bool = True,
 ) -> dict[str, Any]:
     job_id = uuid.uuid4().hex[:12]
     await execute_with_retry(
@@ -146,10 +148,11 @@ async def queue_ingest_job(
         """,
         (job_id, kb_id, file_id),
     )
-    if background_tasks is not None:
-        background_tasks.add_task(_run_ingest, job_id, kb_id, file_id)
-    else:
-        asyncio.create_task(_run_ingest(job_id, kb_id, file_id))
+    if start_immediately:
+        if background_tasks is not None:
+            background_tasks.add_task(_run_ingest, job_id, kb_id, file_id)
+        else:
+            asyncio.create_task(_run_ingest(job_id, kb_id, file_id))
     return {"job_id": job_id, "kb_id": kb_id, "file_id": file_id, "status": "queued"}
 
 
@@ -343,19 +346,30 @@ async def _queue_kb_files(background_tasks: BackgroundTasks, kb_id: int, rows: l
 
 
 @router.post("/ingest/all")
-async def ingest_all(background_tasks: BackgroundTasks):
+async def ingest_all(request: Request, auth=Depends(require_admin)):
     """Queue ingestion for stale files in the default Knowledge Base."""
     kb_id = await _resolve_default_kb_id()
     rows = [row for row in await _list_kb_files(kb_id) if _needs_ingest(row, kb_id)]
     if not rows:
         return {"message": "No files to ingest in the default Knowledge Base", "jobs": []}
 
-    jobs = await _queue_kb_files(background_tasks, kb_id, rows)
-    return {"message": f"Queued {len(jobs)} files for ingestion in KB {kb_id}", "jobs": jobs}
+    job = _enqueue_ingest_background_job(
+        request=request,
+        auth=auth,
+        kb_id=kb_id,
+        job_type="kb_ingest",
+        payload={"kb_id": kb_id},
+    )
+    return {
+        **job,
+        "background_job_id": job["job_id"],
+        "message": f"Queued background ingest for KB {kb_id}",
+        "jobs": [job],
+    }
 
 
-@router.post("/ingest/{file_id}", response_model=IngestJobResponse)
-async def ingest_file(file_id: int, background_tasks: BackgroundTasks):
+@router.post("/ingest/{file_id}")
+async def ingest_file(file_id: int, request: Request, auth=Depends(require_admin)):
     """Trigger ingestion for a single file in the default Knowledge Base."""
     kb_id = await _resolve_default_kb_id()
     row = await _fetch_kb_file(kb_id, file_id)
@@ -373,12 +387,18 @@ async def ingest_file(file_id: int, background_tasks: BackgroundTasks):
     if not row:
         raise HTTPException(404, "File is not attached to the default Knowledge Base")
 
-    job = await _queue_ingest_job(background_tasks, kb_id, file_id)
-    return IngestJobResponse(job_id=job["job_id"], file_id=file_id, kb_id=kb_id, status="queued")
+    job = _enqueue_ingest_background_job(
+        request=request,
+        auth=auth,
+        kb_id=kb_id,
+        job_type="kb_file_ingest",
+        payload={"kb_id": kb_id, "file_id": file_id},
+    )
+    return {**job, "background_job_id": job["job_id"], "file_id": file_id, "kb_id": kb_id}
 
 
 @router.post("/kbs/{kb_id}/ingest")
-async def ingest_kb(kb_id: int, background_tasks: BackgroundTasks):
+async def ingest_kb(kb_id: int, request: Request, auth=Depends(require_admin)):
     """Queue ingestion for stale files attached to a Knowledge Base."""
     db = await open_db()
     try:
@@ -390,12 +410,23 @@ async def ingest_kb(kb_id: int, background_tasks: BackgroundTasks):
     if not rows:
         return {"message": "No stale files to ingest for this Knowledge Base", "jobs": []}
 
-    jobs = await _queue_kb_files(background_tasks, kb_id, rows)
-    return {"message": f"Queued {len(jobs)} files for Knowledge Base {kb_id}", "jobs": jobs}
+    job = _enqueue_ingest_background_job(
+        request=request,
+        auth=auth,
+        kb_id=kb_id,
+        job_type="kb_ingest",
+        payload={"kb_id": kb_id},
+    )
+    return {
+        **job,
+        "background_job_id": job["job_id"],
+        "message": f"Queued background ingest for Knowledge Base {kb_id}",
+        "jobs": [job],
+    }
 
 
 @router.post("/kbs/{kb_id}/reindex")
-async def reindex_kb(kb_id: int, background_tasks: BackgroundTasks):
+async def reindex_kb(kb_id: int, request: Request, auth=Depends(require_admin)):
     """Queue reindex for all files attached to a Knowledge Base."""
     db = await open_db()
     try:
@@ -407,12 +438,23 @@ async def reindex_kb(kb_id: int, background_tasks: BackgroundTasks):
     if not rows:
         return {"message": "No attached files to reindex for this Knowledge Base", "jobs": []}
 
-    jobs = await _queue_kb_files(background_tasks, kb_id, rows)
-    return {"message": f"Queued reindex for {len(jobs)} files in Knowledge Base {kb_id}", "jobs": jobs}
+    job = _enqueue_ingest_background_job(
+        request=request,
+        auth=auth,
+        kb_id=kb_id,
+        job_type="kb_reindex",
+        payload={"kb_id": kb_id},
+    )
+    return {
+        **job,
+        "background_job_id": job["job_id"],
+        "message": f"Queued background reindex for Knowledge Base {kb_id}",
+        "jobs": [job],
+    }
 
 
-@router.post("/kbs/{kb_id}/files/{file_id}/ingest", response_model=IngestJobResponse)
-async def ingest_kb_file(kb_id: int, file_id: int, background_tasks: BackgroundTasks):
+@router.post("/kbs/{kb_id}/files/{file_id}/ingest")
+async def ingest_kb_file(kb_id: int, file_id: int, request: Request, auth=Depends(require_admin)):
     """Trigger ingestion for one file attached to one Knowledge Base."""
     db = await open_db()
     try:
@@ -424,8 +466,35 @@ async def ingest_kb_file(kb_id: int, file_id: int, background_tasks: BackgroundT
     if not row:
         raise HTTPException(404, "File is not attached to this Knowledge Base")
 
-    job = await _queue_ingest_job(background_tasks, kb_id, file_id)
-    return IngestJobResponse(job_id=job["job_id"], file_id=file_id, kb_id=kb_id, status="queued")
+    job = _enqueue_ingest_background_job(
+        request=request,
+        auth=auth,
+        kb_id=kb_id,
+        job_type="kb_file_ingest",
+        payload={"kb_id": kb_id, "file_id": file_id},
+    )
+    return {**job, "background_job_id": job["job_id"], "file_id": file_id, "kb_id": kb_id}
+
+
+def _enqueue_ingest_background_job(
+    *,
+    request: Request,
+    auth,
+    kb_id: int,
+    job_type: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    request_state = getattr(request, "state", None)
+    auth_context = auth if isinstance(auth, AuthContext) else AuthContext(user_id="admin-1", roles=["admin"], channel="admin")
+    return enqueue_background_job(
+        job_type=job_type,
+        payload=payload,
+        context=RequestContext(
+            request_id=getattr(request_state, "request_id", None) or f"ingest-{uuid.uuid4().hex[:8]}",
+            kb_id=kb_id,
+            auth=auth_context,
+        ),
+    )
 
 
 @router.get("/jobs/{job_id}", response_model=JobStatus)

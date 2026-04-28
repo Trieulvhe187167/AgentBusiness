@@ -144,6 +144,22 @@ docker compose up --build
 
 This gives you a local KB app with Chroma, but without requiring an external model server.
 
+## Production gateway deploy
+
+Use `docker-compose.prod.yml` when deploying the agent behind a website backend
+or trusted reverse proxy. This profile defaults auth to `gateway` and disables
+dev header auth.
+
+```powershell
+$env:RAG_GATEWAY_SHARED_SECRET="your-long-random-secret"
+docker compose -f docker-compose.prod.yml up --build
+```
+
+In this mode, browsers must not call the agent directly. Your website backend
+authenticates the user and forwards trusted headers such as `X-Auth-User-Id`,
+`X-Auth-Roles`, and `X-Auth-Gateway-Secret`. See
+`docs/website-gateway-integration.md` and `.env.production.example`.
+
 ## Main endpoints
 
 - Admin UI: `http://127.0.0.1:8080/admin`
@@ -162,6 +178,8 @@ This gives you a local KB app with Chroma, but without requiring an external mod
 - `docs/windows-setup.md`
 - `docs/external-integrations.md`
 - `docs/google-drive-sync.md`
+- `docs/action-safety.md`
+- `docs/background-jobs.md`
 - `docs/website-gateway-integration.md`
 
 ## Tests

@@ -412,6 +412,53 @@
                 </section>
                 <section class="card span-12">
                     <div class="section-head">
+                        <h2>Pending Actions</h2>
+                        <p>Review high-risk drafts before execution. Email replies, Drive delete/purge, and force full sync require approval here.</p>
+                    </div>
+                    <div class="toolbar" style="margin-bottom:10px;">
+                        <select id="pendingActionStatus" title="Filter pending actions by status.">
+                            <option value="">All statuses</option>
+                            <option value="draft">Draft</option>
+                            <option value="approved">Approved</option>
+                            <option value="executed">Executed</option>
+                            <option value="rejected">Rejected</option>
+                            <option value="failed">Failed</option>
+                        </select>
+                        <button class="btn-main" id="btnRefreshPendingActions" title="Reload pending actions.">Refresh Actions</button>
+                        <span class="note" id="pendingActionSummary">No pending action loaded.</span>
+                    </div>
+                    <div class="scroll">
+                        <table class="table" id="pendingActionsTable">
+                            <thead><tr><th>ID</th><th>Action</th><th>Status</th><th>Summary</th><th>Actions</th></tr></thead>
+                            <tbody><tr><td colspan="5">No pending action loaded.</td></tr></tbody>
+                        </table>
+                    </div>
+                </section>
+                <section class="card span-12">
+                    <div class="section-head">
+                        <h2>Background Jobs</h2>
+                        <p>Drive sync, mailbox sync, ingest, and approved action execution run here.</p>
+                    </div>
+                    <div class="toolbar" style="margin-bottom:10px;">
+                        <select id="backgroundJobStatus" title="Filter background jobs by status.">
+                            <option value="">All statuses</option>
+                            <option value="queued">Queued</option>
+                            <option value="running">Running</option>
+                            <option value="done">Done</option>
+                            <option value="failed">Failed</option>
+                        </select>
+                        <button class="btn-main" id="btnRefreshBackgroundJobs" title="Reload background jobs.">Refresh Jobs</button>
+                        <span class="note" id="backgroundJobSummary">No background job loaded.</span>
+                    </div>
+                    <div class="scroll">
+                        <table class="table" id="backgroundJobsTable">
+                            <thead><tr><th>Job ID</th><th>Type</th><th>Status</th><th>Progress</th><th>Result</th></tr></thead>
+                            <tbody><tr><td colspan="5">No background job loaded.</td></tr></tbody>
+                        </table>
+                    </div>
+                </section>
+                <section class="card span-12">
+                    <div class="section-head">
                         <h2>Runtime System</h2>
                         <p>See the selected KB payload and active runtime configuration returned by the backend.</p>
                     </div>
@@ -428,7 +475,9 @@
         let libraryFiles = [];
         let driveSources = [];
         let supportEmails = [];
+        let backgroundJobs = [];
         let selectedSupportEmailId = null;
+        let pendingActions = [];
 
         function loadAdminAuth() {
             const stored = JSON.parse(localStorage.getItem('campusrag_admin_auth') || '{}');
@@ -491,6 +540,15 @@
                 .split(',')
                 .map((item) => item.trim())
                 .filter(Boolean);
+        }
+
+        function escapeHtml(value) {
+            return String(value || '')
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#39;');
         }
 
         function driveSourcesForSelectedKb() {
@@ -698,14 +756,20 @@
             }).join('');
         }
 
-        async function refreshSupportEmails() {
-            const syncFirst = document.getElementById('emailSyncFirst').value === 'true';
-            const data = await fetchJson(`/api/admin/support-email/messages?limit=30&sync_first=${syncFirst ? 'true' : 'false'}`);
+        async function refreshSupportEmails(allowSync = true) {
+            const syncFirst = allowSync && document.getElementById('emailSyncFirst').value === 'true';
+            let syncJob = null;
+            if (syncFirst) {
+                syncJob = await fetchJson('/api/admin/support-email/sync?limit=30', { method: 'POST' });
+                pollJob(syncJob.job_id);
+            }
+            const data = await fetchJson('/api/admin/support-email/messages?limit=30&sync_first=false');
             supportEmails = data.items || [];
             const tbody = document.querySelector('#supportEmailsTable tbody');
             const summary = document.getElementById('supportEmailSummary');
             const syncText = data.sync ? ` Sync run ${data.sync.run_id}: ${data.sync.imported_count} imported.` : '';
-            summary.textContent = `Loaded ${supportEmails.length} support email(s) from ${data.source}.${syncText}`;
+            const jobText = syncJob ? ` Sync job queued: ${syncJob.job_id}.` : '';
+            summary.textContent = `Loaded ${supportEmails.length} support email(s) from ${data.source}.${syncText}${jobText}`;
             if (!supportEmails.length) {
                 tbody.innerHTML = '<tr><td colspan="5">No support emails found.</td></tr>';
                 return;
@@ -753,10 +817,9 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ body }),
             });
-            toast(`Sent reply to ${result.to_address}`);
+            toast(`Created pending email reply action ${result.id}`);
             document.getElementById('supportEmailReplyBody').value = '';
-            await readSupportEmail(selectedSupportEmailId);
-            await refreshSupportEmails();
+            await refreshPendingActions();
         }
 
         function clearSupportEmailSelection() {
@@ -766,10 +829,91 @@
             document.getElementById('supportEmailReplyBody').value = '';
         }
 
+        async function refreshPendingActions() {
+            const status = document.getElementById('pendingActionStatus').value;
+            const query = status ? `?status=${encodeURIComponent(status)}&limit=50` : '?limit=50';
+            const data = await fetchJson(`/api/admin/pending-actions${query}`);
+            pendingActions = data.items || [];
+            document.getElementById('pendingActionSummary').textContent = `Loaded ${pendingActions.length} pending action(s).`;
+            const tbody = document.querySelector('#pendingActionsTable tbody');
+            if (!pendingActions.length) {
+                tbody.innerHTML = '<tr><td colspan="5">No pending actions found.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = pendingActions.map((item) => {
+                const canApprove = item.status === 'draft';
+                const canExecute = item.status === 'approved';
+                const canReject = item.status === 'draft' || item.status === 'approved';
+                return `
+                    <tr>
+                        <td>${item.id}</td>
+                        <td><strong>${item.title}</strong><br><small class="note mono">${item.action_type} / ${item.risk_level}</small></td>
+                        <td><span class="status ${item.status}">${item.status}</span></td>
+                        <td>${item.summary || '-'}<br><small class="note">By: ${item.created_by_user_id || '-'}</small></td>
+                        <td>
+                            ${canApprove ? `<button class="btn-ok" data-action-approve="${item.id}">Approve</button>` : ''}
+                            ${canExecute ? `<button class="btn-main" data-action-execute="${item.id}">Execute</button>` : ''}
+                            ${canReject ? `<button class="btn-danger" data-action-reject="${item.id}">Reject</button>` : ''}
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function approvePendingAction(actionId) {
+            const item = await fetchJson(`/api/admin/pending-actions/${actionId}/approve`, { method: 'POST' });
+            toast(`Approved action ${item.id}`);
+            await refreshPendingActions();
+        }
+
+        async function executePendingAction(actionId) {
+            if (!confirm(`Execute approved action ${actionId}? This can send email, delete Drive links/files, or queue full sync jobs.`)) return;
+            const job = await fetchJson(`/api/admin/pending-actions/${actionId}/execute`, { method: 'POST' });
+            toast(`Execution job queued: ${job.job_id}`);
+            pollJob(job.job_id);
+            await Promise.all([refreshPendingActions(), refreshBackgroundJobs()]);
+        }
+
+        async function rejectPendingAction(actionId) {
+            const note = prompt('Reject note (optional):') || '';
+            const item = await fetchJson(`/api/admin/pending-actions/${actionId}/reject`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ note }),
+            });
+            toast(`Rejected action ${item.id}`);
+            await refreshPendingActions();
+        }
+
+        async function refreshBackgroundJobs() {
+            const status = document.getElementById('backgroundJobStatus').value;
+            const query = status ? `?status=${encodeURIComponent(status)}&limit=50` : '?limit=50';
+            const data = await fetchJson(`/api/admin/background-jobs${query}`);
+            backgroundJobs = data.items || [];
+            document.getElementById('backgroundJobSummary').textContent = `Loaded ${backgroundJobs.length} background job(s).`;
+            const tbody = document.querySelector('#backgroundJobsTable tbody');
+            if (!backgroundJobs.length) {
+                tbody.innerHTML = '<tr><td colspan="5">No background jobs found.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = backgroundJobs.map((job) => {
+                const result = job.error_message || JSON.stringify(job.result || {});
+                return `
+                    <tr>
+                        <td class="mono">${job.job_id}</td>
+                        <td>${job.job_type}</td>
+                        <td><span class="status ${job.status}">${job.status}</span></td>
+                        <td>${Math.round((job.progress || 0) * 100)}%</td>
+                        <td><small class="note">${escapeHtml(result).slice(0, 220)}</small></td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
         async function refreshAll(preferredKbId = null) {
             await loadKnowledgeBases(preferredKbId);
             if (!selectedKbId()) return;
-            await Promise.all([refreshStatsAndSystem(), refreshKbFiles(), refreshLogs(), refreshAuthAudit(), refreshSources(), refreshDriveSources(), refreshSupportEmails()]);
+            await Promise.all([refreshStatsAndSystem(), refreshKbFiles(), refreshLogs(), refreshAuthAudit(), refreshSources(), refreshDriveSources(), refreshSupportEmails(false), refreshPendingActions(), refreshBackgroundJobs()]);
             await refreshLibrary();
             renderJobSummary();
         }
@@ -784,14 +928,19 @@
             renderJobSummary();
             const check = async () => {
                 try {
-                    const job = await fetchJson(`/api/jobs/${jobId}`);
+                    const isBackgroundJob = String(jobId).startsWith('BGJ-');
+                    const job = await fetchJson(isBackgroundJob ? `/api/admin/background-jobs/${jobId}` : `/api/jobs/${jobId}`);
                     if (job.status === 'done' || job.status === 'failed') {
                         activeJobs.delete(jobId);
                         renderJobSummary();
                         toast(job.status === 'done' ? `Job ${jobId} done` : `Job ${jobId} failed: ${job.error_message || ''}`, job.status === 'done');
+                        if (job.status === 'done' && job.result?.queued_job_ids) {
+                            job.result.queued_job_ids.forEach((childJobId) => pollJob(childJobId));
+                        }
                         await refreshAll(job.kb_id || selectedKbId());
                         return;
                     }
+                    await refreshBackgroundJobs();
                 } catch (_) {}
                 setTimeout(check, 2000);
             };
@@ -901,9 +1050,14 @@
             const data = await fetchJson(`/api/admin/google-drive/sources/${sourceId}/sync?force_full=${forceFull ? 'true' : 'false'}`, {
                 method: 'POST',
             });
-            toast(`Drive source ${sourceId}: ${data.imported_count} imported, ${data.failed_count} failed`);
-            (data.queued_job_ids || []).forEach((jobId) => pollJob(jobId));
-            await refreshDriveSources();
+            if (data.action_type) {
+                toast(`Created pending full sync action ${data.id}`);
+                await refreshPendingActions();
+                return;
+            }
+            toast(`Drive sync job queued: ${data.job_id}`);
+            pollJob(data.job_id);
+            await Promise.all([refreshDriveSources(), refreshBackgroundJobs()]);
         }
 
         async function showDriveSourceStatus(sourceId) {
@@ -934,15 +1088,9 @@
             const result = await fetchJson(`/api/admin/google-drive/sources/${sourceId}?mode=${mode}`, {
                 method: 'DELETE',
             });
-            toast(result.message || `Deleted Drive source ${sourceId}`);
-            document.getElementById('driveStatusSummary').textContent = [
-                `Deleted source ${result.source_id}`,
-                `mode=${result.mode}`,
-                `tracked=${result.tracked_file_count}`,
-                `deleted=${result.deleted_file_count}`,
-                `preserved=${result.preserved_file_count}`,
-            ].join(' | ');
-            await refreshAll(selectedKbId());
+            toast(`Created pending Drive delete action ${result.id}`);
+            document.getElementById('driveStatusSummary').textContent = `Pending action ${result.id} created for source ${sourceId} (${mode}). Approve and execute it in Pending Actions.`;
+            await refreshPendingActions();
         }
 
         async function saveKbAccessLevel() {
@@ -989,14 +1137,14 @@
         async function ingestKb() {
             const data = await fetchJson(`/api/kbs/${selectedKbId()}/ingest`, { method:'POST' });
             toast(data.message || 'Queued');
-            (data.jobs || []).forEach((job) => pollJob(job.job_id));
+            pollJob(data.job_id || data.background_job_id);
             await refreshAll(selectedKbId());
         }
 
         async function reindexKb() {
             const data = await fetchJson(`/api/kbs/${selectedKbId()}/reindex`, { method:'POST' });
             toast(data.message || 'Queued');
-            (data.jobs || []).forEach((job) => pollJob(job.job_id));
+            pollJob(data.job_id || data.background_job_id);
             await refreshAll(selectedKbId());
         }
 
@@ -1035,6 +1183,10 @@
         document.getElementById('btnRefreshSupportEmails').addEventListener('click', () => refreshSupportEmails().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnSendSupportEmailReply').addEventListener('click', () => sendSupportEmailReply().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnClearSupportEmailSelection').addEventListener('click', clearSupportEmailSelection);
+        document.getElementById('btnRefreshPendingActions').addEventListener('click', () => refreshPendingActions().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('pendingActionStatus').addEventListener('change', () => refreshPendingActions().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnRefreshBackgroundJobs').addEventListener('click', () => refreshBackgroundJobs().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('backgroundJobStatus').addEventListener('change', () => refreshBackgroundJobs().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnSaveAuth').addEventListener('click', () => {
             saveAdminAuth();
             toast('Saved admin auth headers');
@@ -1072,6 +1224,15 @@
             if (ticketBtn) return createTicketFromSupportEmail(Number(ticketBtn.dataset.emailTicket)).catch((e) => toast(explainAuthError(e), false));
         });
 
+        document.querySelector('#pendingActionsTable tbody').addEventListener('click', (event) => {
+            const approveBtn = event.target.closest('[data-action-approve]');
+            if (approveBtn) return approvePendingAction(Number(approveBtn.dataset.actionApprove)).catch((e) => toast(explainAuthError(e), false));
+            const executeBtn = event.target.closest('[data-action-execute]');
+            if (executeBtn) return executePendingAction(Number(executeBtn.dataset.actionExecute)).catch((e) => toast(explainAuthError(e), false));
+            const rejectBtn = event.target.closest('[data-action-reject]');
+            if (rejectBtn) return rejectPendingAction(Number(rejectBtn.dataset.actionReject)).catch((e) => toast(explainAuthError(e), false));
+        });
+
         const uploadZone = document.getElementById('uploadZone');
         const fileInput = document.getElementById('fileInput');
         uploadZone.addEventListener('dragover', (event) => { event.preventDefault(); uploadZone.classList.add('drag'); });
@@ -1100,7 +1261,9 @@
         setInterval(() => refreshStatsAndSystem().catch(() => {}), 15000);
         setInterval(() => refreshLogs().catch(() => {}), 12000);
         setInterval(() => refreshAuthAudit().catch(() => {}), 12000);
-        setInterval(() => refreshSupportEmails().catch(() => {}), 30000);
+        setInterval(() => refreshSupportEmails(false).catch(() => {}), 30000);
+        setInterval(() => refreshPendingActions().catch(() => {}), 30000);
+        setInterval(() => refreshBackgroundJobs().catch(() => {}), 5000);
     </script>
 </body>
 </html>

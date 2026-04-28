@@ -503,8 +503,13 @@ def _compose_tool_answer(tool_name: str, payload: dict[str, Any], lang: str) -> 
 
     if tool_name == "send_email_reply":
         if lang == "vi":
-            return f"Da gui phan hoi email {payload.get('email_id')} toi {payload.get('to_address')}."
-        return f"Sent reply for email {payload.get('email_id')} to {payload.get('to_address')}."
+            return f"Da tao action cho phan hoi email: #{payload.get('id')} ({payload.get('status')}). Can approve roi execute truoc khi gui that."
+        return f"Created pending email reply action #{payload.get('id')} ({payload.get('status')}). Approve and execute it before the email is sent."
+
+    if tool_name == "delete_google_drive_source":
+        if lang == "vi":
+            return f"Da tao pending action #{payload.get('id')} de xoa Google Drive source. Can approve roi execute."
+        return f"Created pending action #{payload.get('id')} to delete the Google Drive source. Approve and execute it first."
 
     return json.dumps(payload, ensure_ascii=False)
 
@@ -539,7 +544,9 @@ def _tool_result_summary(tool_name: str, payload: dict[str, Any]) -> str:
     if tool_name == "create_ticket_from_email":
         return f"created {payload.get('ticket_code')} from email {payload.get('email_id')}"
     if tool_name == "send_email_reply":
-        return f"sent reply to {payload.get('to_address')}"
+        return f"pending action {payload.get('id')}"
+    if tool_name == "delete_google_drive_source":
+        return f"pending action {payload.get('id')}"
     return "completed"
 
 

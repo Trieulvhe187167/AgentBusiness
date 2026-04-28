@@ -11,7 +11,7 @@ The sync flow:
 3. Download or export changed files.
 4. Upsert them into `uploaded_files`.
 5. Attach them to `kb_files`.
-6. Queue normal ingest jobs.
+6. Queue background ingest jobs.
 7. Reuse the same `uploaded_file_id` when a Drive file changes revision.
 
 ## Supported file types
@@ -58,9 +58,13 @@ Use `RAG_GOOGLE_DRIVE_DELEGATED_SUBJECT` only when your Google Workspace admin h
 
 - `GET /api/admin/google-drive/sources`
 - `POST /api/admin/google-drive/sources`
-- `POST /api/admin/google-drive/sources/{source_id}/sync`
+- `POST /api/admin/google-drive/sources/{source_id}/sync` returns a background `job_id` for normal sync.
 - `GET /api/admin/google-drive/sources/{source_id}/status`
 - `DELETE /api/admin/google-drive/sources/{source_id}?mode=unlink|purge`
+- `GET /api/admin/pending-actions`
+- `POST /api/admin/pending-actions/{action_id}/approve`
+- `POST /api/admin/pending-actions/{action_id}/execute`
+- `GET /api/admin/background-jobs/{job_id}`
 
 All of these require the admin role.
 
@@ -98,3 +102,12 @@ When deleting a configured source:
   - detach imported files from the bound KB
   - delete vectors for those files in that KB
   - delete the underlying uploaded file only if it is no longer attached to any KB
+
+Both delete modes now create `pending_actions` drafts. The source is not deleted
+until an admin approves and executes the pending action.
+
+## Large sync safety
+
+Changed-file sync runs immediately. `force_full=true` creates a pending action
+first because it can re-import many files and queue many ingest jobs. Approve
+and execute the pending action to run the full sync.

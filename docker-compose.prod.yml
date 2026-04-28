@@ -1,0 +1,41 @@
+services:
+  app:
+    build: .
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      - RAG_AUTH_MODE=gateway
+      - RAG_ALLOW_HEADER_AUTH_IN_DEV=false
+      - RAG_GATEWAY_SHARED_SECRET=${RAG_GATEWAY_SHARED_SECRET:?Set RAG_GATEWAY_SHARED_SECRET}
+      - RAG_GATEWAY_SECRET_HEADER=X-Auth-Gateway-Secret
+      - RAG_GATEWAY_USER_ID_HEADER=X-Auth-User-Id
+      - RAG_GATEWAY_ROLES_HEADER=X-Auth-Roles
+      - RAG_GATEWAY_CHANNEL_HEADER=X-Auth-Channel
+      - RAG_GATEWAY_TENANT_ID_HEADER=X-Auth-Tenant-Id
+      - RAG_GATEWAY_ORG_ID_HEADER=X-Auth-Org-Id
+      - RAG_VECTOR_BACKEND=chroma
+      - RAG_CHROMA_HTTP_URL=http://chroma:8000
+      - RAG_LLM_PROVIDER=${RAG_LLM_PROVIDER:-none}
+      - RAG_DATA_DIR=/data
+      - RAG_RAW_UPLOAD_DIR=/data/raw
+      - RAG_PROCESSED_DIR=/data/processed
+      - RAG_VECTORDB_DIR=/data/vectordb
+      - RAG_CHROMA_DIR=/data/vectordb/chroma
+      - RAG_CACHE_DIR=/data/cache
+      - RAG_SQLITE_PATH=/data/metadata.db
+      - RAG_LOG_LEVEL=${RAG_LOG_LEVEL:-INFO}
+    volumes:
+      - appdata:/data
+    depends_on:
+      - chroma
+
+  chroma:
+    image: chromadb/chroma:0.5.20
+    expose:
+      - "8000"
+    volumes:
+      - chromadata:/chroma/chroma
+
+volumes:
+  appdata: {}
+  chromadata: {}

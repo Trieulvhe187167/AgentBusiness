@@ -18,6 +18,14 @@ from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import AppStatus, EventSourceResponse
 
 from app.auth import get_request_auth, require_admin
+from app.background_jobs import (
+    BackgroundJobItem,
+    ListBackgroundJobsOutput,
+    background_worker_loop,
+    enqueue_background_job,
+    get_background_job,
+    list_background_jobs,
+)
 from app.config import settings
 from app.database import fetch_all, fetch_one, init_db
 from app.ingest import router as ingest_router
@@ -38,14 +46,26 @@ from app.models import (
     SystemRuntime,
     ToolAuditLogItem,
 )
+from app.pending_actions import (
+    CreatePendingActionInput,
+    ListPendingActionsOutput,
+    PendingActionDecisionInput,
+    PendingActionItem,
+    approve_pending_action,
+    create_pending_action,
+    draft_drive_delete_action,
+    draft_drive_full_sync_action,
+    draft_email_reply_action,
+    execute_pending_action,
+    list_pending_actions,
+    reject_pending_action,
+)
 from app.upload import router as upload_router
 from app.tools.drive_tools import (
     CreateGoogleDriveSourceInput,
     CreateGoogleDriveSourceOutput,
-    DeleteGoogleDriveSourceOutput,
     GetGoogleDriveSyncStatusOutput,
     ListGoogleDriveSourcesOutput,
-    SyncGoogleDriveSourceOutput,
 )
 from app.tools.email_tools import (
     CreateTicketFromEmailRequest,
@@ -53,7 +73,6 @@ from app.tools.email_tools import (
     ListSupportEmailsOutput,
     ReadEmailThreadOutput,
     SendEmailReplyRequest,
-    SendEmailReplyOutput,
 )
 
 for stream in (sys.stdout, sys.stderr):
@@ -104,6 +123,7 @@ async def lifespan(app: FastAPI):
     logger.info("Local RAG Agent starting")
 
     settings.ensure_dirs()
+    settings.validate_runtime_settings()
     await init_db()
 
     # ── Vector store (needs embedding dim first via hashing estimate) ──────────
@@ -131,12 +151,23 @@ async def lifespan(app: FastAPI):
     except Exception:
         app.state.llm_loaded = False
 
+    app.state.background_worker_task = asyncio.create_task(background_worker_loop())
+    logger.info("Background job worker task started")
+
     logger.info("Startup complete")
     logger.info("=" * 60)
 
-    yield
-
-    logger.info("Shutting down")
+    try:
+        yield
+    finally:
+        worker_task = getattr(app.state, "background_worker_task", None)
+        if worker_task:
+            worker_task.cancel()
+            try:
+                await worker_task
+            except asyncio.CancelledError:
+                pass
+        logger.info("Shutting down")
 
 
 app = FastAPI(
@@ -554,19 +585,30 @@ async def admin_create_google_drive_source(payload: CreateGoogleDriveSourceInput
     )
 
 
-@app.post("/api/admin/google-drive/sources/{source_id}/sync", response_model=SyncGoogleDriveSourceOutput)
+@app.post("/api/admin/google-drive/sources/{source_id}/sync")
 async def admin_sync_google_drive_source(
     source_id: int,
+    request: Request,
     force_full: bool = Query(default=False),
     auth=Depends(require_admin),
 ):
-    from app.drive_sync import sync_google_drive_source
+    if force_full:
+        return draft_drive_full_sync_action(
+            source_id=source_id,
+            force_full=force_full,
+            context=RequestContext(
+                request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+                auth=auth,
+            ),
+        )
 
-    return await sync_google_drive_source(
-        source_id,
-        triggered_by_user_id=auth.user_id,
-        trigger_mode="route",
-        force_full=force_full,
+    return enqueue_background_job(
+        job_type="google_drive_sync",
+        payload={"source_id": source_id, "force_full": force_full},
+        context=RequestContext(
+            request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+            auth=auth,
+        ),
     )
 
 
@@ -577,27 +619,61 @@ async def admin_get_google_drive_sync_status(source_id: int, _=Depends(require_a
     return get_google_drive_sync_status(source_id)
 
 
-@app.delete("/api/admin/google-drive/sources/{source_id}", response_model=DeleteGoogleDriveSourceOutput)
+@app.delete("/api/admin/google-drive/sources/{source_id}", response_model=PendingActionItem)
 async def admin_delete_google_drive_source(
     source_id: int,
+    request: Request,
     mode: str = Query(default="unlink"),
-    _=Depends(require_admin),
+    auth=Depends(require_admin),
 ):
-    from app.drive_sync import delete_google_drive_source
-
-    return delete_google_drive_source(source_id, mode=mode)
+    return draft_drive_delete_action(
+        source_id=source_id,
+        mode=mode,
+        context=RequestContext(
+            request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+            auth=auth,
+        ),
+    )
 
 
 @app.get("/api/admin/support-email/messages", response_model=ListSupportEmailsOutput)
 async def admin_list_support_email_messages(
+    request: Request,
     limit: int = Query(default=settings.email_fetch_limit, ge=1, le=100),
     unread_only: bool = Query(default=False),
     sync_first: bool = Query(default=False),
-    _=Depends(require_admin),
+    auth=Depends(require_admin),
 ):
     from app.integrations.support_email import list_support_emails
 
-    return await list_support_emails(limit=limit, unread_only=unread_only, sync_first=sync_first)
+    payload = await list_support_emails(limit=limit, unread_only=unread_only, sync_first=False)
+    if sync_first:
+        payload["sync_job"] = enqueue_background_job(
+            job_type="support_email_sync",
+            payload={"limit": limit, "unread_only": unread_only},
+            context=RequestContext(
+                request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+                auth=auth,
+            ),
+        )
+    return payload
+
+
+@app.post("/api/admin/support-email/sync", response_model=BackgroundJobItem)
+async def admin_sync_support_email_messages(
+    request: Request,
+    limit: int = Query(default=settings.email_fetch_limit, ge=1, le=100),
+    unread_only: bool = Query(default=False),
+    auth=Depends(require_admin),
+):
+    return enqueue_background_job(
+        job_type="support_email_sync",
+        payload={"limit": limit, "unread_only": unread_only},
+        context=RequestContext(
+            request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+            auth=auth,
+        ),
+    )
 
 
 @app.get("/api/admin/support-email/messages/{email_id}/thread", response_model=ReadEmailThreadOutput)
@@ -627,19 +703,93 @@ async def admin_create_ticket_from_email(
     )
 
 
-@app.post("/api/admin/support-email/messages/{email_id}/reply", response_model=SendEmailReplyOutput)
+@app.post("/api/admin/support-email/messages/{email_id}/reply", response_model=PendingActionItem)
 async def admin_send_support_email_reply(
     email_id: int,
     payload: SendEmailReplyRequest,
     request: Request,
     auth=Depends(require_admin),
 ):
-    from app.integrations.support_email import send_email_reply
-
-    return await send_email_reply(
+    return draft_email_reply_action(
         email_id=email_id,
         body=payload.body,
         to_address=payload.to_address,
+        context=RequestContext(
+            request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+            auth=auth,
+        ),
+    )
+
+
+@app.get("/api/admin/pending-actions", response_model=ListPendingActionsOutput)
+async def admin_list_pending_actions(
+    status: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    _=Depends(require_admin),
+):
+    return list_pending_actions(status=status, limit=limit)
+
+
+@app.get("/api/admin/background-jobs", response_model=ListBackgroundJobsOutput)
+async def admin_list_background_jobs(
+    status: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    _=Depends(require_admin),
+):
+    return list_background_jobs(status=status, limit=limit)
+
+
+@app.get("/api/admin/background-jobs/{job_id}", response_model=BackgroundJobItem)
+async def admin_get_background_job(job_id: str, _=Depends(require_admin)):
+    return get_background_job(job_id)
+
+
+@app.post("/api/admin/pending-actions", response_model=PendingActionItem)
+async def admin_create_pending_action(
+    payload: CreatePendingActionInput,
+    request: Request,
+    auth=Depends(require_admin),
+):
+    return create_pending_action(
+        action_type=payload.action_type,
+        risk_level=payload.risk_level,
+        title=payload.title,
+        summary=payload.summary,
+        payload=payload.payload,
+        context=RequestContext(
+            request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+            auth=auth,
+        ),
+    )
+
+
+@app.post("/api/admin/pending-actions/{action_id}/approve", response_model=PendingActionItem)
+async def admin_approve_pending_action(
+    action_id: int,
+    _payload: PendingActionDecisionInput | None = None,
+    auth=Depends(require_admin),
+):
+    return approve_pending_action(action_id, auth=auth)
+
+
+@app.post("/api/admin/pending-actions/{action_id}/reject", response_model=PendingActionItem)
+async def admin_reject_pending_action(
+    action_id: int,
+    payload: PendingActionDecisionInput | None = None,
+    auth=Depends(require_admin),
+):
+    return reject_pending_action(action_id, auth=auth, note=payload.note if payload else None)
+
+
+@app.post("/api/admin/pending-actions/{action_id}/execute", response_model=BackgroundJobItem)
+async def admin_execute_pending_action(
+    action_id: int,
+    request: Request,
+    auth=Depends(require_admin),
+):
+    return enqueue_background_job(
+        job_type="pending_action_execute",
+        payload={"action_id": action_id},
         context=RequestContext(
             request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
             auth=auth,

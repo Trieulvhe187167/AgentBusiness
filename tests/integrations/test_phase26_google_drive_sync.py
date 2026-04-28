@@ -4,7 +4,7 @@ import app.database as database
 from fastapi.testclient import TestClient
 
 from app.integrations.google_drive import normalize_google_drive_id
-from tests.conftest import admin_headers, poll_jobs
+from tests.conftest import admin_headers, poll_background_job, poll_jobs
 
 
 class _FakeDriveClient:
@@ -44,6 +44,21 @@ def _patch_sync_dependencies(monkeypatch, *, content: bytes, version: str = "1")
     monkeypatch.setattr("app.ingest.embed_texts", lambda texts: [[1.0, 0.0] for _ in texts])
 
 
+def _sync_drive_source(client: TestClient, source_id: int, admin: dict[str, str]) -> dict:
+    sync = client.post(
+        f"/api/admin/google-drive/sources/{source_id}/sync",
+        headers=admin,
+    )
+    assert sync.status_code == 200, sync.text
+    job_payload = sync.json()
+    assert job_payload["job_type"] == "google_drive_sync"
+    sync_job = poll_background_job(client, job_payload["job_id"])
+    sync_payload = sync_job["result"]
+    assert sync_payload["status"] == "success"
+    poll_jobs(client, [{"job_id": job_id} for job_id in sync_payload.get("queued_job_ids", [])])
+    return sync_payload
+
+
 def test_google_drive_source_can_sync_into_default_kb(isolated_client: TestClient, monkeypatch):
     _patch_sync_dependencies(
         monkeypatch,
@@ -64,20 +79,10 @@ def test_google_drive_source_can_sync_into_default_kb(isolated_client: TestClien
     assert create.status_code == 200, create.text
     source_id = create.json()["id"]
 
-    sync = isolated_client.post(
-        f"/api/admin/google-drive/sources/{source_id}/sync",
-        headers=admin,
-    )
-    assert sync.status_code == 200, sync.text
-    sync_payload = sync.json()
+    sync_payload = _sync_drive_source(isolated_client, source_id, admin)
     assert sync_payload["status"] == "success"
     assert sync_payload["imported_count"] == 1
     assert len(sync_payload["queued_job_ids"]) == 1
-
-    poll_jobs(
-        isolated_client,
-        [{"job_id": sync_payload["queued_job_ids"][0]}],
-    )
 
     status = isolated_client.get(
         f"/api/admin/google-drive/sources/{source_id}/status",
@@ -124,6 +129,31 @@ def test_google_drive_source_creation_normalizes_folder_url(isolated_client: Tes
     assert create.json()["folder_id"] == "folder-1"
 
 
+def test_force_full_google_drive_sync_creates_pending_action(isolated_client: TestClient):
+    admin = admin_headers()
+    create = isolated_client.post(
+        "/api/admin/google-drive/sources",
+        headers=admin,
+        json={
+            "kb_key": "default",
+            "name": "Ops Drive",
+            "folder_id": "folder-1",
+        },
+    )
+    assert create.status_code == 200, create.text
+    source_id = create.json()["id"]
+
+    sync = isolated_client.post(
+        f"/api/admin/google-drive/sources/{source_id}/sync?force_full=true",
+        headers=admin,
+    )
+    assert sync.status_code == 200, sync.text
+    payload = sync.json()
+    assert payload["status"] == "draft"
+    assert payload["action_type"] == "sync_google_drive_source"
+    assert payload["payload"] == {"force_full": True, "source_id": source_id}
+
+
 def test_google_drive_resync_updates_same_uploaded_file_record(isolated_client: TestClient, monkeypatch):
     admin = admin_headers()
     _patch_sync_dependencies(
@@ -144,13 +174,7 @@ def test_google_drive_resync_updates_same_uploaded_file_record(isolated_client: 
     assert create.status_code == 200, create.text
     source_id = create.json()["id"]
 
-    first_sync = isolated_client.post(
-        f"/api/admin/google-drive/sources/{source_id}/sync",
-        headers=admin,
-    )
-    assert first_sync.status_code == 200, first_sync.text
-    first_payload = first_sync.json()
-    poll_jobs(isolated_client, [{"job_id": first_payload["queued_job_ids"][0]}])
+    _sync_drive_source(isolated_client, source_id, admin)
 
     first_row = database.fetch_one_sync(
         """
@@ -169,14 +193,8 @@ def test_google_drive_resync_updates_same_uploaded_file_record(isolated_client: 
         version="2",
     )
 
-    second_sync = isolated_client.post(
-        f"/api/admin/google-drive/sources/{source_id}/sync",
-        headers=admin,
-    )
-    assert second_sync.status_code == 200, second_sync.text
-    second_payload = second_sync.json()
+    second_payload = _sync_drive_source(isolated_client, source_id, admin)
     assert second_payload["changed_count"] == 1
-    poll_jobs(isolated_client, [{"job_id": second_payload["queued_job_ids"][0]}])
 
     second_row = database.fetch_one_sync(
         """
@@ -212,13 +230,7 @@ def test_delete_google_drive_source_unlink_keeps_imported_file(isolated_client: 
     assert create.status_code == 200, create.text
     source_id = create.json()["id"]
 
-    sync = isolated_client.post(
-        f"/api/admin/google-drive/sources/{source_id}/sync",
-        headers=admin,
-    )
-    assert sync.status_code == 200, sync.text
-    sync_payload = sync.json()
-    poll_jobs(isolated_client, [{"job_id": sync_payload["queued_job_ids"][0]}])
+    _sync_drive_source(isolated_client, source_id, admin)
 
     drive_row = database.fetch_one_sync(
         "SELECT uploaded_file_id FROM google_drive_files WHERE source_id = ?",
@@ -232,7 +244,16 @@ def test_delete_google_drive_source_unlink_keeps_imported_file(isolated_client: 
         headers=admin,
     )
     assert delete_resp.status_code == 200, delete_resp.text
-    payload = delete_resp.json()
+    action = delete_resp.json()
+    assert action["status"] == "draft"
+    assert action["action_type"] == "delete_google_drive_source"
+    assert database.fetch_one_sync("SELECT id FROM google_drive_sources WHERE id = ?", (source_id,)) == {"id": source_id}
+
+    approve_resp = isolated_client.post(f"/api/admin/pending-actions/{action['id']}/approve", headers=admin)
+    assert approve_resp.status_code == 200, approve_resp.text
+    execute_resp = isolated_client.post(f"/api/admin/pending-actions/{action['id']}/execute", headers=admin)
+    assert execute_resp.status_code == 200, execute_resp.text
+    payload = poll_background_job(isolated_client, execute_resp.json()["job_id"])["result"]["result"]
     assert payload["mode"] == "unlink"
     assert payload["deleted_file_count"] == 0
 
@@ -262,13 +283,7 @@ def test_delete_google_drive_source_purge_removes_imported_file_when_exclusive(i
     assert create.status_code == 200, create.text
     source_id = create.json()["id"]
 
-    sync = isolated_client.post(
-        f"/api/admin/google-drive/sources/{source_id}/sync",
-        headers=admin,
-    )
-    assert sync.status_code == 200, sync.text
-    sync_payload = sync.json()
-    poll_jobs(isolated_client, [{"job_id": sync_payload["queued_job_ids"][0]}])
+    _sync_drive_source(isolated_client, source_id, admin)
 
     drive_row = database.fetch_one_sync(
         "SELECT uploaded_file_id FROM google_drive_files WHERE source_id = ?",
@@ -282,7 +297,15 @@ def test_delete_google_drive_source_purge_removes_imported_file_when_exclusive(i
         headers=admin,
     )
     assert delete_resp.status_code == 200, delete_resp.text
-    payload = delete_resp.json()
+    action = delete_resp.json()
+    assert action["status"] == "draft"
+    assert action["action_type"] == "delete_google_drive_source"
+
+    approve_resp = isolated_client.post(f"/api/admin/pending-actions/{action['id']}/approve", headers=admin)
+    assert approve_resp.status_code == 200, approve_resp.text
+    execute_resp = isolated_client.post(f"/api/admin/pending-actions/{action['id']}/execute", headers=admin)
+    assert execute_resp.status_code == 200, execute_resp.text
+    payload = poll_background_job(isolated_client, execute_resp.json()["job_id"])["result"]["result"]
     assert payload["mode"] == "purge"
     assert payload["detached_file_count"] == 1
     assert payload["deleted_file_count"] == 1

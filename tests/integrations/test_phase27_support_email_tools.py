@@ -4,6 +4,7 @@ import app.database as database
 from app.integrations import support_email
 from app.integrations.support_email import ParsedEmail, upsert_support_email_message
 from app.models import AuthContext, RequestContext
+from app.pending_actions import approve_pending_action, execute_pending_action
 from app.tools import build_default_tool_registry
 from tests.conftest import configure_test_env, run
 
@@ -93,11 +94,18 @@ def test_support_email_tools_list_read_ticket_and_reply(tmp_path, monkeypatch):
             request_context=_admin_context(),
         )
     )
-    assert reply.output["status"] == "sent"
-    assert reply.output["to_address"] == "customer@example.com"
+    assert reply.output["status"] == "draft"
+    assert reply.output["action_type"] == "send_email_reply"
+    assert reply.output["payload"]["email_id"] == email_id
+
+    approve_pending_action(reply.output["id"], auth=_admin_context().auth)
+    executed = run(execute_pending_action(reply.output["id"], context=_admin_context()))
+    assert executed["status"] == "executed"
+    assert executed["result"]["status"] == "sent"
+    assert executed["result"]["to_address"] == "customer@example.com"
 
     outbound = database.fetch_one_sync(
         "SELECT direction, status, thread_id FROM support_email_messages WHERE id = ?",
-        (reply.output["reply_message_id"],),
+        (executed["result"]["reply_message_id"],),
     )
     assert outbound == {"direction": "outbound", "status": "sent", "thread_id": "thread-1"}

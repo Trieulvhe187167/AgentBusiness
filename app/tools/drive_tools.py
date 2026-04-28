@@ -16,6 +16,7 @@ from app.drive_sync import (
     sync_google_drive_source,
 )
 from app.models import RequestContext
+from app.pending_actions import PendingActionItem, draft_drive_delete_action
 from app.tools.registry import ToolAuthPolicy, ToolSpec
 
 
@@ -156,7 +157,7 @@ async def _get_google_drive_sync_status_tool(payload: GetGoogleDriveSyncStatusIn
 
 
 async def _delete_google_drive_source_tool(payload: DeleteGoogleDriveSourceInput, __: RequestContext) -> dict[str, Any]:
-    return delete_google_drive_source(payload.source_id, mode=payload.mode)
+    return draft_drive_delete_action(source_id=payload.source_id, mode=payload.mode, context=__)
 
 
 def _admin_tool_policy() -> ToolAuthPolicy:
@@ -229,9 +230,9 @@ def build_get_google_drive_sync_status_tool() -> ToolSpec:
 def build_delete_google_drive_source_tool() -> ToolSpec:
     return ToolSpec(
         name="delete_google_drive_source",
-        description="Delete a Google Drive sync source. Use mode=unlink to remove only the sync link, or mode=purge to also purge imported files from the bound KB.",
+        description="Draft a pending action to delete a Google Drive sync source. Use mode=unlink to remove only the sync link, or mode=purge to also purge imported files from the bound KB.",
         input_model=DeleteGoogleDriveSourceInput,
-        output_model=DeleteGoogleDriveSourceOutput,
+        output_model=PendingActionItem,
         auth_policy=_admin_tool_policy(),
         timeout_seconds=30,
         idempotent=False,

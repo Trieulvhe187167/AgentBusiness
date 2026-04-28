@@ -243,14 +243,19 @@ def test_retrieve_and_reindex_are_kb_scoped(monkeypatch: pytest.MonkeyPatch, tmp
     assert results_archive[0]["kb_id"] == archive_kb.id
     assert results_archive[0]["filename"] == "archive.csv"
 
-    jobs = run(ingest.reindex_kb(archive_kb.id, BackgroundTasks()))
+    class _Request:
+        class state:
+            request_id = "test-reindex"
+
+    jobs = run(ingest.reindex_kb(archive_kb.id, _Request()))
     assert len(jobs["jobs"]) == 1
     job_id = jobs["jobs"][0]["job_id"]
 
     job_row = database.fetch_one_sync(
-        "SELECT kb_id, file_id, status FROM ingest_jobs WHERE job_id = ?",
+        "SELECT kb_id, job_type, status, payload_json FROM background_jobs WHERE job_id = ?",
         (job_id,),
     )
     assert job_row["kb_id"] == archive_kb.id
-    assert job_row["file_id"] == archive_file
+    assert job_row["job_type"] == "kb_reindex"
+    assert f'"kb_id": {archive_kb.id}' in job_row["payload_json"]
     assert job_row["status"] == "queued"
