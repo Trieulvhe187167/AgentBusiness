@@ -374,6 +374,13 @@ class ChromaVectorStore:
                 metadata[key] = value
         return metadata
 
+    @staticmethod
+    def _normalize_where(where: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Chroma requires multi-condition filters to be wrapped in an operator."""
+        if not where or len(where) <= 1 or any(str(key).startswith("$") for key in where):
+            return where
+        return {"$and": [{key: value} for key, value in where.items()]}
+
     def add_chunks(self, chunks: list[dict[str, Any]], embeddings: list[list[float]]):
         if not chunks:
             return
@@ -398,7 +405,7 @@ class ChromaVectorStore:
 
     def delete_by_where(self, where: dict[str, Any]):
         with self._lock:
-            self._collection.delete(where=where)
+            self._collection.delete(where=self._normalize_where(where))
         logger.info("Deleted Chroma vectors where=%s", where)
 
     def query(self, query_embedding: list[float], top_k: int | None = None, where: dict | None = None) -> list[dict[str, Any]]:
@@ -407,7 +414,7 @@ class ChromaVectorStore:
             payload = self._collection.query(
                 query_embeddings=[query_embedding],
                 n_results=k,
-                where=where,
+                where=self._normalize_where(where),
                 include=["documents", "metadatas", "distances"],
             )
 
@@ -450,14 +457,14 @@ class ChromaVectorStore:
         if not self._collection:
             return 0
 
-        payload = self._collection.get(where=where, include=["metadatas"])
+        payload = self._collection.get(where=self._normalize_where(where), include=["metadatas"])
         return len(payload.get("metadatas") or [])
 
     def get_sources(self, where: dict[str, Any] | None = None) -> list[str]:
         if not self._collection:
             return []
 
-        payload = self._collection.get(where=where, include=["metadatas"])
+        payload = self._collection.get(where=self._normalize_where(where), include=["metadatas"])
         metadatas = payload.get("metadatas") or []
         return sorted(
             {
@@ -471,7 +478,7 @@ class ChromaVectorStore:
         if not self._collection:
             return []
 
-        payload = self._collection.get(where=where, include=["metadatas"])
+        payload = self._collection.get(where=self._normalize_where(where), include=["metadatas"])
         metadatas = payload.get("metadatas") or []
         if not metadatas:
             return []
