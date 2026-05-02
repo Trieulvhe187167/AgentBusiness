@@ -9,6 +9,13 @@
 | Phase 2 | `support_tickets` | Support workflow via tool execution |
 | Phase 5 | `chat_sessions.slots_json` | Session slot memory |
 | Phase 19 | `order_status_cache`, `game_online_cache` | External integration cache snapshots |
+| Phase 26 | `google_drive_sources`, `google_drive_files`, `google_drive_sync_runs` | Google Drive -> KB sync |
+| Phase 27 | `support_email_messages`, `support_email_sync_runs` | Support mailbox snapshots |
+| Phase 28 | `pending_actions` | Draft -> approve -> execute safety flow |
+| Phase 29 | `background_jobs` | DB-backed queue for sync/ingest/action execution |
+| Phase 30 | extra fields on `background_jobs` | Retry scheduling and cancellation controls |
+| Phase 31 | extra fields on `background_jobs` | Worker ownership and heartbeat-based stale recovery |
+| Phase 32 | `sync_schedules` | Fixed-interval Drive/email sync scheduling |
 
 ## Ownership view
 
@@ -17,6 +24,8 @@
 - Chat domain: `chat_sessions`, `chat_logs`
 - Tooling domain: `tool_audit_logs`, `support_tickets`
 - Integration domain: `order_status_cache`, `game_online_cache`
+- Sync/job domain: `google_drive_sources`, `google_drive_files`, `google_drive_sync_runs`, `support_email_messages`, `support_email_sync_runs`, `background_jobs`, `sync_schedules`
+- Safety domain: `pending_actions`
 
 ## Recommendation
 

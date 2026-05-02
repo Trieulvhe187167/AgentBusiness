@@ -50,6 +50,8 @@ For Outlook, use `outlook.office365.com` and `smtp.office365.com`. Gmail/Outlook
 
 - `GET /api/admin/support-email/messages?limit=30`
 - `POST /api/admin/support-email/sync`
+- `POST /api/admin/sync-schedules` with `schedule_type=support_email_sync`
+- `GET /api/admin/sync-schedules`
 - `GET /api/admin/support-email/messages/{email_id}/thread`
 - `POST /api/admin/support-email/messages/{email_id}/ticket`
 - `POST /api/admin/support-email/messages/{email_id}/reply`

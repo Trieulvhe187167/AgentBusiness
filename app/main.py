@@ -19,12 +19,15 @@ from sse_starlette.sse import AppStatus, EventSourceResponse
 
 from app.auth import get_request_auth, require_admin
 from app.background_jobs import (
+    BackgroundJobDecisionInput,
     BackgroundJobItem,
     ListBackgroundJobsOutput,
     background_worker_loop,
+    cancel_background_job,
     enqueue_background_job,
     get_background_job,
     list_background_jobs,
+    retry_background_job,
 )
 from app.config import settings
 from app.database import fetch_all, fetch_one, init_db
@@ -59,6 +62,17 @@ from app.pending_actions import (
     execute_pending_action,
     list_pending_actions,
     reject_pending_action,
+)
+from app.scheduled_sync import (
+    ListSyncSchedulesOutput,
+    SyncScheduleItem,
+    UpdateSyncScheduleInput,
+    UpsertSyncScheduleInput,
+    delete_sync_schedule,
+    list_sync_schedules,
+    scheduled_sync_loop,
+    update_sync_schedule,
+    upsert_sync_schedule,
 )
 from app.upload import router as upload_router
 from app.tools.drive_tools import (
@@ -151,8 +165,16 @@ async def lifespan(app: FastAPI):
     except Exception:
         app.state.llm_loaded = False
 
-    app.state.background_worker_task = asyncio.create_task(background_worker_loop())
-    logger.info("Background job worker task started")
+    app.state.background_worker_task = None
+    app.state.scheduled_sync_task = None
+    if settings.background_worker_enabled:
+        app.state.background_worker_task = asyncio.create_task(background_worker_loop())
+        logger.info("Background job worker task started")
+        if settings.scheduled_sync_enabled:
+            app.state.scheduled_sync_task = asyncio.create_task(scheduled_sync_loop())
+            logger.info("Scheduled sync task started")
+    else:
+        logger.info("Background job worker disabled for this API process")
 
     logger.info("Startup complete")
     logger.info("=" * 60)
@@ -161,6 +183,13 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         worker_task = getattr(app.state, "background_worker_task", None)
+        scheduler_task = getattr(app.state, "scheduled_sync_task", None)
+        if scheduler_task:
+            scheduler_task.cancel()
+            try:
+                await scheduler_task
+            except asyncio.CancelledError:
+                pass
         if worker_task:
             worker_task.cancel()
             try:
@@ -676,6 +705,34 @@ async def admin_sync_support_email_messages(
     )
 
 
+@app.get("/api/admin/sync-schedules", response_model=ListSyncSchedulesOutput)
+async def admin_list_sync_schedules(
+    schedule_type: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=200),
+    _=Depends(require_admin),
+):
+    return list_sync_schedules(schedule_type=schedule_type, limit=limit)
+
+
+@app.post("/api/admin/sync-schedules", response_model=SyncScheduleItem)
+async def admin_upsert_sync_schedule(payload: UpsertSyncScheduleInput, auth=Depends(require_admin)):
+    return upsert_sync_schedule(payload, auth=auth)
+
+
+@app.patch("/api/admin/sync-schedules/{schedule_id}", response_model=SyncScheduleItem)
+async def admin_update_sync_schedule(
+    schedule_id: int,
+    payload: UpdateSyncScheduleInput,
+    _=Depends(require_admin),
+):
+    return update_sync_schedule(schedule_id, payload)
+
+
+@app.delete("/api/admin/sync-schedules/{schedule_id}", response_model=SyncScheduleItem)
+async def admin_delete_sync_schedule(schedule_id: int, _=Depends(require_admin)):
+    return delete_sync_schedule(schedule_id)
+
+
 @app.get("/api/admin/support-email/messages/{email_id}/thread", response_model=ReadEmailThreadOutput)
 async def admin_read_support_email_thread(email_id: int, _=Depends(require_admin)):
     from app.integrations.support_email import read_support_email_thread
@@ -742,6 +799,20 @@ async def admin_list_background_jobs(
 @app.get("/api/admin/background-jobs/{job_id}", response_model=BackgroundJobItem)
 async def admin_get_background_job(job_id: str, _=Depends(require_admin)):
     return get_background_job(job_id)
+
+
+@app.post("/api/admin/background-jobs/{job_id}/cancel", response_model=BackgroundJobItem)
+async def admin_cancel_background_job(
+    job_id: str,
+    payload: BackgroundJobDecisionInput | None = None,
+    _=Depends(require_admin),
+):
+    return cancel_background_job(job_id, reason=payload.reason if payload else None)
+
+
+@app.post("/api/admin/background-jobs/{job_id}/retry", response_model=BackgroundJobItem)
+async def admin_retry_background_job(job_id: str, _=Depends(require_admin)):
+    return retry_background_job(job_id)
 
 
 @app.post("/api/admin/pending-actions", response_model=PendingActionItem)

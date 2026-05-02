@@ -249,6 +249,18 @@ class Settings(BaseSettings):
     cache_ttl_seconds: int = 3600
     cache_max_size_mb: int = 500
 
+    # ------------------------------------------------------------------
+    # Background worker
+    # API defaults to in-process worker for local/dev. Production can set
+    # this false on the API container and run `python -m app.worker`.
+    # ------------------------------------------------------------------
+    background_worker_enabled: bool = True
+    background_worker_poll_interval_seconds: float = 0.5
+    background_worker_heartbeat_interval_seconds: float = 5.0
+    background_worker_stale_seconds: int = 60
+    scheduled_sync_enabled: bool = True
+    scheduled_sync_poll_interval_seconds: float = 10.0
+
     # Logging
     log_level: str = "INFO"
 

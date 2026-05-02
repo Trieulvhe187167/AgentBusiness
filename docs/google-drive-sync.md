@@ -65,6 +65,8 @@ Use `RAG_GOOGLE_DRIVE_DELEGATED_SUBJECT` only when your Google Workspace admin h
 - `POST /api/admin/pending-actions/{action_id}/approve`
 - `POST /api/admin/pending-actions/{action_id}/execute`
 - `GET /api/admin/background-jobs/{job_id}`
+- `POST /api/admin/sync-schedules` with `schedule_type=google_drive_sync` and `target_id=<source_id>`
+- `GET /api/admin/sync-schedules`
 
 All of these require the admin role.
 

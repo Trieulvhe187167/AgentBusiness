@@ -48,7 +48,7 @@
         .upload { border:2px dashed var(--line); border-radius:14px; padding:18px; text-align:center; position:relative; background:#fff; }
         .upload.drag { border-color:var(--brand); background:#f3fbfd; }
         .upload input[type=file] { position:absolute; inset:0; opacity:0; cursor:pointer; }
-        .tabs { display:flex; gap:10px; }
+        .tabs { display:flex; gap:10px; flex-wrap:wrap; }
         .tab-btn { background:#ece6dc; color:var(--dim); }
         .tab-btn.active { background:var(--brand); color:#fff; }
         .view { display:none; } .view.active { display:block; }
@@ -57,9 +57,9 @@
         .table th { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--dim); }
         .scroll { max-height:360px; overflow:auto; }
         .status { display:inline-flex; align-items:center; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; }
-        .status.uploaded,.status.queued,.status.running,.status.ingesting,.status.attached,.status.clarify { background:#fff2d9; color:var(--warn); }
+        .status.uploaded,.status.queued,.status.running,.status.retrying,.status.cancelling,.status.ingesting,.status.attached,.status.clarify { background:#fff2d9; color:var(--warn); }
         .status.ingested,.status.done,.status.active,.status.answer,.status.success { background:#ddf4e7; color:var(--ok); }
-        .status.failed,.status.error,.status.fallback,.status.archived { background:#fbe1dc; color:var(--bad); }
+        .status.failed,.status.cancelled,.status.error,.status.fallback,.status.archived { background:#fbe1dc; color:var(--bad); }
         .mono { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px; }
         .toast { position:fixed; right:18px; bottom:18px; z-index:99; border-radius:10px; padding:10px 14px; color:#fff; font-weight:700; font-size:13px; }
         .toast.ok { background:var(--ok); } .toast.err { background:var(--bad); }
@@ -140,10 +140,14 @@
         </section>
 
         <div class="tabs">
-            <button class="tab-btn active" data-target="view-kb" title="Create KBs, upload files, and manage the selected Knowledge Base.">KB Manager</button>
+            <button class="tab-btn active" data-target="view-kb" title="Create KBs, upload files, and manage selected KB files.">KB & Files</button>
+            <button class="tab-btn" data-target="view-drive" title="Configure Google Drive sources and run Drive sync jobs.">Drive Sources</button>
+            <button class="tab-btn" data-target="view-email" title="Sync support emails, create tickets, and draft replies.">Support Email</button>
+            <button class="tab-btn" data-target="view-actions" title="Approve, reject, or execute high-risk pending actions.">Pending Actions</button>
+            <button class="tab-btn" data-target="view-jobs" title="Monitor background jobs and automatic sync schedules.">Background Jobs</button>
+            <button class="tab-btn" data-target="view-audit" title="Review chat and authorization audit logs.">Audit Logs</button>
             <button class="tab-btn" data-target="view-calibrate" title="Test retrieval quality in the currently selected Knowledge Base.">Calibrate</button>
-            <button class="tab-btn" data-target="view-sources" title="Inspect source distribution and language breakdown for the selected KB.">Sources</button>
-            <button class="tab-btn" data-target="view-ops" title="Review chat logs and runtime diagnostics for the system.">Logs & System</button>
+            <button class="tab-btn" data-target="view-system" title="Inspect selected KB and runtime system payload.">System</button>
         </div>
 
         <div id="view-kb" class="view active">
@@ -217,6 +221,49 @@
                     <div class="note">Ingest handles only attached files that are pending, failed, or stale. Reindex rebuilds all attached files.</div>
                 </section>
 
+                <section class="card span-7">
+                    <div class="section-head">
+                        <h2>Files In Selected KB</h2>
+                        <p>Review all files attached to the active KB and manage per-file ingest actions.</p>
+                    </div>
+                    <div class="scroll">
+                        <table class="table" id="kbFilesTable">
+                            <thead><tr><th>ID</th><th>Name</th><th>KB Status</th><th>Source Status</th><th>Chunks</th><th>Actions</th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="card span-5">
+                    <div class="section-head">
+                        <h2>Source Library</h2>
+                        <p>Browse uploaded files that can be attached to one or more Knowledge Bases.</p>
+                    </div>
+                    <div class="scroll">
+                        <table class="table" id="libraryTable">
+                            <thead><tr><th>ID</th><th>Name</th><th>Status</th><th>Rows/Pages</th><th>Actions</th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="card span-12">
+                    <div class="section-head">
+                        <h2>Source Distribution In Selected KB</h2>
+                        <p>Inspect how the selected KB is composed across files, chunks, and language mix.</p>
+                    </div>
+                    <div class="scroll">
+                        <table class="table" id="sourcesTable">
+                            <thead><tr><th>Filename</th><th>Chunks</th><th>VI %</th><th>EN %</th><th>Other %</th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </div>
+
+        <div id="view-drive" class="view">
+            <div class="grid">
                 <section class="card span-4">
                     <div class="section-head">
                         <h2>Google Drive Source</h2>
@@ -284,31 +331,6 @@
                     </div>
                 </section>
 
-                <section class="card span-7">
-                    <div class="section-head">
-                        <h2>Files In Selected KB</h2>
-                        <p>Review all files attached to the active KB and manage per-file ingest actions.</p>
-                    </div>
-                    <div class="scroll">
-                        <table class="table" id="kbFilesTable">
-                            <thead><tr><th>ID</th><th>Name</th><th>KB Status</th><th>Source Status</th><th>Chunks</th><th>Actions</th></tr></thead>
-                            <tbody></tbody>
-                        </table>
-                    </div>
-                </section>
-
-                <section class="card span-5">
-                    <div class="section-head">
-                        <h2>Source Library</h2>
-                        <p>Browse uploaded files that can be attached to one or more Knowledge Bases.</p>
-                    </div>
-                    <div class="scroll">
-                        <table class="table" id="libraryTable">
-                            <thead><tr><th>ID</th><th>Name</th><th>Status</th><th>Rows/Pages</th><th>Actions</th></tr></thead>
-                            <tbody></tbody>
-                        </table>
-                    </div>
-                </section>
             </div>
         </div>
 
@@ -334,24 +356,7 @@
             </div>
         </div>
 
-        <div id="view-sources" class="view">
-            <div class="grid">
-                <section class="card span-12">
-                    <div class="section-head">
-                        <h2>Source Distribution In Selected KB</h2>
-                        <p>Inspect how the selected KB is composed across files, chunks, and language mix.</p>
-                    </div>
-                    <div class="scroll">
-                        <table class="table" id="sourcesTable">
-                            <thead><tr><th>Filename</th><th>Chunks</th><th>VI %</th><th>EN %</th><th>Other %</th></tr></thead>
-                            <tbody></tbody>
-                        </table>
-                    </div>
-                </section>
-            </div>
-        </div>
-
-        <div id="view-ops" class="view">
+        <div id="view-audit" class="view">
             <div class="grid">
                 <section class="card span-6">
                     <div class="section-head">
@@ -377,6 +382,11 @@
                         </table>
                     </div>
                 </section>
+            </div>
+        </div>
+
+        <div id="view-email" class="view">
+            <div class="grid">
                 <section class="card span-12">
                     <div class="section-head">
                         <h2>Support Email</h2>
@@ -388,6 +398,7 @@
                             <option value="true">Sync mailbox first</option>
                         </select>
                         <button class="btn-main" id="btnRefreshSupportEmails" title="Load support emails from snapshot or sync mailbox first.">Refresh Emails</button>
+                        <button class="btn-ok" id="btnScheduleSupportEmail" title="Create or update an automatic mailbox sync schedule.">Schedule Email Sync</button>
                         <span class="note" id="supportEmailSummary">No support email loaded.</span>
                     </div>
                     <div class="grid">
@@ -410,6 +421,11 @@
                         </div>
                     </div>
                 </section>
+            </div>
+        </div>
+
+        <div id="view-actions" class="view">
+            <div class="grid">
                 <section class="card span-12">
                     <div class="section-head">
                         <h2>Pending Actions</h2>
@@ -434,6 +450,27 @@
                         </table>
                     </div>
                 </section>
+            </div>
+        </div>
+
+        <div id="view-jobs" class="view">
+            <div class="grid">
+                <section class="card span-12">
+                    <div class="section-head">
+                        <h2>Sync Schedules</h2>
+                        <p>Automatically enqueue Drive and support mailbox sync jobs at fixed intervals.</p>
+                    </div>
+                    <div class="toolbar" style="margin-bottom:10px;">
+                        <button class="btn-main" id="btnRefreshSyncSchedules" title="Reload sync schedules.">Refresh Schedules</button>
+                        <span class="note" id="syncScheduleSummary">No sync schedule loaded.</span>
+                    </div>
+                    <div class="scroll">
+                        <table class="table" id="syncSchedulesTable">
+                            <thead><tr><th>ID</th><th>Name</th><th>Type</th><th>Interval</th><th>Last / Next</th><th>Actions</th></tr></thead>
+                            <tbody><tr><td colspan="6">No sync schedule loaded.</td></tr></tbody>
+                        </table>
+                    </div>
+                </section>
                 <section class="card span-12">
                     <div class="section-head">
                         <h2>Background Jobs</h2>
@@ -443,20 +480,28 @@
                         <select id="backgroundJobStatus" title="Filter background jobs by status.">
                             <option value="">All statuses</option>
                             <option value="queued">Queued</option>
+                            <option value="retrying">Retrying</option>
                             <option value="running">Running</option>
+                            <option value="cancelling">Cancelling</option>
                             <option value="done">Done</option>
                             <option value="failed">Failed</option>
+                            <option value="cancelled">Cancelled</option>
                         </select>
                         <button class="btn-main" id="btnRefreshBackgroundJobs" title="Reload background jobs.">Refresh Jobs</button>
                         <span class="note" id="backgroundJobSummary">No background job loaded.</span>
                     </div>
                     <div class="scroll">
                         <table class="table" id="backgroundJobsTable">
-                            <thead><tr><th>Job ID</th><th>Type</th><th>Status</th><th>Progress</th><th>Result</th></tr></thead>
-                            <tbody><tr><td colspan="5">No background job loaded.</td></tr></tbody>
+                            <thead><tr><th>Job ID</th><th>Type</th><th>Status</th><th>Progress</th><th>Result</th><th>Actions</th></tr></thead>
+                            <tbody><tr><td colspan="6">No background job loaded.</td></tr></tbody>
                         </table>
                     </div>
                 </section>
+            </div>
+        </div>
+
+        <div id="view-system" class="view">
+            <div class="grid">
                 <section class="card span-12">
                     <div class="section-head">
                         <h2>Runtime System</h2>
@@ -476,6 +521,7 @@
         let driveSources = [];
         let supportEmails = [];
         let backgroundJobs = [];
+        let syncSchedules = [];
         let selectedSupportEmailId = null;
         let pendingActions = [];
 
@@ -683,6 +729,7 @@
                     <td id="drive-run-${item.id}">-</td>
                     <td>
                         <button class="btn-main" data-drive-sync="${item.id}">Sync</button>
+                        <button class="btn-ok" data-drive-schedule="${item.id}">Schedule</button>
                         <button class="btn-muted" data-drive-status="${item.id}">Status</button>
                         <button class="btn-danger" data-drive-delete="${item.id}">Delete</button>
                     </td>
@@ -885,6 +932,103 @@
             await refreshPendingActions();
         }
 
+        async function refreshSyncSchedules() {
+            const data = await fetchJson('/api/admin/sync-schedules?limit=100');
+            syncSchedules = data.items || [];
+            document.getElementById('syncScheduleSummary').textContent = `Loaded ${syncSchedules.length} sync schedule(s).`;
+            const tbody = document.querySelector('#syncSchedulesTable tbody');
+            if (!syncSchedules.length) {
+                tbody.innerHTML = '<tr><td colspan="6">No sync schedules found.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = syncSchedules.map((item) => `
+                <tr>
+                    <td>${item.id}</td>
+                    <td><strong>${item.name}</strong><br><small class="note">${item.enabled ? 'enabled' : 'disabled'}</small></td>
+                    <td><span class="status ${item.enabled ? 'active' : 'archived'}">${item.schedule_type}</span><br><small class="note mono">${JSON.stringify(item.payload || {})}</small></td>
+                    <td>${Math.round((item.interval_seconds || 0) / 60)} min</td>
+                    <td><small>Last: ${item.last_run_at || '-'}</small><br><small>Next: ${item.next_run_at || '-'}</small><br><small class="note mono">${item.last_job_id || ''}</small></td>
+                    <td>
+                        <button class="btn-muted" data-schedule-toggle="${item.id}">${item.enabled ? 'Disable' : 'Enable'}</button>
+                        <button class="btn-main" data-schedule-edit="${item.id}">Interval</button>
+                        <button class="btn-danger" data-schedule-delete="${item.id}">Delete</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        async function createDriveSchedule(sourceId) {
+            const minutes = Number(prompt('Drive sync interval in minutes (minimum 1):', '15') || '15');
+            if (!Number.isFinite(minutes) || minutes < 1) return toast('Invalid interval.', false);
+            const source = driveSources.find((item) => Number(item.id) === Number(sourceId));
+            const item = await fetchJson('/api/admin/sync-schedules', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    schedule_type: 'google_drive_sync',
+                    target_id: sourceId,
+                    name: source ? `Drive: ${source.name}` : undefined,
+                    enabled: true,
+                    interval_seconds: Math.round(minutes * 60),
+                    payload: {},
+                }),
+            });
+            toast(`Drive schedule saved: ${item.name}`);
+            await refreshSyncSchedules();
+        }
+
+        async function createSupportEmailSchedule() {
+            const minutes = Number(prompt('Support email sync interval in minutes (minimum 1):', '2') || '2');
+            if (!Number.isFinite(minutes) || minutes < 1) return toast('Invalid interval.', false);
+            const item = await fetchJson('/api/admin/sync-schedules', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    schedule_type: 'support_email_sync',
+                    target_id: null,
+                    name: 'Support Email',
+                    enabled: true,
+                    interval_seconds: Math.round(minutes * 60),
+                    payload: { limit: 30, unread_only: false },
+                }),
+            });
+            toast(`Email schedule saved: ${item.name}`);
+            await refreshSyncSchedules();
+        }
+
+        async function toggleSyncSchedule(scheduleId) {
+            const item = syncSchedules.find((schedule) => Number(schedule.id) === Number(scheduleId));
+            if (!item) return;
+            const updated = await fetchJson(`/api/admin/sync-schedules/${scheduleId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: !item.enabled }),
+            });
+            toast(`${updated.enabled ? 'Enabled' : 'Disabled'} schedule ${updated.id}`);
+            await refreshSyncSchedules();
+        }
+
+        async function editSyncScheduleInterval(scheduleId) {
+            const item = syncSchedules.find((schedule) => Number(schedule.id) === Number(scheduleId));
+            if (!item) return;
+            const minutes = Number(prompt('New interval in minutes:', String(Math.round(item.interval_seconds / 60))) || '');
+            if (!Number.isFinite(minutes) || minutes < 1) return toast('Invalid interval.', false);
+            const updated = await fetchJson(`/api/admin/sync-schedules/${scheduleId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ interval_seconds: Math.round(minutes * 60) }),
+            });
+            toast(`Schedule ${updated.id} interval updated`);
+            await refreshSyncSchedules();
+        }
+
+        async function deleteSyncSchedule(scheduleId) {
+            if (!confirm(`Delete sync schedule ${scheduleId}?`)) return;
+            await fetchJson(`/api/admin/sync-schedules/${scheduleId}`, { method: 'DELETE' });
+            toast(`Deleted schedule ${scheduleId}`);
+            await refreshSyncSchedules();
+        }
+
         async function refreshBackgroundJobs() {
             const status = document.getElementById('backgroundJobStatus').value;
             const query = status ? `?status=${encodeURIComponent(status)}&limit=50` : '?limit=50';
@@ -893,27 +1037,56 @@
             document.getElementById('backgroundJobSummary').textContent = `Loaded ${backgroundJobs.length} background job(s).`;
             const tbody = document.querySelector('#backgroundJobsTable tbody');
             if (!backgroundJobs.length) {
-                tbody.innerHTML = '<tr><td colspan="5">No background jobs found.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6">No background jobs found.</td></tr>';
                 return;
             }
             tbody.innerHTML = backgroundJobs.map((job) => {
                 const result = job.error_message || JSON.stringify(job.result || {});
+                const canCancel = ['queued', 'retrying', 'running', 'cancelling'].includes(job.status);
+                const canRetry = ['failed', 'cancelled'].includes(job.status);
+                const retryText = job.retry_after ? `<br><small class="note">Retry after: ${job.retry_after}</small>` : '';
+                const workerText = job.worker_id ? `<br><small class="note mono">Worker: ${job.worker_id}</small>` : '';
+                const heartbeatText = job.heartbeat_at ? `<br><small class="note">Heartbeat: ${job.heartbeat_at}</small>` : '';
                 return `
                     <tr>
                         <td class="mono">${job.job_id}</td>
                         <td>${job.job_type}</td>
-                        <td><span class="status ${job.status}">${job.status}</span></td>
+                        <td><span class="status ${job.status}">${job.status}</span>${retryText}<br><small class="note">Attempts: ${job.attempts}/${job.max_attempts}</small>${workerText}${heartbeatText}</td>
                         <td>${Math.round((job.progress || 0) * 100)}%</td>
                         <td><small class="note">${escapeHtml(result).slice(0, 220)}</small></td>
+                        <td>
+                            ${canCancel ? `<button class="btn-danger" data-job-cancel="${job.job_id}">Cancel</button>` : ''}
+                            ${canRetry ? `<button class="btn-main" data-job-retry="${job.job_id}">Retry</button>` : ''}
+                        </td>
                     </tr>
                 `;
             }).join('');
         }
 
+        async function cancelBackgroundJob(jobId) {
+            const reason = prompt(`Cancel job ${jobId}? Reason (optional):`) || '';
+            const job = await fetchJson(`/api/admin/background-jobs/${jobId}/cancel`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reason }),
+            });
+            toast(`Cancel requested for job ${job.job_id}`);
+            activeJobs.delete(jobId);
+            renderJobSummary();
+            await refreshBackgroundJobs();
+        }
+
+        async function retryBackgroundJob(jobId) {
+            const job = await fetchJson(`/api/admin/background-jobs/${jobId}/retry`, { method: 'POST' });
+            toast(`Retry queued for job ${job.job_id}`);
+            pollJob(job.job_id);
+            await refreshBackgroundJobs();
+        }
+
         async function refreshAll(preferredKbId = null) {
             await loadKnowledgeBases(preferredKbId);
             if (!selectedKbId()) return;
-            await Promise.all([refreshStatsAndSystem(), refreshKbFiles(), refreshLogs(), refreshAuthAudit(), refreshSources(), refreshDriveSources(), refreshSupportEmails(false), refreshPendingActions(), refreshBackgroundJobs()]);
+            await Promise.all([refreshStatsAndSystem(), refreshKbFiles(), refreshLogs(), refreshAuthAudit(), refreshSources(), refreshDriveSources(), refreshSupportEmails(false), refreshSyncSchedules(), refreshPendingActions(), refreshBackgroundJobs()]);
             await refreshLibrary();
             renderJobSummary();
         }
@@ -930,10 +1103,11 @@
                 try {
                     const isBackgroundJob = String(jobId).startsWith('BGJ-');
                     const job = await fetchJson(isBackgroundJob ? `/api/admin/background-jobs/${jobId}` : `/api/jobs/${jobId}`);
-                    if (job.status === 'done' || job.status === 'failed') {
+                    if (['done', 'failed', 'cancelled'].includes(job.status)) {
                         activeJobs.delete(jobId);
                         renderJobSummary();
-                        toast(job.status === 'done' ? `Job ${jobId} done` : `Job ${jobId} failed: ${job.error_message || ''}`, job.status === 'done');
+                        const ok = job.status === 'done';
+                        toast(ok ? `Job ${jobId} done` : `Job ${jobId} ${job.status}: ${job.error_message || ''}`, ok);
                         if (job.status === 'done' && job.result?.queued_job_ids) {
                             job.result.queued_job_ids.forEach((childJobId) => pollJob(childJobId));
                         }
@@ -1181,8 +1355,10 @@
         document.getElementById('btnDeleteKb').addEventListener('click', () => deleteKb().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnCalib').addEventListener('click', () => runCalibrate().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnRefreshSupportEmails').addEventListener('click', () => refreshSupportEmails().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnScheduleSupportEmail').addEventListener('click', () => createSupportEmailSchedule().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnSendSupportEmailReply').addEventListener('click', () => sendSupportEmailReply().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnClearSupportEmailSelection').addEventListener('click', clearSupportEmailSelection);
+        document.getElementById('btnRefreshSyncSchedules').addEventListener('click', () => refreshSyncSchedules().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnRefreshPendingActions').addEventListener('click', () => refreshPendingActions().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('pendingActionStatus').addEventListener('change', () => refreshPendingActions().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnRefreshBackgroundJobs').addEventListener('click', () => refreshBackgroundJobs().catch((e) => toast(explainAuthError(e), false)));
@@ -1211,6 +1387,8 @@
         document.querySelector('#driveSourcesTable tbody').addEventListener('click', (event) => {
             const syncBtn = event.target.closest('[data-drive-sync]');
             if (syncBtn) return syncDriveSource(Number(syncBtn.dataset.driveSync)).catch((e) => toast(explainAuthError(e), false));
+            const scheduleBtn = event.target.closest('[data-drive-schedule]');
+            if (scheduleBtn) return createDriveSchedule(Number(scheduleBtn.dataset.driveSchedule)).catch((e) => toast(explainAuthError(e), false));
             const statusBtn = event.target.closest('[data-drive-status]');
             if (statusBtn) return showDriveSourceStatus(Number(statusBtn.dataset.driveStatus)).catch((e) => toast(explainAuthError(e), false));
             const deleteBtn = event.target.closest('[data-drive-delete]');
@@ -1231,6 +1409,22 @@
             if (executeBtn) return executePendingAction(Number(executeBtn.dataset.actionExecute)).catch((e) => toast(explainAuthError(e), false));
             const rejectBtn = event.target.closest('[data-action-reject]');
             if (rejectBtn) return rejectPendingAction(Number(rejectBtn.dataset.actionReject)).catch((e) => toast(explainAuthError(e), false));
+        });
+
+        document.querySelector('#syncSchedulesTable tbody').addEventListener('click', (event) => {
+            const toggleBtn = event.target.closest('[data-schedule-toggle]');
+            if (toggleBtn) return toggleSyncSchedule(Number(toggleBtn.dataset.scheduleToggle)).catch((e) => toast(explainAuthError(e), false));
+            const editBtn = event.target.closest('[data-schedule-edit]');
+            if (editBtn) return editSyncScheduleInterval(Number(editBtn.dataset.scheduleEdit)).catch((e) => toast(explainAuthError(e), false));
+            const deleteBtn = event.target.closest('[data-schedule-delete]');
+            if (deleteBtn) return deleteSyncSchedule(Number(deleteBtn.dataset.scheduleDelete)).catch((e) => toast(explainAuthError(e), false));
+        });
+
+        document.querySelector('#backgroundJobsTable tbody').addEventListener('click', (event) => {
+            const cancelBtn = event.target.closest('[data-job-cancel]');
+            if (cancelBtn) return cancelBackgroundJob(cancelBtn.dataset.jobCancel).catch((e) => toast(explainAuthError(e), false));
+            const retryBtn = event.target.closest('[data-job-retry]');
+            if (retryBtn) return retryBackgroundJob(retryBtn.dataset.jobRetry).catch((e) => toast(explainAuthError(e), false));
         });
 
         const uploadZone = document.getElementById('uploadZone');
@@ -1262,6 +1456,7 @@
         setInterval(() => refreshLogs().catch(() => {}), 12000);
         setInterval(() => refreshAuthAudit().catch(() => {}), 12000);
         setInterval(() => refreshSupportEmails(false).catch(() => {}), 30000);
+        setInterval(() => refreshSyncSchedules().catch(() => {}), 15000);
         setInterval(() => refreshPendingActions().catch(() => {}), 30000);
         setInterval(() => refreshBackgroundJobs().catch(() => {}), 5000);
     </script>

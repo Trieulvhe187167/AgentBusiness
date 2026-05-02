@@ -7,7 +7,7 @@ from __future__ import annotations
 import fnmatch
 import json
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from app.background_jobs import enqueue_background_job
 from app.database import execute_sync, fetch_all_sync, fetch_one_sync, utcnow_iso
@@ -399,6 +399,7 @@ async def sync_google_drive_source(
     triggered_by_user_id: str | None = None,
     trigger_mode: str = "tool",
     force_full: bool = False,
+    cancel_check: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     source_row = fetch_one_sync(
         """
@@ -433,6 +434,8 @@ async def sync_google_drive_source(
     queued_jobs: list[str] = []
 
     try:
+        if cancel_check:
+            cancel_check()
         client = GoogleDriveClient()
         tracked_rows = fetch_all_sync(
             """
@@ -452,6 +455,8 @@ async def sync_google_drive_source(
         seen_ids: set[str] = set()
 
         for item in remote_items:
+            if cancel_check:
+                cancel_check()
             if not _should_include_file(item, source):
                 continue
 
@@ -476,6 +481,8 @@ async def sync_google_drive_source(
 
             changed_count += 1
             try:
+                if cancel_check:
+                    cancel_check()
                 content, filename, export_ext = await client.download_file(item)
                 imported = await import_content_to_uploaded_file(
                     filename=filename,

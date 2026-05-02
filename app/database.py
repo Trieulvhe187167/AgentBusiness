@@ -515,6 +515,59 @@ CREATE INDEX IF NOT EXISTS idx_background_jobs_type_time
     ON background_jobs(job_type, created_at DESC);
 """
 
+# ---------------------------------------------------------------------------
+# Phase 30 / background job retry + cancel controls
+# ---------------------------------------------------------------------------
+_PHASE30_BACKGROUND_JOB_CONTROLS_SCHEMA = """
+ALTER TABLE background_jobs ADD COLUMN retry_after TEXT;
+ALTER TABLE background_jobs ADD COLUMN cancel_requested_at TEXT;
+ALTER TABLE background_jobs ADD COLUMN cancelled_at TEXT;
+ALTER TABLE background_jobs ADD COLUMN cancel_reason TEXT;
+CREATE INDEX IF NOT EXISTS idx_background_jobs_due
+    ON background_jobs(status, retry_after, created_at ASC);
+"""
+
+# ---------------------------------------------------------------------------
+# Phase 31 / worker heartbeat + stale job recovery
+# ---------------------------------------------------------------------------
+_PHASE31_BACKGROUND_JOB_WORKERS_SCHEMA = """
+ALTER TABLE background_jobs ADD COLUMN worker_id TEXT;
+ALTER TABLE background_jobs ADD COLUMN heartbeat_at TEXT;
+CREATE INDEX IF NOT EXISTS idx_background_jobs_worker
+    ON background_jobs(worker_id, status);
+CREATE INDEX IF NOT EXISTS idx_background_jobs_heartbeat
+    ON background_jobs(status, heartbeat_at);
+"""
+
+# ---------------------------------------------------------------------------
+# Phase 32 / scheduled sync
+# ---------------------------------------------------------------------------
+_PHASE32_SCHEDULED_SYNC_SCHEMA = """
+CREATE TABLE IF NOT EXISTS sync_schedules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    schedule_type TEXT NOT NULL,
+    target_id INTEGER,
+    name TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    interval_seconds INTEGER NOT NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    created_by_user_id TEXT,
+    tenant_id TEXT,
+    org_id TEXT,
+    kb_id INTEGER,
+    kb_key TEXT,
+    last_job_id TEXT,
+    last_run_at TEXT,
+    next_run_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sync_schedules_due
+    ON sync_schedules(enabled, next_run_at ASC);
+CREATE INDEX IF NOT EXISTS idx_sync_schedules_type_target
+    ON sync_schedules(schedule_type, target_id);
+"""
+
 MIGRATIONS: list[tuple[str, str]] = [
     ("001_core_schema", _CORE_SCHEMA),
     ("002_knowledge_bases", _KB_SCHEMA),
@@ -533,6 +586,9 @@ MIGRATIONS: list[tuple[str, str]] = [
     ("015_phase27_support_email", _PHASE27_SUPPORT_EMAIL_SCHEMA),
     ("016_phase28_pending_actions", _PHASE28_PENDING_ACTIONS_SCHEMA),
     ("017_phase29_background_jobs", _PHASE29_BACKGROUND_JOBS_SCHEMA),
+    ("018_phase30_background_job_controls", _PHASE30_BACKGROUND_JOB_CONTROLS_SCHEMA),
+    ("019_phase31_background_job_workers", _PHASE31_BACKGROUND_JOB_WORKERS_SCHEMA),
+    ("020_phase32_scheduled_sync", _PHASE32_SCHEDULED_SYNC_SCHEMA),
 ]
 
 
