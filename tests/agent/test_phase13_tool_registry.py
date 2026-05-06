@@ -61,6 +61,10 @@ def test_registry_defines_phase2_tools(tmp_path, monkeypatch):
         "read_email_thread",
         "create_ticket_from_email",
         "send_email_reply",
+        "list_customer_tickets",
+        "update_ticket_status",
+        "assign_ticket",
+        "add_ticket_internal_note",
     }
     assert definitions["search_kb"].auth_policy["allow_anonymous"] is True
     assert definitions["search_kb"].idempotent is True
@@ -76,6 +80,10 @@ def test_registry_defines_phase2_tools(tmp_path, monkeypatch):
     assert definitions["delete_google_drive_source"].idempotent is False
     assert definitions["list_support_emails"].auth_policy["required_roles"] == ["admin"]
     assert definitions["send_email_reply"].auth_policy["risk_level"] == "critical"
+    assert definitions["list_customer_tickets"].auth_policy["required_roles"] == ["admin"]
+    assert definitions["update_ticket_status"].idempotent is False
+    assert definitions["assign_ticket"].idempotent is False
+    assert definitions["add_ticket_internal_note"].auth_policy["risk_level"] == "low"
     assert definitions["get_order_status"].auth_policy["requires_tenant_match"] is True
     assert definitions["get_kb_stats"].auth_policy["required_roles"] == ["admin"]
 

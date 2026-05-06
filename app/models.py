@@ -5,8 +5,9 @@ Pydantic schemas for API requests and responses.
 from __future__ import annotations
 
 import re
+from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 _ROLE_TOKEN_RE = re.compile(r"[^a-z0-9:_-]+")
@@ -347,6 +348,130 @@ class ChatLogItem(BaseModel):
     user_message: str
     answer_text: str
     created_at: str
+    feedback_up: int = 0
+    feedback_down: int = 0
+
+
+class SubmitChatFeedbackInput(BaseModel):
+    request_id: str | None = Field(default=None, min_length=1, max_length=80)
+    chat_log_id: int | None = Field(default=None, ge=1)
+    rating: str = Field(..., min_length=1, max_length=10)
+    reason_code: str | None = Field(default=None, max_length=80)
+    comment: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("request_id", "reason_code", "comment", mode="before")
+    @classmethod
+    def _normalize_feedback_text(cls, value):
+        return _normalize_optional_text(value)
+
+    @field_validator("rating", mode="before")
+    @classmethod
+    def _normalize_rating(cls, value):
+        normalized = (_normalize_optional_text(value) or "").lower()
+        if normalized not in {"up", "down"}:
+            raise ValueError("rating must be 'up' or 'down'")
+        return normalized
+
+    @model_validator(mode="after")
+    def _require_target(self):
+        if self.chat_log_id is None and not self.request_id:
+            raise ValueError("request_id or chat_log_id is required")
+        return self
+
+
+class ChatFeedbackItem(BaseModel):
+    id: int
+    chat_log_id: int
+    request_id: str | None = None
+    rating: str
+    reason_code: str | None = None
+    comment: str | None = None
+    created_by_user_id: str
+    roles: list[str] = Field(default_factory=list)
+    channel: str | None = None
+    tenant_id: str | None = None
+    org_id: str | None = None
+    chat_session_id: str | None = None
+    kb_id: int | None = None
+    kb_key: str | None = None
+    chat_user_message: str | None = None
+    chat_answer_text: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class ListChatFeedbackOutput(BaseModel):
+    total: int
+    items: list[ChatFeedbackItem]
+
+
+class FeedbackSummaryGroup(BaseModel):
+    kb_id: int | None = None
+    kb_key: str | None = None
+    total: int
+    up: int
+    down: int
+    positive_rate: float | None = None
+
+
+class FeedbackSummaryOutput(BaseModel):
+    total: int
+    up: int
+    down: int
+    positive_rate: float | None = None
+    by_kb: list[FeedbackSummaryGroup] = Field(default_factory=list)
+
+
+class AnalyticsSummary(BaseModel):
+    chat_count: int = 0
+    unique_users: int = 0
+    avg_latency_ms: float | None = None
+    fallback_count: int = 0
+    feedback_total: int = 0
+    feedback_up: int = 0
+    feedback_down: int = 0
+    positive_rate: float | None = None
+    tool_calls: int = 0
+    tool_error_rate: float | None = None
+    background_jobs_total: int = 0
+    background_jobs_failed: int = 0
+    pending_actions_open: int = 0
+    support_tickets_open: int = 0
+    support_tickets_escalated: int = 0
+    sla_overdue: int = 0
+    uploaded_files: int = 0
+    ingested_files: int = 0
+
+
+class AnalyticsTimeBucket(BaseModel):
+    bucket: str
+    chats: int = 0
+    feedback_up: int = 0
+    feedback_down: int = 0
+    tool_calls: int = 0
+    job_failures: int = 0
+    support_tickets: int = 0
+
+
+class AnalyticsBreakdownItem(BaseModel):
+    key: str
+    count: int
+    label: str | None = None
+    extra: dict[str, Any] = Field(default_factory=dict)
+
+
+class AnalyticsDashboardOutput(BaseModel):
+    period_days: int
+    kb_id: int | None = None
+    summary: AnalyticsSummary
+    timeseries: list[AnalyticsTimeBucket] = Field(default_factory=list)
+    chat_modes: list[AnalyticsBreakdownItem] = Field(default_factory=list)
+    kb_usage: list[AnalyticsBreakdownItem] = Field(default_factory=list)
+    top_tools: list[AnalyticsBreakdownItem] = Field(default_factory=list)
+    job_status: list[AnalyticsBreakdownItem] = Field(default_factory=list)
+    support_status: list[AnalyticsBreakdownItem] = Field(default_factory=list)
+    support_intents: list[AnalyticsBreakdownItem] = Field(default_factory=list)
+    pending_status: list[AnalyticsBreakdownItem] = Field(default_factory=list)
 
 
 class ToolAuditLogItem(BaseModel):

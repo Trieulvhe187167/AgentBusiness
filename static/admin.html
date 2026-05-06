@@ -143,10 +143,13 @@
             <button class="tab-btn active" data-target="view-kb" title="Create KBs, upload files, and manage selected KB files.">KB & Files</button>
             <button class="tab-btn" data-target="view-drive" title="Configure Google Drive sources and run Drive sync jobs.">Drive Sources</button>
             <button class="tab-btn" data-target="view-email" title="Sync support emails, create tickets, and draft replies.">Support Email</button>
+            <button class="tab-btn" data-target="view-support-cases" title="Classify, plan, assign, and resolve support tickets end-to-end.">Support Cases</button>
             <button class="tab-btn" data-target="view-actions" title="Approve, reject, or execute high-risk pending actions.">Pending Actions</button>
             <button class="tab-btn" data-target="view-jobs" title="Monitor background jobs and automatic sync schedules.">Background Jobs</button>
+            <button class="tab-btn" data-target="view-analytics" title="Track chat quality, workflow health, jobs, and support operations.">Analytics</button>
             <button class="tab-btn" data-target="view-audit" title="Review chat and authorization audit logs.">Audit Logs</button>
             <button class="tab-btn" data-target="view-calibrate" title="Test retrieval quality in the currently selected Knowledge Base.">Calibrate</button>
+            <button class="tab-btn" data-target="view-mcp" title="Inspect MCP server status, exposed tools, and resources.">MCP Server</button>
             <button class="tab-btn" data-target="view-system" title="Inspect selected KB and runtime system payload.">System</button>
         </div>
 
@@ -356,6 +359,75 @@
             </div>
         </div>
 
+        <div id="view-analytics" class="view">
+            <div class="grid">
+                <section class="card span-12">
+                    <div class="section-head">
+                        <h2>Analytics Dashboard</h2>
+                        <p>Operational view across chat usage, answer quality, tool calls, background jobs, and support workflows.</p>
+                    </div>
+                    <div class="toolbar" style="margin-bottom:10px;">
+                        <select id="analyticsDays" title="Select analytics lookback window.">
+                            <option value="7">Last 7 days</option>
+                            <option value="14">Last 14 days</option>
+                            <option value="30">Last 30 days</option>
+                            <option value="90">Last 90 days</option>
+                        </select>
+                        <select id="analyticsScope" title="Choose global analytics or only the selected Knowledge Base.">
+                            <option value="global">All KBs</option>
+                            <option value="selected">Selected KB only</option>
+                        </select>
+                        <button class="btn-main" id="btnRefreshAnalytics" title="Reload analytics metrics.">Refresh Analytics</button>
+                        <span class="note" id="analyticsSummary">No analytics loaded.</span>
+                    </div>
+                    <div class="stats">
+                        <div class="stat"><div class="value" id="aChats">-</div><div class="label">Chats</div></div>
+                        <div class="stat"><div class="value" id="aPositive">-</div><div class="label">Positive Feedback</div></div>
+                        <div class="stat"><div class="value" id="aToolError">-</div><div class="label">Tool Error Rate</div></div>
+                        <div class="stat"><div class="value" id="aOpenTickets">-</div><div class="label">Open Tickets</div></div>
+                        <div class="stat"><div class="value" id="aFailedJobs">-</div><div class="label">Failed Jobs</div></div>
+                        <div class="stat"><div class="value" id="aPendingActions">-</div><div class="label">Open Approvals</div></div>
+                    </div>
+                </section>
+                <section class="card span-12">
+                    <div class="section-head">
+                        <h2>Daily Trend</h2>
+                        <p>Chats, feedback, tool calls, job failures, and support tickets by day.</p>
+                    </div>
+                    <div class="scroll">
+                        <table class="table" id="analyticsTimelineTable">
+                            <thead><tr><th>Day</th><th>Chats</th><th>Feedback</th><th>Tool Calls</th><th>Job Failures</th><th>Tickets</th></tr></thead>
+                            <tbody><tr><td colspan="6">No analytics loaded.</td></tr></tbody>
+                        </table>
+                    </div>
+                </section>
+                <section class="card span-4">
+                    <div class="section-head"><h2>Chat Modes</h2><p>How the agent routed recent chat answers.</p></div>
+                    <div class="scroll"><table class="table" id="analyticsChatModesTable"><thead><tr><th>Mode</th><th>Count</th></tr></thead><tbody><tr><td colspan="2">-</td></tr></tbody></table></div>
+                </section>
+                <section class="card span-4">
+                    <div class="section-head"><h2>Top Tools</h2><p>Most used tools from the audit log.</p></div>
+                    <div class="scroll"><table class="table" id="analyticsTopToolsTable"><thead><tr><th>Tool</th><th>Count</th></tr></thead><tbody><tr><td colspan="2">-</td></tr></tbody></table></div>
+                </section>
+                <section class="card span-4">
+                    <div class="section-head"><h2>Job Status</h2><p>Background worker health by job status.</p></div>
+                    <div class="scroll"><table class="table" id="analyticsJobStatusTable"><thead><tr><th>Status</th><th>Count</th></tr></thead><tbody><tr><td colspan="2">-</td></tr></tbody></table></div>
+                </section>
+                <section class="card span-4">
+                    <div class="section-head"><h2>Support Intents</h2><p>Most common support case types.</p></div>
+                    <div class="scroll"><table class="table" id="analyticsSupportIntentsTable"><thead><tr><th>Intent</th><th>Count</th></tr></thead><tbody><tr><td colspan="2">-</td></tr></tbody></table></div>
+                </section>
+                <section class="card span-4">
+                    <div class="section-head"><h2>Support Status</h2><p>Case lifecycle distribution.</p></div>
+                    <div class="scroll"><table class="table" id="analyticsSupportStatusTable"><thead><tr><th>Status</th><th>Count</th></tr></thead><tbody><tr><td colspan="2">-</td></tr></tbody></table></div>
+                </section>
+                <section class="card span-4">
+                    <div class="section-head"><h2>KB Usage</h2><p>Chat traffic grouped by Knowledge Base.</p></div>
+                    <div class="scroll"><table class="table" id="analyticsKbUsageTable"><thead><tr><th>KB</th><th>Chats</th></tr></thead><tbody><tr><td colspan="2">-</td></tr></tbody></table></div>
+                </section>
+            </div>
+        </div>
+
         <div id="view-audit" class="view">
             <div class="grid">
                 <section class="card span-6">
@@ -365,7 +437,7 @@
                     </div>
                     <div class="scroll">
                         <table class="table" id="logsTable">
-                            <thead><tr><th>Time</th><th>Mode</th><th>Score</th><th>Latency</th><th>Question</th></tr></thead>
+                            <thead><tr><th>Time</th><th>Mode</th><th>Score</th><th>Latency</th><th>Feedback</th><th>Question</th></tr></thead>
                             <tbody></tbody>
                         </table>
                     </div>
@@ -379,6 +451,36 @@
                         <table class="table" id="authAuditTable">
                             <thead><tr><th>Time</th><th>Decision</th><th>Resource</th><th>Actor</th><th>Reason</th></tr></thead>
                             <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+                <section class="card span-6">
+                    <div class="section-head">
+                        <h2>Feedback Summary</h2>
+                        <p>Track answer quality from chat feedback grouped by Knowledge Base.</p>
+                    </div>
+                    <div class="stats" style="margin-bottom:12px;">
+                        <div class="stat"><div class="value" id="feedbackTotal">-</div><div class="label">Total</div></div>
+                        <div class="stat"><div class="value" id="feedbackUp">-</div><div class="label">Up</div></div>
+                        <div class="stat"><div class="value" id="feedbackDown">-</div><div class="label">Down</div></div>
+                        <div class="stat"><div class="value" id="feedbackRate">-</div><div class="label">Positive</div></div>
+                    </div>
+                    <div class="scroll">
+                        <table class="table" id="feedbackSummaryTable">
+                            <thead><tr><th>KB</th><th>Total</th><th>Up</th><th>Down</th><th>Rate</th></tr></thead>
+                            <tbody><tr><td colspan="5">No feedback summary loaded.</td></tr></tbody>
+                        </table>
+                    </div>
+                </section>
+                <section class="card span-6">
+                    <div class="section-head">
+                        <h2>Recent Feedback</h2>
+                        <p>Inspect recent thumbs up/down records and the answer they refer to.</p>
+                    </div>
+                    <div class="scroll">
+                        <table class="table" id="feedbackTable">
+                            <thead><tr><th>Time</th><th>Rating</th><th>KB</th><th>User</th><th>Reason / Answer</th></tr></thead>
+                            <tbody><tr><td colspan="5">No feedback loaded.</td></tr></tbody>
                         </table>
                     </div>
                 </section>
@@ -417,6 +519,59 @@
                             <div class="btn-row" style="margin-top:8px;">
                                 <button class="btn-main" id="btnSendSupportEmailReply" title="Send a reply to the selected support email.">Send Reply</button>
                                 <button class="btn-muted" id="btnClearSupportEmailSelection" title="Clear selected email and reply draft.">Clear</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+
+        <div id="view-support-cases" class="view">
+            <div class="grid">
+                <section class="card span-12">
+                    <div class="section-head">
+                        <h2>Support Cases</h2>
+                        <p>Run the end-to-end support workflow: classify, enrich, plan, approve risky actions, assign, and escalate with context.</p>
+                    </div>
+                    <div class="toolbar" style="margin-bottom:10px;">
+                        <select id="supportCaseStatus" title="Filter tickets by lifecycle status.">
+                            <option value="">All statuses</option>
+                            <option value="new">New</option>
+                            <option value="classified">Classified</option>
+                            <option value="planned">Planned</option>
+                            <option value="waiting_approval">Waiting Approval</option>
+                            <option value="escalated">Escalated</option>
+                            <option value="resolved">Resolved</option>
+                            <option value="closed">Closed</option>
+                        </select>
+                        <select id="supportCasePriority" title="Filter tickets by priority.">
+                            <option value="">All priorities</option>
+                            <option value="P0">P0</option>
+                            <option value="P1">P1</option>
+                            <option value="P2">P2</option>
+                            <option value="P3">P3</option>
+                        </select>
+                        <button class="btn-main" id="btnRefreshSupportCases" title="Reload support cases.">Refresh Cases</button>
+                        <button class="btn-ok" id="btnRunSlaMonitor" title="Find overdue SLA tickets and escalate them.">Run SLA Monitor</button>
+                        <button class="btn-muted" id="btnScheduleSlaMonitor" title="Schedule recurring SLA monitoring.">Schedule SLA</button>
+                        <span class="note" id="supportCaseSummary">No support case loaded.</span>
+                    </div>
+                    <div class="grid">
+                        <div class="span-8">
+                            <div class="scroll" style="max-height:520px;">
+                                <table class="table" id="supportCasesTable">
+                                    <thead><tr><th>Ticket</th><th>Intent</th><th>Priority / SLA</th><th>Owner</th><th>Actions</th></tr></thead>
+                                    <tbody><tr><td colspan="5">Click Refresh Cases.</td></tr></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="span-4">
+                            <div class="note" id="supportCaseDetailSummary">No case selected.</div>
+                            <textarea id="supportCaseContextBody" readonly placeholder="Workflow context, plan, and escalation package will appear here." style="min-height:260px; margin:8px 0;"></textarea>
+                            <textarea id="supportCaseNoteBody" placeholder="Internal note..." style="min-height:90px;"></textarea>
+                            <div class="btn-row" style="margin-top:8px;">
+                                <button class="btn-main" id="btnAddSupportCaseNote" title="Add an internal note to the selected ticket.">Add Note</button>
+                                <button class="btn-muted" id="btnClearSupportCaseSelection" title="Clear selected support case.">Clear</button>
                             </div>
                         </div>
                     </div>
@@ -511,6 +666,58 @@
                 </section>
             </div>
         </div>
+
+        <div id="view-mcp" class="view">
+            <div class="grid">
+                <section class="card span-12">
+                    <div class="section-head">
+                        <h2>MCP Server</h2>
+                        <p>Inspect the Model Context Protocol endpoint, exposed tools, resources, and safety settings.</p>
+                    </div>
+                    <div class="toolbar" style="margin-bottom:10px;">
+                        <button class="btn-main" id="btnRefreshMcp" title="Reload MCP server status.">Refresh MCP</button>
+                        <span class="note" id="mcpSummary">No MCP status loaded.</span>
+                    </div>
+                    <div class="stats" style="margin-bottom:12px;">
+                        <div class="stat"><div class="value" id="mcpEnabled">-</div><div class="label">Enabled</div></div>
+                        <div class="stat"><div class="value" id="mcpTools">-</div><div class="label">Exposed Tools</div></div>
+                        <div class="stat"><div class="value" id="mcpResources">-</div><div class="label">Resources</div></div>
+                        <div class="stat"><div class="value" id="mcpAuth">-</div><div class="label">Auth Required</div></div>
+                        <div class="stat"><div class="value" id="mcpOrigin">-</div><div class="label">Origin Check</div></div>
+                        <div class="stat"><div class="value" id="mcpProtocol">-</div><div class="label">Protocol</div></div>
+                    </div>
+                    <div class="row" style="margin-bottom:10px;">
+                        <input id="mcpEndpoint" class="grow mono" type="text" readonly title="MCP JSON-RPC endpoint URL.">
+                        <button class="btn-muted" id="btnCopyMcpEndpoint" title="Copy MCP endpoint URL.">Copy Endpoint</button>
+                    </div>
+                    <div class="scroll"><pre class="mono" id="mcpConfigDump" style="margin:0;"></pre></div>
+                </section>
+                <section class="card span-6">
+                    <div class="section-head">
+                        <h2>Exposed MCP Tools</h2>
+                        <p>Only tools in the allowlist are visible and callable through MCP.</p>
+                    </div>
+                    <div class="scroll">
+                        <table class="table" id="mcpToolsTable">
+                            <thead><tr><th>Name</th><th>Scope</th><th>Risk</th><th>Idempotent</th></tr></thead>
+                            <tbody><tr><td colspan="4">No MCP tool status loaded.</td></tr></tbody>
+                        </table>
+                    </div>
+                </section>
+                <section class="card span-6">
+                    <div class="section-head">
+                        <h2>MCP Resources</h2>
+                        <p>Read-only resources exposed through resources/list and resources/read.</p>
+                    </div>
+                    <div class="scroll">
+                        <table class="table" id="mcpResourcesTable">
+                            <thead><tr><th>URI</th><th>Name</th><th>Description</th></tr></thead>
+                            <tbody><tr><td colspan="3">No MCP resource status loaded.</td></tr></tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -520,10 +727,13 @@
         let libraryFiles = [];
         let driveSources = [];
         let supportEmails = [];
+        let supportCases = [];
         let backgroundJobs = [];
         let syncSchedules = [];
         let selectedSupportEmailId = null;
+        let selectedSupportCaseId = null;
         let pendingActions = [];
+        let mcpStatus = null;
 
         function loadAdminAuth() {
             const stored = JSON.parse(localStorage.getItem('campusrag_admin_auth') || '{}');
@@ -652,6 +862,48 @@
             document.getElementById('systemDump').textContent = JSON.stringify({ selected_kb: freshKb, runtime: system }, null, 2);
         }
 
+        async function refreshMcpStatus() {
+            mcpStatus = await fetchJson('/api/admin/mcp/status');
+            const endpoint = `${window.location.origin}${mcpStatus.endpoint_path || '/mcp'}`;
+            const security = mcpStatus.security || {};
+            const tools = mcpStatus.tools || {};
+            const resources = mcpStatus.resources || {};
+            document.getElementById('mcpSummary').textContent = `${mcpStatus.server?.name || 'MCP'} ${mcpStatus.server?.version || ''} at ${endpoint}`;
+            document.getElementById('mcpEnabled').textContent = mcpStatus.enabled ? 'Yes' : 'No';
+            document.getElementById('mcpTools').textContent = `${tools.exposed_count ?? 0}/${tools.registered_count ?? 0}`;
+            document.getElementById('mcpResources').textContent = `${resources.count ?? 0}/${resources.template_count ?? 0}`;
+            document.getElementById('mcpAuth').textContent = security.require_auth ? 'Yes' : 'No';
+            document.getElementById('mcpOrigin').textContent = security.validate_origin ? 'On' : 'Off';
+            document.getElementById('mcpProtocol').textContent = mcpStatus.protocol_version || '-';
+            document.getElementById('mcpEndpoint').value = endpoint;
+            document.getElementById('mcpConfigDump').textContent = JSON.stringify({
+                endpoint,
+                security,
+                hidden_tools: tools.hidden || [],
+                resource_templates: resources.templates || [],
+                capabilities: mcpStatus.capabilities || {},
+            }, null, 2);
+
+            const toolRows = tools.exposed || [];
+            document.querySelector('#mcpToolsTable tbody').innerHTML = toolRows.length ? toolRows.map((tool) => `
+                <tr>
+                    <td><strong>${tool.name}</strong><br><small class="note">${escapeHtml(tool.description || '').slice(0, 120)}</small></td>
+                    <td>${tool.scope || '-'}</td>
+                    <td><span class="status ${tool.risk_level === 'low' ? 'done' : 'queued'}">${tool.risk_level || '-'}</span></td>
+                    <td>${tool.idempotent ? 'Yes' : 'No'}</td>
+                </tr>
+            `).join('') : '<tr><td colspan="4">No tools exposed through MCP.</td></tr>';
+
+            const resourceRows = resources.items || [];
+            document.querySelector('#mcpResourcesTable tbody').innerHTML = resourceRows.length ? resourceRows.map((resource) => `
+                <tr>
+                    <td class="mono">${resource.uri}</td>
+                    <td>${resource.name || '-'}</td>
+                    <td><small class="note">${resource.description || '-'}</small></td>
+                </tr>
+            `).join('') : '<tr><td colspan="3">No MCP resources exposed.</td></tr>';
+        }
+
         async function refreshKbFiles() {
             if (!selectedKbId()) return;
             kbFiles = await fetchJson(`/api/kbs/${selectedKbId()}/files`);
@@ -771,12 +1023,106 @@
             const logs = await fetchJson('/api/admin/chat-logs?limit=50');
             const tbody = document.querySelector('#logsTable tbody');
             if (!logs.length) {
-                tbody.innerHTML = '<tr><td colspan="5">No chat logs yet.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6">No chat logs yet.</td></tr>';
                 return;
             }
             tbody.innerHTML = logs.map((log) => `
-                <tr><td>${log.created_at || '-'}</td><td><span class="status ${log.mode}">${log.mode}</span></td><td>${log.top_score ?? '-'}</td><td>${log.latency_ms ?? '-'} ms</td><td>${(log.user_message || '').slice(0, 110)}</td></tr>
+                <tr>
+                    <td>${log.created_at || '-'}</td>
+                    <td><span class="status ${log.mode}">${log.mode}</span></td>
+                    <td>${log.top_score ?? '-'}</td>
+                    <td>${log.latency_ms ?? '-'} ms</td>
+                    <td><span class="status done">${log.feedback_up || 0} up</span> <span class="status failed">${log.feedback_down || 0} down</span></td>
+                    <td>${escapeHtml((log.user_message || '').slice(0, 110))}</td>
+                </tr>
             `).join('');
+        }
+
+        async function refreshFeedback() {
+            const [summary, list] = await Promise.all([
+                fetchJson('/api/admin/feedback/summary'),
+                fetchJson('/api/admin/feedback?limit=30'),
+            ]);
+            document.getElementById('feedbackTotal').textContent = summary.total ?? 0;
+            document.getElementById('feedbackUp').textContent = summary.up ?? 0;
+            document.getElementById('feedbackDown').textContent = summary.down ?? 0;
+            document.getElementById('feedbackRate').textContent = `${Math.round((summary.positive_rate || 0) * 100)}%`;
+
+            const summaryBody = document.querySelector('#feedbackSummaryTable tbody');
+            const groups = summary.groups || [];
+            summaryBody.innerHTML = groups.length ? groups.map((item) => `
+                <tr>
+                    <td>${escapeHtml(item.kb_key || item.kb_id || 'global')}</td>
+                    <td>${item.total || 0}</td>
+                    <td>${item.up || 0}</td>
+                    <td>${item.down || 0}</td>
+                    <td>${Math.round((item.positive_rate || 0) * 100)}%</td>
+                </tr>
+            `).join('') : '<tr><td colspan="5">No feedback summary found.</td></tr>';
+
+            const tbody = document.querySelector('#feedbackTable tbody');
+            const items = list.items || [];
+            tbody.innerHTML = items.length ? items.map((item) => `
+                <tr>
+                    <td>${item.created_at || '-'}</td>
+                    <td><span class="status ${item.rating === 'up' ? 'done' : 'failed'}">${item.rating}</span></td>
+                    <td>${escapeHtml(item.kb_key || item.kb_id || '-')}</td>
+                    <td>${escapeHtml(item.created_by_user_id || '-')}</td>
+                    <td>
+                        ${escapeHtml(item.reason_code || '-')}
+                        <br><small class="note">${escapeHtml(item.comment || item.chat_answer_text || '').slice(0, 180)}</small>
+                    </td>
+                </tr>
+            `).join('') : '<tr><td colspan="5">No feedback found.</td></tr>';
+        }
+
+        function formatRate(value) {
+            return value === null || value === undefined ? '-' : `${Math.round(Number(value) * 100)}%`;
+        }
+
+        function renderBreakdownTable(tableId, rows, emptyLabel = 'No data found.') {
+            const tbody = document.querySelector(`#${tableId} tbody`);
+            tbody.innerHTML = (rows || []).length ? rows.map((item) => `
+                <tr>
+                    <td>${escapeHtml(item.key || 'unknown')}</td>
+                    <td>${item.count || 0}</td>
+                </tr>
+            `).join('') : `<tr><td colspan="2">${emptyLabel}</td></tr>`;
+        }
+
+        async function refreshAnalytics() {
+            const days = Number(document.getElementById('analyticsDays').value || '7');
+            const selectedOnly = document.getElementById('analyticsScope').value === 'selected';
+            const params = new URLSearchParams({ days: String(days) });
+            if (selectedOnly && selectedKbId()) params.set('kb_id', String(selectedKbId()));
+            const data = await fetchJson(`/api/admin/analytics?${params.toString()}`);
+            const summary = data.summary || {};
+            document.getElementById('analyticsSummary').textContent = `${data.period_days} day window${data.kb_id ? ` | KB ${data.kb_id}` : ' | all KBs'} | ${summary.unique_users || 0} user(s) | avg latency ${summary.avg_latency_ms ?? '-'} ms`;
+            document.getElementById('aChats').textContent = summary.chat_count || 0;
+            document.getElementById('aPositive').textContent = formatRate(summary.positive_rate);
+            document.getElementById('aToolError').textContent = formatRate(summary.tool_error_rate);
+            document.getElementById('aOpenTickets').textContent = summary.support_tickets_open || 0;
+            document.getElementById('aFailedJobs').textContent = summary.background_jobs_failed || 0;
+            document.getElementById('aPendingActions').textContent = summary.pending_actions_open || 0;
+
+            const timelineBody = document.querySelector('#analyticsTimelineTable tbody');
+            timelineBody.innerHTML = (data.timeseries || []).length ? data.timeseries.map((item) => `
+                <tr>
+                    <td>${item.bucket}</td>
+                    <td>${item.chats || 0}</td>
+                    <td><span class="status done">${item.feedback_up || 0} up</span> <span class="status failed">${item.feedback_down || 0} down</span></td>
+                    <td>${item.tool_calls || 0}</td>
+                    <td>${item.job_failures || 0}</td>
+                    <td>${item.support_tickets || 0}</td>
+                </tr>
+            `).join('') : '<tr><td colspan="6">No timeline data found.</td></tr>';
+
+            renderBreakdownTable('analyticsChatModesTable', data.chat_modes);
+            renderBreakdownTable('analyticsTopToolsTable', data.top_tools);
+            renderBreakdownTable('analyticsJobStatusTable', data.job_status);
+            renderBreakdownTable('analyticsSupportIntentsTable', data.support_intents);
+            renderBreakdownTable('analyticsSupportStatusTable', data.support_status);
+            renderBreakdownTable('analyticsKbUsageTable', data.kb_usage);
         }
 
         async function refreshAuthAudit() {
@@ -830,6 +1176,7 @@
                     <td>
                         <button class="btn-muted" data-email-read="${item.id}">Read</button>
                         <button class="btn-ok" data-email-ticket="${item.id}">Ticket</button>
+                        <button class="btn-main" data-email-handle="${item.id}">Handle</button>
                     </td>
                 </tr>
             `).join('');
@@ -852,7 +1199,7 @@
                 body: JSON.stringify({ issue_type: 'other' }),
             });
             toast(`Created ticket ${result.ticket_code} from email ${emailId}`);
-            await refreshSupportEmails();
+            await Promise.all([refreshSupportEmails(), refreshSupportCases()]);
         }
 
         async function sendSupportEmailReply() {
@@ -874,6 +1221,152 @@
             document.getElementById('supportEmailThreadSummary').textContent = 'No thread selected.';
             document.getElementById('supportEmailThreadBody').value = '';
             document.getElementById('supportEmailReplyBody').value = '';
+        }
+
+        async function refreshSupportCases() {
+            const status = document.getElementById('supportCaseStatus').value;
+            const priority = document.getElementById('supportCasePriority').value;
+            const params = new URLSearchParams({ limit: '50' });
+            if (status) params.set('workflow_status', status);
+            if (priority) params.set('priority', priority);
+            const [data, summary] = await Promise.all([
+                fetchJson(`/api/admin/support-tickets?${params.toString()}`),
+                fetchJson('/api/admin/support-workflows/summary'),
+            ]);
+            supportCases = data.items || [];
+            const overdue = summary.overdue_sla_count ?? 0;
+            document.getElementById('supportCaseSummary').textContent = `Loaded ${supportCases.length} case(s). Overdue SLA: ${overdue}.`;
+            const tbody = document.querySelector('#supportCasesTable tbody');
+            if (!supportCases.length) {
+                tbody.innerHTML = '<tr><td colspan="5">No support cases found.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = supportCases.map((item) => {
+                const wf = item.workflow_status || item.status || 'new';
+                const slaClass = item.sla_breached_at ? 'failed' : 'queued';
+                return `
+                    <tr>
+                        <td><strong>${item.ticket_code}</strong><br><small class="note">${escapeHtml(item.contact || item.created_by_user_id || '-')}</small><br><span class="status ${wf}">${wf}</span></td>
+                        <td>${item.intent || '-'}<br><small class="note">risk: ${item.risk_level || '-'} / sentiment: ${item.sentiment || '-'}</small></td>
+                        <td><span class="status ${slaClass}">${item.priority || '-'}</span><br><small class="note">Due: ${item.sla_due_at || '-'}</small>${item.sla_breached_at ? `<br><small class="note">Breached: ${item.sla_breached_at}</small>` : ''}</td>
+                        <td>${item.assigned_team || '-'}<br><small class="note">${item.assigned_user_id || '-'}</small><br><small class="note">${item.note_count || 0} note(s), ${item.pending_action_count || 0} approval(s)</small></td>
+                        <td>
+                            <button class="btn-muted" data-case-view="${item.id}">Context</button>
+                            <button class="btn-main" data-case-handle="${item.id}">Handle</button>
+                            <button class="btn-ok" data-case-assign="${item.id}">Assign</button>
+                            <button class="btn-danger" data-case-escalate="${item.id}">Escalate</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function handleSupportCase(caseId) {
+            const job = await fetchJson(`/api/admin/support-workflows/tickets/${caseId}/enqueue`, { method: 'POST' });
+            toast(`Support workflow queued: ${job.job_id}`);
+            pollJob(job.job_id);
+            await Promise.all([refreshSupportCases(), refreshBackgroundJobs()]);
+        }
+
+        async function handleSupportEmailWorkflow(emailId) {
+            const job = await fetchJson(`/api/admin/support-workflows/emails/${emailId}/enqueue`, { method: 'POST' });
+            toast(`Email workflow queued: ${job.job_id}`);
+            pollJob(job.job_id);
+            await Promise.all([refreshSupportEmails(false), refreshSupportCases(), refreshBackgroundJobs()]);
+        }
+
+        async function viewSupportCase(caseId) {
+            selectedSupportCaseId = Number(caseId);
+            const [ctx, notes] = await Promise.all([
+                fetchJson(`/api/admin/support-tickets/${caseId}/context`),
+                fetchJson(`/api/admin/support-tickets/${caseId}/notes`),
+            ]);
+            const ticket = ctx.ticket || {};
+            document.getElementById('supportCaseDetailSummary').textContent = `${ticket.ticket_code || caseId}: ${ticket.workflow_status || ticket.status || '-'} / ${ticket.intent || '-'}`;
+            document.getElementById('supportCaseContextBody').value = JSON.stringify({
+                ticket,
+                classification: ctx.classification || {},
+                action_plan: ctx.action_plan || {},
+                escalation: ctx.escalation || {},
+                notes: notes.items || [],
+            }, null, 2);
+        }
+
+        async function assignSupportCase(caseId) {
+            const assignedTeam = prompt('Assigned team:', 'support') || '';
+            const assignedUserId = prompt('Assigned user id (optional):', '') || '';
+            const note = prompt('Assignment note (optional):', '') || '';
+            const updated = await fetchJson(`/api/admin/support-tickets/${caseId}/assign`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    assigned_team: assignedTeam || null,
+                    assigned_user_id: assignedUserId || null,
+                    note: note || null,
+                }),
+            });
+            toast(`Assigned ${updated.ticket_code}`);
+            await refreshSupportCases();
+            if (selectedSupportCaseId === Number(caseId)) await viewSupportCase(caseId);
+        }
+
+        async function escalateSupportCase(caseId) {
+            const note = prompt('Escalation reason:', 'Needs human review.') || 'Needs human review.';
+            await fetchJson(`/api/admin/support-tickets/${caseId}/escalate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ note }),
+            });
+            toast(`Escalated case ${caseId}`);
+            await refreshSupportCases();
+            if (selectedSupportCaseId === Number(caseId)) await viewSupportCase(caseId);
+        }
+
+        async function addSupportCaseNote() {
+            if (!selectedSupportCaseId) return toast('Select a support case first.', false);
+            const body = document.getElementById('supportCaseNoteBody').value.trim();
+            if (!body) return toast('Internal note body is required.', false);
+            const note = await fetchJson(`/api/admin/support-tickets/${selectedSupportCaseId}/notes`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ body, note_type: 'internal', visibility: 'internal' }),
+            });
+            toast(`Added note ${note.id}`);
+            document.getElementById('supportCaseNoteBody').value = '';
+            await viewSupportCase(selectedSupportCaseId);
+            await refreshSupportCases();
+        }
+
+        function clearSupportCaseSelection() {
+            selectedSupportCaseId = null;
+            document.getElementById('supportCaseDetailSummary').textContent = 'No case selected.';
+            document.getElementById('supportCaseContextBody').value = '';
+            document.getElementById('supportCaseNoteBody').value = '';
+        }
+
+        async function runSlaMonitor() {
+            const result = await fetchJson('/api/admin/support-workflows/sla/monitor?limit=100', { method: 'POST' });
+            toast(`SLA monitor: ${result.breached} breached case(s)`);
+            await refreshSupportCases();
+        }
+
+        async function createSlaMonitorSchedule() {
+            const minutes = Number(prompt('SLA monitor interval in minutes (minimum 1):', '5') || '5');
+            if (!Number.isFinite(minutes) || minutes < 1) return toast('Invalid interval.', false);
+            const item = await fetchJson('/api/admin/sync-schedules', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    schedule_type: 'support_sla_monitor',
+                    target_id: null,
+                    name: 'Support SLA Monitor',
+                    enabled: true,
+                    interval_seconds: Math.round(minutes * 60),
+                    payload: { limit: 100 },
+                }),
+            });
+            toast(`SLA schedule saved: ${item.name}`);
+            await refreshSyncSchedules();
         }
 
         async function refreshPendingActions() {
@@ -1086,7 +1579,7 @@
         async function refreshAll(preferredKbId = null) {
             await loadKnowledgeBases(preferredKbId);
             if (!selectedKbId()) return;
-            await Promise.all([refreshStatsAndSystem(), refreshKbFiles(), refreshLogs(), refreshAuthAudit(), refreshSources(), refreshDriveSources(), refreshSupportEmails(false), refreshSyncSchedules(), refreshPendingActions(), refreshBackgroundJobs()]);
+            await Promise.all([refreshStatsAndSystem(), refreshMcpStatus(), refreshKbFiles(), refreshLogs(), refreshFeedback(), refreshAnalytics(), refreshAuthAudit(), refreshSources(), refreshDriveSources(), refreshSupportEmails(false), refreshSupportCases(), refreshSyncSchedules(), refreshPendingActions(), refreshBackgroundJobs()]);
             await refreshLibrary();
             renderJobSummary();
         }
@@ -1358,6 +1851,28 @@
         document.getElementById('btnScheduleSupportEmail').addEventListener('click', () => createSupportEmailSchedule().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnSendSupportEmailReply').addEventListener('click', () => sendSupportEmailReply().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnClearSupportEmailSelection').addEventListener('click', clearSupportEmailSelection);
+        document.getElementById('btnRefreshAnalytics').addEventListener('click', () => refreshAnalytics().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('analyticsDays').addEventListener('change', () => refreshAnalytics().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('analyticsScope').addEventListener('change', () => refreshAnalytics().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnRefreshSupportCases').addEventListener('click', () => refreshSupportCases().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnRunSlaMonitor').addEventListener('click', () => runSlaMonitor().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnScheduleSlaMonitor').addEventListener('click', () => createSlaMonitorSchedule().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnAddSupportCaseNote').addEventListener('click', () => addSupportCaseNote().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnClearSupportCaseSelection').addEventListener('click', clearSupportCaseSelection);
+        document.getElementById('supportCaseStatus').addEventListener('change', () => refreshSupportCases().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('supportCasePriority').addEventListener('change', () => refreshSupportCases().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnRefreshMcp').addEventListener('click', () => refreshMcpStatus().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnCopyMcpEndpoint').addEventListener('click', async () => {
+            const value = document.getElementById('mcpEndpoint').value;
+            if (!value) return;
+            try {
+                await navigator.clipboard.writeText(value);
+                toast('Copied MCP endpoint');
+            } catch (_) {
+                document.getElementById('mcpEndpoint').select();
+                toast('Select and copy the MCP endpoint manually.', false);
+            }
+        });
         document.getElementById('btnRefreshSyncSchedules').addEventListener('click', () => refreshSyncSchedules().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnRefreshPendingActions').addEventListener('click', () => refreshPendingActions().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('pendingActionStatus').addEventListener('change', () => refreshPendingActions().catch((e) => toast(explainAuthError(e), false)));
@@ -1400,6 +1915,19 @@
             if (readBtn) return readSupportEmail(Number(readBtn.dataset.emailRead)).catch((e) => toast(explainAuthError(e), false));
             const ticketBtn = event.target.closest('[data-email-ticket]');
             if (ticketBtn) return createTicketFromSupportEmail(Number(ticketBtn.dataset.emailTicket)).catch((e) => toast(explainAuthError(e), false));
+            const handleBtn = event.target.closest('[data-email-handle]');
+            if (handleBtn) return handleSupportEmailWorkflow(Number(handleBtn.dataset.emailHandle)).catch((e) => toast(explainAuthError(e), false));
+        });
+
+        document.querySelector('#supportCasesTable tbody').addEventListener('click', (event) => {
+            const viewBtn = event.target.closest('[data-case-view]');
+            if (viewBtn) return viewSupportCase(Number(viewBtn.dataset.caseView)).catch((e) => toast(explainAuthError(e), false));
+            const handleBtn = event.target.closest('[data-case-handle]');
+            if (handleBtn) return handleSupportCase(Number(handleBtn.dataset.caseHandle)).catch((e) => toast(explainAuthError(e), false));
+            const assignBtn = event.target.closest('[data-case-assign]');
+            if (assignBtn) return assignSupportCase(Number(assignBtn.dataset.caseAssign)).catch((e) => toast(explainAuthError(e), false));
+            const escalateBtn = event.target.closest('[data-case-escalate]');
+            if (escalateBtn) return escalateSupportCase(Number(escalateBtn.dataset.caseEscalate)).catch((e) => toast(explainAuthError(e), false));
         });
 
         document.querySelector('#pendingActionsTable tbody').addEventListener('click', (event) => {
@@ -1453,9 +1981,13 @@
         applyAdminAuthInputs();
         refreshAll().catch((e) => toast(explainAuthError(e), false));
         setInterval(() => refreshStatsAndSystem().catch(() => {}), 15000);
+        setInterval(() => refreshMcpStatus().catch(() => {}), 30000);
         setInterval(() => refreshLogs().catch(() => {}), 12000);
+        setInterval(() => refreshFeedback().catch(() => {}), 30000);
+        setInterval(() => refreshAnalytics().catch(() => {}), 30000);
         setInterval(() => refreshAuthAudit().catch(() => {}), 12000);
         setInterval(() => refreshSupportEmails(false).catch(() => {}), 30000);
+        setInterval(() => refreshSupportCases().catch(() => {}), 30000);
         setInterval(() => refreshSyncSchedules().catch(() => {}), 15000);
         setInterval(() => refreshPendingActions().catch(() => {}), 30000);
         setInterval(() => refreshBackgroundJobs().catch(() => {}), 5000);

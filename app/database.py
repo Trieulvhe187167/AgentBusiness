@@ -568,6 +568,92 @@ CREATE INDEX IF NOT EXISTS idx_sync_schedules_type_target
     ON sync_schedules(schedule_type, target_id);
 """
 
+# ---------------------------------------------------------------------------
+# Phase 35 / support workflow lifecycle
+# ---------------------------------------------------------------------------
+_PHASE35_SUPPORT_WORKFLOWS_SCHEMA = """
+ALTER TABLE support_tickets ADD COLUMN intent TEXT;
+ALTER TABLE support_tickets ADD COLUMN intent_confidence REAL;
+ALTER TABLE support_tickets ADD COLUMN priority TEXT;
+ALTER TABLE support_tickets ADD COLUMN sla_due_at TEXT;
+ALTER TABLE support_tickets ADD COLUMN assigned_team TEXT;
+ALTER TABLE support_tickets ADD COLUMN risk_level TEXT;
+ALTER TABLE support_tickets ADD COLUMN sentiment TEXT;
+ALTER TABLE support_tickets ADD COLUMN resolution_summary TEXT;
+ALTER TABLE support_tickets ADD COLUMN workflow_status TEXT;
+ALTER TABLE support_tickets ADD COLUMN classification_json TEXT;
+ALTER TABLE support_tickets ADD COLUMN context_summary_json TEXT;
+ALTER TABLE support_tickets ADD COLUMN action_plan_json TEXT;
+ALTER TABLE support_tickets ADD COLUMN escalation_package_json TEXT;
+ALTER TABLE support_tickets ADD COLUMN workflow_updated_at TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_support_tickets_workflow_status
+    ON support_tickets(workflow_status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_support_tickets_priority_sla
+    ON support_tickets(priority, sla_due_at);
+CREATE INDEX IF NOT EXISTS idx_support_tickets_intent
+    ON support_tickets(intent, updated_at DESC);
+"""
+
+# ---------------------------------------------------------------------------
+# Phase 36 / end-to-end support operations
+# ---------------------------------------------------------------------------
+_PHASE36_SUPPORT_OPERATIONS_SCHEMA = """
+ALTER TABLE support_tickets ADD COLUMN assigned_user_id TEXT;
+ALTER TABLE support_tickets ADD COLUMN sla_breached_at TEXT;
+ALTER TABLE support_tickets ADD COLUMN last_customer_response_at TEXT;
+
+CREATE TABLE IF NOT EXISTS support_ticket_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_id INTEGER NOT NULL,
+    note_type TEXT NOT NULL DEFAULT 'internal',
+    visibility TEXT NOT NULL DEFAULT 'internal',
+    body TEXT NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_by_user_id TEXT,
+    roles_json TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(ticket_id) REFERENCES support_tickets(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_support_ticket_notes_ticket_id
+    ON support_ticket_notes(ticket_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_support_tickets_assigned_user_id
+    ON support_tickets(assigned_user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_support_tickets_sla_breached_at
+    ON support_tickets(sla_breached_at, updated_at DESC);
+"""
+
+# ---------------------------------------------------------------------------
+# Phase 38 / chat answer feedback
+# ---------------------------------------------------------------------------
+_PHASE38_CHAT_FEEDBACK_SCHEMA = """
+CREATE TABLE IF NOT EXISTS chat_feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_log_id INTEGER NOT NULL,
+    request_id TEXT,
+    rating TEXT NOT NULL CHECK (rating IN ('up', 'down')),
+    reason_code TEXT,
+    comment TEXT,
+    created_by_user_id TEXT NOT NULL,
+    roles_json TEXT,
+    channel TEXT,
+    tenant_id TEXT,
+    org_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(chat_log_id) REFERENCES chat_logs(id) ON DELETE CASCADE,
+    UNIQUE(chat_log_id, created_by_user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_chat_feedback_chat_log_id
+    ON chat_feedback(chat_log_id);
+CREATE INDEX IF NOT EXISTS idx_chat_feedback_request_id
+    ON chat_feedback(request_id);
+CREATE INDEX IF NOT EXISTS idx_chat_feedback_rating
+    ON chat_feedback(rating, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_chat_feedback_created_at
+    ON chat_feedback(created_at DESC);
+"""
+
 MIGRATIONS: list[tuple[str, str]] = [
     ("001_core_schema", _CORE_SCHEMA),
     ("002_knowledge_bases", _KB_SCHEMA),
@@ -589,6 +675,9 @@ MIGRATIONS: list[tuple[str, str]] = [
     ("018_phase30_background_job_controls", _PHASE30_BACKGROUND_JOB_CONTROLS_SCHEMA),
     ("019_phase31_background_job_workers", _PHASE31_BACKGROUND_JOB_WORKERS_SCHEMA),
     ("020_phase32_scheduled_sync", _PHASE32_SCHEDULED_SYNC_SCHEMA),
+    ("021_phase35_support_workflows", _PHASE35_SUPPORT_WORKFLOWS_SCHEMA),
+    ("022_phase36_support_operations", _PHASE36_SUPPORT_OPERATIONS_SCHEMA),
+    ("023_phase38_chat_feedback", _PHASE38_CHAT_FEEDBACK_SCHEMA),
 ]
 
 

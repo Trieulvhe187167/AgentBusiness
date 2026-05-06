@@ -46,6 +46,10 @@ def test_registry_exports_openai_tool_schemas(tmp_path, monkeypatch):
         "read_email_thread",
         "create_ticket_from_email",
         "send_email_reply",
+        "list_customer_tickets",
+        "update_ticket_status",
+        "assign_ticket",
+        "add_ticket_internal_note",
     }
     search_tool = next(item for item in tools if item["function"]["name"] == "search_kb")
     assert search_tool["type"] == "function"

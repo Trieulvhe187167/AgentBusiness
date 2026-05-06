@@ -13,10 +13,11 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import AppStatus, EventSourceResponse
 
+from app.analytics import build_analytics_dashboard
 from app.auth import get_request_auth, require_admin
 from app.background_jobs import (
     BackgroundJobDecisionInput,
@@ -31,24 +32,31 @@ from app.background_jobs import (
 )
 from app.config import settings
 from app.database import fetch_all, fetch_one, init_db
+from app.feedback import feedback_summary, list_chat_feedback, submit_chat_feedback
 from app.ingest import router as ingest_router
 from app.kb import router as kb_router
 from app.kb_service import list_accessible_kbs, open_db, resolve_kb_scope
 from app.models import (
+    AnalyticsDashboardOutput,
     AuthAuditLogItem,
     CacheStats,
+    ChatFeedbackItem,
     ChatLogItem,
     ChatRequest,
     CurrentUserProfile,
     DocumentSummary,
+    FeedbackSummaryOutput,
     HealthResponse,
     KnowledgeBaseSummary,
     KBSource,
     KBStats,
+    ListChatFeedbackOutput,
     RequestContext,
+    SubmitChatFeedbackInput,
     SystemRuntime,
     ToolAuditLogItem,
 )
+from app.mcp_server import build_mcp_status, handle_mcp_request
 from app.pending_actions import (
     CreatePendingActionInput,
     ListPendingActionsOutput,
@@ -63,6 +71,7 @@ from app.pending_actions import (
     list_pending_actions,
     reject_pending_action,
 )
+from app.rate_limit import rate_limit_error_payload, rate_limit_headers, rate_limiter
 from app.scheduled_sync import (
     ListSyncSchedulesOutput,
     SyncScheduleItem,
@@ -73,6 +82,33 @@ from app.scheduled_sync import (
     scheduled_sync_loop,
     update_sync_schedule,
     upsert_sync_schedule,
+)
+from app.support_workflows import (
+    add_ticket_note,
+    assign_ticket,
+    classify_ticket,
+    escalate_ticket,
+    get_support_ticket,
+    get_ticket_context,
+    handle_email_case,
+    handle_ticket_case,
+    list_support_tickets,
+    list_ticket_notes,
+    process_sla_breaches,
+    update_ticket_status,
+    workflow_summary,
+)
+from app.support_workflows.schemas import (
+    AddTicketNoteInput,
+    AssignTicketInput,
+    CaseClassification,
+    ListSupportTicketNotesOutput,
+    ListSupportTicketsOutput,
+    SlaMonitorResult,
+    SupportTicketItem,
+    SupportTicketNoteItem,
+    UpdateTicketStatusInput,
+    WorkflowResult,
 )
 from app.upload import router as upload_router
 from app.tools.drive_tools import (
@@ -212,10 +248,24 @@ async def add_request_id(request: Request, call_next):
     request_id = _safe_request_id(request.headers.get("X-Request-ID"))
     start = datetime.now(timezone.utc)
     request.state.request_id = request_id
+    rate_limit_decision = rate_limiter.check(request)
+    if rate_limit_decision is not None and not rate_limit_decision.allowed:
+        elapsed = (datetime.now(timezone.utc) - start).total_seconds()
+        response = JSONResponse(
+            status_code=429,
+            content=rate_limit_error_payload(rate_limit_decision),
+            headers=rate_limit_headers(rate_limit_decision),
+        )
+        response.headers["X-Request-ID"] = request_id
+        response.headers["X-Response-Time"] = f"{elapsed:.3f}s"
+        return response
+
     response = await call_next(request)
     elapsed = (datetime.now(timezone.utc) - start).total_seconds()
     response.headers["X-Request-ID"] = request_id
     response.headers["X-Response-Time"] = f"{elapsed:.3f}s"
+    for header, value in rate_limit_headers(rate_limit_decision).items():
+        response.headers[header] = value
     return response
 
 
@@ -461,6 +511,21 @@ async def documents(_=Depends(require_admin)):
     return docs
 
 
+@app.post("/api/feedback/chat", response_model=ChatFeedbackItem)
+async def api_submit_chat_feedback(
+    payload: SubmitChatFeedbackInput,
+    request: Request,
+    auth=Depends(get_request_auth),
+):
+    return submit_chat_feedback(
+        payload,
+        context=RequestContext(
+            request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+            auth=auth,
+        ),
+    )
+
+
 @app.get("/api/admin/chat-logs", response_model=list[ChatLogItem])
 async def admin_chat_logs(
     limit: int = Query(default=settings.chat_log_limit_default, ge=1, le=500),
@@ -468,11 +533,15 @@ async def admin_chat_logs(
 ):
     rows = await fetch_all(
         """
-        SELECT id, session_id, request_id, user_id, roles_json, channel,
-               tenant_id, org_id, kb_id, kb_key, mode, top_score, latency_ms, llm_provider,
-               user_message, answer_text, created_at
-        FROM chat_logs
-        ORDER BY created_at DESC
+        SELECT cl.id, cl.session_id, cl.request_id, cl.user_id, cl.roles_json, cl.channel,
+               cl.tenant_id, cl.org_id, cl.kb_id, cl.kb_key, cl.mode, cl.top_score, cl.latency_ms, cl.llm_provider,
+               cl.user_message, cl.answer_text, cl.created_at,
+               COALESCE(SUM(CASE WHEN cf.rating = 'up' THEN 1 ELSE 0 END), 0) AS feedback_up,
+               COALESCE(SUM(CASE WHEN cf.rating = 'down' THEN 1 ELSE 0 END), 0) AS feedback_down
+        FROM chat_logs cl
+        LEFT JOIN chat_feedback cf ON cf.chat_log_id = cl.id
+        GROUP BY cl.id
+        ORDER BY cl.created_at DESC, cl.id DESC
         LIMIT ?
         """,
         (limit,),
@@ -497,9 +566,35 @@ async def admin_chat_logs(
             user_message=row.get("user_message") or "",
             answer_text=row.get("answer_text") or "",
             created_at=row.get("created_at") or "",
+            feedback_up=int(row.get("feedback_up") or 0),
+            feedback_down=int(row.get("feedback_down") or 0),
         )
         for row in rows
     ]
+
+
+@app.get("/api/admin/feedback", response_model=ListChatFeedbackOutput)
+async def admin_list_chat_feedback(
+    rating: str | None = Query(default=None),
+    kb_id: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=50, ge=1, le=500),
+    _=Depends(require_admin),
+):
+    return list_chat_feedback(rating=rating, kb_id=kb_id, limit=limit)
+
+
+@app.get("/api/admin/feedback/summary", response_model=FeedbackSummaryOutput)
+async def admin_chat_feedback_summary(_=Depends(require_admin)):
+    return feedback_summary()
+
+
+@app.get("/api/admin/analytics", response_model=AnalyticsDashboardOutput)
+async def admin_analytics_dashboard(
+    days: int = Query(default=7, ge=1, le=90),
+    kb_id: int | None = Query(default=None, ge=1),
+    _=Depends(require_admin),
+):
+    return await build_analytics_dashboard(days=days, kb_id=kb_id)
 
 
 @app.get("/api/admin/tool-audit-logs", response_model=list[ToolAuditLogItem])
@@ -586,6 +681,16 @@ async def admin_tools_registry(_=Depends(require_admin)):
     from app.tools import tool_registry
 
     return [item.model_dump() for item in tool_registry.list_definitions()]
+
+
+@app.post("/mcp")
+async def mcp_json_rpc_endpoint(request: Request):
+    return await handle_mcp_request(request)
+
+
+@app.get("/api/admin/mcp/status")
+async def admin_mcp_status(_=Depends(require_admin)):
+    return await build_mcp_status()
 
 
 @app.get("/api/admin/google-drive/sources", response_model=ListGoogleDriveSourcesOutput)
@@ -771,6 +876,194 @@ async def admin_send_support_email_reply(
         email_id=email_id,
         body=payload.body,
         to_address=payload.to_address,
+        context=RequestContext(
+            request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+            auth=auth,
+        ),
+    )
+
+
+@app.get("/api/admin/support-workflows/summary")
+async def admin_support_workflow_summary(_=Depends(require_admin)):
+    return workflow_summary()
+
+
+@app.post("/api/admin/support-workflows/sla/monitor", response_model=SlaMonitorResult)
+async def admin_monitor_support_sla(
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=200),
+    auth=Depends(require_admin),
+):
+    return process_sla_breaches(
+        context=RequestContext(
+            request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+            auth=auth,
+        ),
+        limit=limit,
+    )
+
+
+@app.post("/api/admin/support-workflows/sla/enqueue", response_model=BackgroundJobItem)
+async def admin_enqueue_support_sla_monitor(
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=200),
+    auth=Depends(require_admin),
+):
+    return enqueue_background_job(
+        job_type="support_sla_monitor",
+        payload={"limit": limit},
+        context=RequestContext(
+            request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+            auth=auth,
+        ),
+    )
+
+
+@app.get("/api/admin/support-tickets", response_model=ListSupportTicketsOutput)
+async def admin_list_support_tickets(
+    status: str | None = Query(default=None),
+    workflow_status: str | None = Query(default=None),
+    priority: str | None = Query(default=None),
+    assigned_user_id: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    _=Depends(require_admin),
+):
+    return list_support_tickets(
+        status=status,
+        workflow_status=workflow_status,
+        priority=priority,
+        assigned_user_id=assigned_user_id,
+        limit=limit,
+    )
+
+
+@app.get("/api/admin/support-tickets/{ticket_id}", response_model=SupportTicketItem)
+async def admin_get_support_ticket(ticket_id: int, _=Depends(require_admin)):
+    return get_support_ticket(ticket_id)
+
+
+@app.get("/api/admin/support-tickets/{ticket_id}/notes", response_model=ListSupportTicketNotesOutput)
+async def admin_list_support_ticket_notes(ticket_id: int, _=Depends(require_admin)):
+    return list_ticket_notes(ticket_id)
+
+
+@app.post("/api/admin/support-tickets/{ticket_id}/notes", response_model=SupportTicketNoteItem)
+async def admin_add_support_ticket_note(
+    ticket_id: int,
+    payload: AddTicketNoteInput,
+    request: Request,
+    auth=Depends(require_admin),
+):
+    return add_ticket_note(
+        ticket_id,
+        payload,
+        context=RequestContext(
+            request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+            auth=auth,
+        ),
+    )
+
+
+@app.post("/api/admin/support-tickets/{ticket_id}/assign", response_model=SupportTicketItem)
+async def admin_assign_support_ticket(
+    ticket_id: int,
+    payload: AssignTicketInput,
+    request: Request,
+    auth=Depends(require_admin),
+):
+    return assign_ticket(
+        ticket_id,
+        payload,
+        context=RequestContext(
+            request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+            auth=auth,
+        ),
+    )
+
+
+@app.post("/api/admin/support-tickets/{ticket_id}/status", response_model=SupportTicketItem)
+async def admin_update_support_ticket_status(
+    ticket_id: int,
+    payload: UpdateTicketStatusInput,
+    request: Request,
+    auth=Depends(require_admin),
+):
+    return update_ticket_status(
+        ticket_id,
+        payload,
+        context=RequestContext(
+            request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+            auth=auth,
+        ),
+    )
+
+
+@app.post("/api/admin/support-workflows/tickets/{ticket_id}/classify", response_model=CaseClassification)
+async def admin_classify_support_ticket(ticket_id: int, _=Depends(require_admin)):
+    return classify_ticket(ticket_id)
+
+
+@app.post("/api/admin/support-workflows/tickets/{ticket_id}/handle", response_model=WorkflowResult)
+async def admin_handle_support_ticket_workflow(ticket_id: int, request: Request, auth=Depends(require_admin)):
+    return await handle_ticket_case(
+        ticket_id,
+        RequestContext(
+            request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+            auth=auth,
+        ),
+    )
+
+
+@app.post("/api/admin/support-workflows/tickets/{ticket_id}/enqueue", response_model=BackgroundJobItem)
+async def admin_enqueue_support_ticket_workflow(ticket_id: int, request: Request, auth=Depends(require_admin)):
+    return enqueue_background_job(
+        job_type="support_ticket_workflow",
+        payload={"ticket_id": ticket_id},
+        context=RequestContext(
+            request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+            auth=auth,
+        ),
+    )
+
+
+@app.post("/api/admin/support-workflows/emails/{email_id}/handle", response_model=WorkflowResult)
+async def admin_handle_support_email_workflow(email_id: int, request: Request, auth=Depends(require_admin)):
+    return await handle_email_case(
+        email_id,
+        RequestContext(
+            request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+            auth=auth,
+        ),
+    )
+
+
+@app.post("/api/admin/support-workflows/emails/{email_id}/enqueue", response_model=BackgroundJobItem)
+async def admin_enqueue_support_email_workflow(email_id: int, request: Request, auth=Depends(require_admin)):
+    return enqueue_background_job(
+        job_type="support_email_workflow",
+        payload={"email_id": email_id},
+        context=RequestContext(
+            request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+            auth=auth,
+        ),
+    )
+
+
+@app.get("/api/admin/support-tickets/{ticket_id}/context")
+async def admin_get_support_ticket_context(ticket_id: int, _=Depends(require_admin)):
+    return get_ticket_context(ticket_id)
+
+
+@app.post("/api/admin/support-tickets/{ticket_id}/escalate")
+async def admin_escalate_support_ticket(
+    ticket_id: int,
+    request: Request,
+    payload: PendingActionDecisionInput | None = None,
+    auth=Depends(require_admin),
+):
+    return escalate_ticket(
+        ticket_id,
+        reason=(payload.note if payload else None) or "Manual escalation requested by admin.",
         context=RequestContext(
             request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
             auth=auth,

@@ -13,7 +13,7 @@ from app.database import execute_sync, fetch_all_sync, fetch_one_sync, utcnow_is
 from app.models import AuthContext, RequestContext
 
 PendingActionStatus = Literal["draft", "approved", "executed", "rejected", "failed"]
-PendingActionType = Literal["send_email_reply", "delete_google_drive_source", "sync_google_drive_source"]
+PendingActionType = Literal["send_email_reply", "delete_google_drive_source", "sync_google_drive_source", "support_case_review"]
 
 
 class PendingActionItem(BaseModel):
@@ -260,6 +260,14 @@ async def _dispatch_pending_action(item: PendingActionItem, *, context: RequestC
             trigger_mode="approved_action",
             force_full=bool(payload.get("force_full")),
         )
+
+    if item.action_type == "support_case_review":
+        return {
+            "reviewed": True,
+            "ticket_id": payload.get("ticket_id"),
+            "ticket_code": payload.get("ticket_code"),
+            "reviewed_by_user_id": context.auth.user_id,
+        }
 
     raise RuntimeError(f"Unsupported pending action type: {item.action_type}")
 

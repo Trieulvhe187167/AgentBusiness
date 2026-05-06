@@ -125,6 +125,30 @@ class Settings(BaseSettings):
     agent_followup_reaction_llm_timeout_seconds: int = 8
     agent_followup_reaction_llm_max_tokens: int = 96
 
+    # ------------------------------------------------------------------
+    # MCP server
+    # MVP required: no
+    # Exposes the internal ToolRegistry over a JSON-RPC MCP endpoint.
+    # ------------------------------------------------------------------
+    mcp_server_enabled: bool = True
+    mcp_protocol_version: str = "2025-06-18"
+    mcp_server_name: str = "AgentBusiness MCP"
+    mcp_server_version: str = "0.1.0"
+    mcp_require_auth: bool = True
+    mcp_validate_origin: bool = True
+    mcp_allowed_origins: str = ""
+    mcp_exposed_tools: str = (
+        "search_kb,"
+        "list_kbs,"
+        "get_kb_stats,"
+        "list_google_drive_sources,"
+        "get_google_drive_sync_status,"
+        "list_support_emails,"
+        "read_email_thread,"
+        "list_customer_tickets,"
+        "add_ticket_internal_note"
+    )
+
     # OpenAI-compatible / vLLM path
     llm_base_url: str = "http://127.0.0.1:8000/v1"
     llm_api_key: str = "EMPTY"
@@ -186,6 +210,21 @@ class Settings(BaseSettings):
     gateway_tenant_id_header: str = "X-Auth-Tenant-Id"
     gateway_org_id_header: str = "X-Auth-Org-Id"
     gateway_secret_header: str = "X-Auth-Gateway-Secret"
+
+    # ------------------------------------------------------------------
+    # Rate limiting
+    # Production safety guard for chat, MCP, upload, sync, and admin APIs.
+    # ------------------------------------------------------------------
+    rate_limit_enabled: bool = True
+    rate_limit_window_seconds: int = 60
+    rate_limit_default_requests_per_window: int = 600
+    rate_limit_chat_requests_per_window: int = 60
+    rate_limit_mcp_requests_per_window: int = 120
+    rate_limit_upload_requests_per_window: int = 20
+    rate_limit_admin_requests_per_window: int = 300
+    rate_limit_sync_requests_per_window: int = 60
+    rate_limit_max_buckets: int = 10000
+    rate_limit_exempt_paths: str = "/health,/api/system"
 
     # ------------------------------------------------------------------
     # External business integrations
@@ -341,6 +380,22 @@ class Settings(BaseSettings):
         mode = self.agent_tool_choice_mode.strip().lower()
         valid = {"auto", "required", "none"}
         return mode if mode in valid else "auto"
+
+    @staticmethod
+    def _parse_csv_setting(value: str) -> list[str]:
+        return [item.strip() for item in str(value or "").split(",") if item.strip()]
+
+    @property
+    def mcp_exposed_tool_names(self) -> set[str]:
+        return set(self._parse_csv_setting(self.mcp_exposed_tools))
+
+    @property
+    def mcp_allowed_origin_values(self) -> set[str]:
+        return set(self._parse_csv_setting(self.mcp_allowed_origins))
+
+    @property
+    def rate_limit_exempt_paths_set(self) -> set[str]:
+        return set(self._parse_csv_setting(self.rate_limit_exempt_paths))
 
     @property
     def normalized_agent_brain_mode(self) -> str:

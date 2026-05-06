@@ -27,6 +27,9 @@ BackgroundJobType = Literal[
     "kb_reindex",
     "kb_file_ingest",
     "pending_action_execute",
+    "support_ticket_workflow",
+    "support_email_workflow",
+    "support_sla_monitor",
 ]
 
 
@@ -588,6 +591,23 @@ async def _dispatch_job(job: dict[str, Any]) -> dict[str, Any]:
         from app.pending_actions import execute_pending_action
 
         return await execute_pending_action(int(payload["action_id"]), context=context)
+
+    if job_type == "support_ticket_workflow":
+        from app.support_workflows import handle_ticket_case
+
+        result = await handle_ticket_case(int(payload["ticket_id"]), context=context)
+        return result.model_dump()
+
+    if job_type == "support_email_workflow":
+        from app.support_workflows import handle_email_case
+
+        result = await handle_email_case(int(payload["email_id"]), context=context)
+        return result.model_dump()
+
+    if job_type == "support_sla_monitor":
+        from app.support_workflows import process_sla_breaches
+
+        return process_sla_breaches(context=context, limit=int(payload.get("limit") or 50))
 
     if job_type in {"kb_ingest", "kb_reindex", "kb_file_ingest"}:
         return await _dispatch_ingest_job(job_type, payload, job_id=job["job_id"])

@@ -317,6 +317,7 @@
       opacity: 0; transition: opacity var(--transition);
     }
     .msg-row:hover .msg-actions { opacity: 1; }
+    .msg-actions.feedback-active { opacity: 1; }
 
     .action-btn {
       background: none; border: 1px solid transparent;
@@ -328,6 +329,16 @@
     }
     .action-btn:hover { background: var(--panel2); border-color: var(--border); color: var(--ink2); }
     .action-btn.voted { color: var(--green); border-color: var(--green); }
+    .action-btn.down.voted { color: var(--red); border-color: var(--red); }
+    .action-btn:disabled { opacity: .55; cursor: wait; }
+    .feedback-status {
+      align-self: center;
+      color: var(--ink3);
+      font-size: 11px;
+      padding-left: 4px;
+    }
+    .feedback-status.ok { color: var(--green); }
+    .feedback-status.err { color: var(--red); }
 
     /* ── Typing indicator ───────────────────────────────── */
     .typing-row {
@@ -940,20 +951,80 @@
     return row;
   }
 
-  function finalizeActions(row, fullText) {
+  function finalizeActions(row, fullText, requestId) {
     const actions = row.querySelector('#msgActions');
     if (!actions) return;
     actions.removeAttribute('id');
+    if (requestId) row.dataset.requestId = requestId;
     actions.innerHTML = `
       <button class="action-btn" onclick="copyText(this.closest('.msg-row').querySelector('.md-content').innerText)">📋 Copy</button>
       <button class="action-btn" onclick="voteMsg(this,'up')">👍</button>
       <button class="action-btn" onclick="voteMsg(this,'down')">👎</button>
     `;
+    const voteButtons = Array.from(actions.querySelectorAll('button'))
+      .filter((item) => item.getAttribute('onclick')?.includes('voteMsg'));
+    if (voteButtons[0]) {
+      voteButtons[0].textContent = 'Helpful';
+      voteButtons[0].title = 'Mark this answer as helpful';
+    }
+    if (voteButtons[1]) {
+      voteButtons[1].textContent = 'Not helpful';
+      voteButtons[1].title = 'Mark this answer as not helpful';
+      voteButtons[1].classList.add('down');
+    }
   }
 
   function voteMsg(btn, dir) {
-    btn.classList.toggle('voted');
-    btn.textContent = dir === 'up' ? '👍 Helpful' : '👎 Not helpful';
+    return submitFeedback(btn, dir);
+  }
+
+  function setFeedbackStatus(row, text, ok = true) {
+    let status = row.querySelector('.feedback-status');
+    if (!status) {
+      status = document.createElement('span');
+      status.className = 'feedback-status';
+      status.setAttribute('aria-live', 'polite');
+      row.querySelector('.msg-actions')?.appendChild(status);
+    }
+    status.textContent = text;
+    status.classList.toggle('ok', ok);
+    status.classList.toggle('err', !ok);
+    status.closest('.msg-actions')?.classList.add('feedback-active');
+  }
+
+  async function submitFeedback(btn, dir) {
+    const row = btn.closest('.msg-row');
+    const requestId = row?.dataset.requestId;
+    if (!row || !requestId) {
+      if (row) setFeedbackStatus(row, 'Feedback unavailable', false);
+      return;
+    }
+
+    const buttons = Array.from(row.querySelectorAll('.action-btn'))
+      .filter((item) => item.getAttribute('onclick')?.includes('voteMsg'));
+    buttons.forEach((item) => { item.disabled = true; });
+    setFeedbackStatus(row, 'Saving...', true);
+
+    try {
+      const res = await fetch('/api/feedback/chat', {
+        method: 'POST',
+        headers: getChatHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ request_id: requestId, rating: dir }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = data.detail || `HTTP ${res.status}`;
+        throw new Error(res.status === 403 ? 'Use the same signed-in user to rate this answer' : detail);
+      }
+      buttons.forEach((item) => item.classList.toggle('voted', item === btn));
+      btn.classList.toggle('down', dir === 'down');
+      btn.textContent = dir === 'up' ? 'Helpful' : 'Not helpful';
+      setFeedbackStatus(row, 'Feedback saved', true);
+    } catch (err) {
+      setFeedbackStatus(row, err.message || 'Feedback failed', false);
+    } finally {
+      buttons.forEach((item) => { item.disabled = false; });
+    }
   }
 
   function addTypingRow() {
@@ -1084,6 +1155,7 @@
       const reader  = resp.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '', currentEvent = '', fullText = '', lastRoute = null;
+      let responseRequestId = resp.headers.get('X-Request-ID') || null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -1104,6 +1176,10 @@
           try { data = JSON.parse(payload); } catch { continue; }
 
           if (currentEvent === 'start') {
+            if (data.request_id) {
+              responseRequestId = data.request_id;
+              botRow.dataset.requestId = responseRequestId;
+            }
             if (data.session_id) {
               sessionId = data.session_id;
               localStorage.setItem('rag_session', sessionId);
@@ -1163,7 +1239,7 @@
             addTrace('done', data.ok?'Response complete':'Response with issues',
               `Latency ${data.latency_ms??'—'} ms${lastRoute?' · route '+lastRoute:''}`,
               data.ok?'success':'failed');
-            finalizeActions(botRow, fullText);
+            finalizeActions(botRow, fullText, responseRequestId);
           }
 
           if (currentEvent === 'error') {

@@ -1,0 +1,179 @@
+from __future__ import annotations
+
+from fastapi.testclient import TestClient
+
+import app.main as main
+from app.database import execute_sync, fetch_one_sync, utcnow_iso
+from app.models import RequestContext
+from app.support_ticket_service import create_support_ticket
+from tests.conftest import admin_headers, configure_test_env, poll_background_job, run
+
+
+def _create_ticket(message: str, *, issue_type: str = "other") -> int:
+    ticket = create_support_ticket(
+        issue_type=issue_type,
+        message=message,
+        contact="customer@example.com",
+        context=RequestContext(request_id="wf-test", auth={"user_id": "customer-1", "roles": ["user"], "channel": "web"}),
+    )
+    row = fetch_one_sync("SELECT id FROM support_tickets WHERE ticket_code = ?", (ticket["ticket_code"],))
+    assert row
+    return int(row["id"])
+
+
+def test_support_workflow_resolves_low_risk_order_case(tmp_path, monkeypatch):
+    configure_test_env(tmp_path, monkeypatch)
+    now = utcnow_iso()
+    execute_sync(
+        """
+        INSERT INTO order_status_cache
+            (order_code, user_id, status, last_update, tracking_code, carrier, source, cached_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'snapshot', ?, ?)
+        """,
+        ("DH12345", "admin-1", "in_transit", now, "TRK-1", "Carrier", now, now),
+    )
+    ticket_id = _create_ticket("Đơn hàng DH12345 của tôi đang ở đâu?", issue_type="shipping")
+
+    with TestClient(main.app) as client:
+        response = client.post(f"/api/admin/support-workflows/tickets/{ticket_id}/handle", headers=admin_headers())
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["classification"]["intent"] == "order_status"
+    assert payload["lifecycle_status"] == "resolved"
+    assert payload["context"]["order_status"]["status"] == "in_transit"
+    assert payload["resolution_summary"]
+
+    row = fetch_one_sync("SELECT status, intent, priority, workflow_status, action_plan_json FROM support_tickets WHERE id = ?", (ticket_id,))
+    assert row
+    assert row["status"] == "resolved"
+    assert row["intent"] == "order_status"
+    assert row["priority"] == "P2"
+    assert row["workflow_status"] == "resolved"
+    assert "get_order_status" in row["action_plan_json"]
+
+
+def test_support_workflow_creates_pending_review_for_refund(tmp_path, monkeypatch):
+    configure_test_env(tmp_path, monkeypatch)
+    ticket_id = _create_ticket("Tôi muốn hoàn tiền cho đơn DH99999 vì giao hàng thất bại.", issue_type="refund")
+
+    with TestClient(main.app) as client:
+        response = client.post(f"/api/admin/support-workflows/tickets/{ticket_id}/handle", headers=admin_headers())
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["classification"]["intent"] == "refund_request"
+    assert payload["lifecycle_status"] == "waiting_approval"
+    assert payload["pending_actions"]
+    assert payload["escalation"]["priority"] == "P1"
+
+    pending = fetch_one_sync("SELECT action_type, risk_level, status, payload_json FROM pending_actions ORDER BY id DESC LIMIT 1")
+    assert pending
+    assert pending["action_type"] == "support_case_review"
+    assert pending["risk_level"] == "high"
+    assert pending["status"] == "draft"
+    assert "DH99999" in pending["payload_json"]
+
+
+def test_support_workflow_context_and_manual_escalation(tmp_path, monkeypatch):
+    configure_test_env(tmp_path, monkeypatch)
+    ticket_id = _create_ticket("Tôi cần gặp nhân viên hỗ trợ.", issue_type="other")
+
+    with TestClient(main.app) as client:
+        escalate = client.post(
+            f"/api/admin/support-tickets/{ticket_id}/escalate",
+            json={"note": "Customer explicitly asked for a human."},
+            headers=admin_headers(),
+        )
+        context = client.get(f"/api/admin/support-tickets/{ticket_id}/context", headers=admin_headers())
+
+    assert escalate.status_code == 200, escalate.text
+    assert context.status_code == 200, context.text
+    payload = context.json()
+    assert payload["ticket"]["workflow_status"] == "escalated"
+    assert payload["escalation"]["suggested_next_action"] == "Customer explicitly asked for a human."
+
+
+def test_support_operations_list_assign_note_and_status(tmp_path, monkeypatch):
+    configure_test_env(tmp_path, monkeypatch)
+    ticket_id = _create_ticket("Please check invoice for order DH77777.", issue_type="payment")
+
+    with TestClient(main.app) as client:
+        list_response = client.get("/api/admin/support-tickets?limit=10", headers=admin_headers())
+        assign_response = client.post(
+            f"/api/admin/support-tickets/{ticket_id}/assign",
+            json={"assigned_team": "billing", "assigned_user_id": "agent-1", "note": "Assign to billing queue."},
+            headers=admin_headers(),
+        )
+        note_response = client.post(
+            f"/api/admin/support-tickets/{ticket_id}/notes",
+            json={"body": "Customer needs invoice follow-up.", "note_type": "internal", "visibility": "internal"},
+            headers=admin_headers(),
+        )
+        status_response = client.post(
+            f"/api/admin/support-tickets/{ticket_id}/status",
+            json={"status": "waiting_customer", "note": "Asked for missing tax details."},
+            headers=admin_headers(),
+        )
+        notes_response = client.get(f"/api/admin/support-tickets/{ticket_id}/notes", headers=admin_headers())
+
+    assert list_response.status_code == 200, list_response.text
+    assert list_response.json()["total"] == 1
+    assert assign_response.status_code == 200, assign_response.text
+    assert assign_response.json()["assigned_team"] == "billing"
+    assert assign_response.json()["assigned_user_id"] == "agent-1"
+    assert note_response.status_code == 200, note_response.text
+    assert note_response.json()["note_type"] == "internal"
+    assert status_response.status_code == 200, status_response.text
+    assert status_response.json()["workflow_status"] == "waiting_customer"
+    assert notes_response.status_code == 200, notes_response.text
+    assert notes_response.json()["total"] == 3
+
+
+def test_support_sla_monitor_escalates_overdue_ticket(tmp_path, monkeypatch):
+    configure_test_env(tmp_path, monkeypatch)
+    ticket_id = _create_ticket("This complaint needs attention.", issue_type="other")
+    execute_sync(
+        """
+        UPDATE support_tickets
+        SET priority = 'P1',
+            workflow_status = 'planned',
+            status = 'planned',
+            sla_due_at = '2000-01-01T00:00:00+00:00'
+        WHERE id = ?
+        """,
+        (ticket_id,),
+    )
+
+    with TestClient(main.app) as client:
+        response = client.post("/api/admin/support-workflows/sla/monitor?limit=10", headers=admin_headers())
+        context = client.get(f"/api/admin/support-tickets/{ticket_id}/context", headers=admin_headers())
+
+    assert response.status_code == 200, response.text
+    assert response.json()["breached"] == 1
+    row = fetch_one_sync("SELECT workflow_status, sla_breached_at FROM support_tickets WHERE id = ?", (ticket_id,))
+    assert row
+    assert row["workflow_status"] == "escalated"
+    assert row["sla_breached_at"]
+    assert context.status_code == 200, context.text
+    assert context.json()["escalation"]["suggested_next_action"].startswith("SLA is overdue")
+
+
+def test_support_workflow_can_run_as_background_job(tmp_path, monkeypatch):
+    configure_test_env(tmp_path, monkeypatch)
+    ticket_id = _create_ticket("Where is order DH54321?", issue_type="shipping")
+
+    with TestClient(main.app) as client:
+        enqueue = client.post(f"/api/admin/support-workflows/tickets/{ticket_id}/enqueue", headers=admin_headers())
+        assert enqueue.status_code == 200, enqueue.text
+        from app.background_jobs import run_due_background_jobs_once
+
+        assert run(run_due_background_jobs_once()) is True
+        job = poll_background_job(client, enqueue.json()["job_id"])
+
+    assert job["status"] == "done"
+    assert job["result"]["ticket_id"] == ticket_id
+    row = fetch_one_sync("SELECT workflow_status, action_plan_json FROM support_tickets WHERE id = ?", (ticket_id,))
+    assert row
+    assert row["workflow_status"] in {"resolved", "escalated"}
+    assert row["action_plan_json"]

@@ -25,13 +25,23 @@ from app.tools.email_tools import (
 )
 from app.tools.kb_tools import build_search_kb_tool
 from app.tools.registry import ToolRegistry
-from app.tools.support_tools import build_create_support_ticket_tool
+from app.tools.support_tools import (
+    build_add_ticket_internal_note_tool,
+    build_assign_ticket_tool,
+    build_create_support_ticket_tool,
+    build_list_customer_tickets_tool,
+    build_update_ticket_status_tool,
+)
 
 
 def build_default_tool_registry() -> ToolRegistry:
     registry = ToolRegistry()
     registry.register(build_search_kb_tool())
     registry.register(build_create_support_ticket_tool())
+    registry.register(build_list_customer_tickets_tool())
+    registry.register(build_update_ticket_status_tool())
+    registry.register(build_assign_ticket_tool())
+    registry.register(build_add_ticket_internal_note_tool())
     registry.register(build_get_order_status_tool())
     registry.register(build_find_recent_orders_tool())
     registry.register(build_get_online_member_count_tool())

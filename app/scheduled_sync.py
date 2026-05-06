@@ -19,7 +19,7 @@ from app.models import AuthContext, RequestContext
 
 logger = logging.getLogger(__name__)
 
-ScheduleType = Literal["google_drive_sync", "support_email_sync"]
+ScheduleType = Literal["google_drive_sync", "support_email_sync", "support_sla_monitor"]
 
 
 class SyncScheduleItem(BaseModel):
@@ -112,6 +112,8 @@ def _default_name(schedule_type: str, target_id: int | None) -> str:
         if not row:
             raise ValueError(f"Google Drive source {target_id} not found")
         return f"Drive: {row['name']}"
+    if schedule_type == "support_sla_monitor":
+        return "Support SLA Monitor"
     return "Support Email"
 
 
@@ -142,6 +144,9 @@ def _normalize_schedule_payload(schedule_type: str, target_id: int | None, paylo
             "limit": int(payload.get("limit") or settings.email_fetch_limit),
             "unread_only": bool(payload.get("unread_only")),
         }
+
+    if schedule_type == "support_sla_monitor":
+        return {"limit": int(payload.get("limit") or 50)}
 
     raise ValueError(f"Unsupported schedule type: {schedule_type}")
 

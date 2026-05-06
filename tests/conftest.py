@@ -11,6 +11,7 @@ import app.cache as cache_module
 import app.database as database
 import app.embeddings as embeddings
 import app.main as main
+from app.rate_limit import rate_limiter
 from app.config import settings
 from app.kb import create_knowledge_base
 from app.kb_service import attach_file_to_kb, get_default_kb, open_db
@@ -78,6 +79,7 @@ def configure_test_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, expec
     monkeypatch.setattr(settings, "llm_provider", "none")
     monkeypatch.setattr(settings, "embedding_model_path", "models/missing-model")
     monkeypatch.setattr(settings, "min_similarity_threshold", 0.0)
+    monkeypatch.setattr(settings, "rate_limit_enabled", True)
     monkeypatch.setattr(database, "DB_PATH", str(paths["sqlite_path"]))
     monkeypatch.setattr(cache_module, "_cache", None)
     monkeypatch.setattr(embeddings, "_model", None)
@@ -85,6 +87,7 @@ def configure_test_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, expec
 
     settings.ensure_dirs()
     run(database.init_db())
+    rate_limiter.reset()
     vector_store.initialize(expected_dim=expected_dim)
 
 
