@@ -186,16 +186,41 @@ def get_support_ticket(ticket_id: int) -> dict[str, Any]:
     return _serialize_ticket(row)
 
 
-def list_ticket_notes(ticket_id: int) -> dict[str, Any]:
-    _ticket_by_id(ticket_id)
-    rows = fetch_all_sync(
+def get_support_ticket_by_code(ticket_code: str) -> dict[str, Any]:
+    row = fetch_one_sync(
         """
+        SELECT t.*,
+               (SELECT COUNT(*) FROM support_ticket_notes n WHERE n.ticket_id = t.id) AS note_count,
+               (SELECT COUNT(*) FROM pending_actions p
+                WHERE p.action_type = 'support_case_review'
+                  AND json_extract(p.payload_json, '$.ticket_id') = t.id
+                  AND p.status IN ('draft', 'approved')) AS pending_action_count
+        FROM support_tickets t
+        WHERE t.ticket_code = ?
+        """,
+        (ticket_code,),
+    )
+    if not row:
+        raise ValueError("Support ticket not found")
+    return _serialize_ticket(row)
+
+
+def list_ticket_notes(ticket_id: int, *, visibility: str | None = None) -> dict[str, Any]:
+    _ticket_by_id(ticket_id)
+    params: list[Any] = [ticket_id]
+    visibility_sql = ""
+    if visibility:
+        visibility_sql = "AND visibility = ?"
+        params.append(visibility)
+    rows = fetch_all_sync(
+        f"""
         SELECT *
         FROM support_ticket_notes
         WHERE ticket_id = ?
+        {visibility_sql}
         ORDER BY created_at DESC, id DESC
         """,
-        (ticket_id,),
+        tuple(params),
     )
     items = [_serialize_note(row) for row in rows]
     return ListSupportTicketNotesOutput(total=len(items), items=items).model_dump()

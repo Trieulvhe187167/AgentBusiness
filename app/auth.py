@@ -27,6 +27,17 @@ AUTH_REQUIRED_DETAIL = "Authentication required"
 INVALID_TOKEN_DETAIL = "Invalid bearer token"
 INVALID_GATEWAY_DETAIL = "Invalid trusted gateway authentication"
 
+ROLE_GROUPS = {
+    "knowledge": {"admin", "content_manager", "integration_admin"},
+    "integration": {"admin", "integration_admin"},
+    "support": {"admin", "support_manager", "support_agent"},
+    "approver": {"admin", "support_manager", "approver"},
+    "operations": {"admin", "support_manager", "approver", "integration_admin", "auditor"},
+    "analytics": {"admin", "support_manager", "analyst"},
+    "audit": {"admin", "auditor"},
+    "system": {"admin", "integration_admin", "auditor"},
+}
+
 _JWKS_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 
 
@@ -376,3 +387,65 @@ def require_admin(request: Request) -> AuthContext:
         request_context={"request_id": getattr(request.state, "request_id", None)},
     )
     return auth
+
+
+def require_any_role(request: Request, allowed_roles: set[str], *, policy_name: str) -> AuthContext:
+    auth = auth_context_from_request(request)
+    normalized_allowed = {str(role).strip().lower() for role in allowed_roles if str(role).strip()}
+    user_roles = {str(role).strip().lower() for role in auth.roles if str(role).strip()}
+    if not user_roles.intersection(normalized_allowed):
+        log_auth_decision(
+            resource_type="route",
+            resource_id=request.url.path,
+            action="role_access",
+            decision="deny",
+            reason=f"{policy_name}_role_required",
+            auth_context=auth,
+            request_context={"request_id": getattr(request.state, "request_id", None)},
+        )
+        raise HTTPException(
+            status_code=403,
+            detail=f"Role required: {', '.join(sorted(normalized_allowed))}",
+        )
+    log_auth_decision(
+        resource_type="route",
+        resource_id=request.url.path,
+        action="role_access",
+        decision="allow",
+        reason=f"{policy_name}_role_verified",
+        auth_context=auth,
+        request_context={"request_id": getattr(request.state, "request_id", None)},
+    )
+    return auth
+
+
+def require_knowledge_role(request: Request) -> AuthContext:
+    return require_any_role(request, ROLE_GROUPS["knowledge"], policy_name="knowledge")
+
+
+def require_integration_role(request: Request) -> AuthContext:
+    return require_any_role(request, ROLE_GROUPS["integration"], policy_name="integration")
+
+
+def require_support_role(request: Request) -> AuthContext:
+    return require_any_role(request, ROLE_GROUPS["support"], policy_name="support")
+
+
+def require_approver_role(request: Request) -> AuthContext:
+    return require_any_role(request, ROLE_GROUPS["approver"], policy_name="approver")
+
+
+def require_operations_role(request: Request) -> AuthContext:
+    return require_any_role(request, ROLE_GROUPS["operations"], policy_name="operations")
+
+
+def require_analytics_role(request: Request) -> AuthContext:
+    return require_any_role(request, ROLE_GROUPS["analytics"], policy_name="analytics")
+
+
+def require_audit_role(request: Request) -> AuthContext:
+    return require_any_role(request, ROLE_GROUPS["audit"], policy_name="audit")
+
+
+def require_system_role(request: Request) -> AuthContext:
+    return require_any_role(request, ROLE_GROUPS["system"], policy_name="system")

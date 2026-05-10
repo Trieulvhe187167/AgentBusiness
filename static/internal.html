@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Internal Portal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#eef3ea; --panel:#fffdf7; --ink:#1d2b29; --muted:#657371; --line:#d7d0bf; --brand:#0f6f64; --brand2:#e6f4ed; --warn:#9d6800; --bad:#b54231; --ok:#227a55; --shadow:0 18px 50px rgba(26,37,34,.10); --radius:20px; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:"Manrope",sans-serif; color:var(--ink); background:radial-gradient(circle at 10% 0%, #d3eee7 0%, transparent 35%), radial-gradient(circle at 100% 100%, #f8dfb8 0%, transparent 34%), var(--bg); }
+    .page { max-width:1280px; margin:0 auto; padding:22px; display:flex; flex-direction:column; gap:16px; }
+    .topbar, .card { background:rgba(255,253,247,.92); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); }
+    .topbar { padding:16px; display:flex; justify-content:space-between; gap:14px; align-items:center; }
+    h1,h2,h3,p { margin:0; }
+    h1 { font-size:22px; line-height:1.1; }
+    h2 { font-size:16px; }
+    h3 { font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+    .muted { color:var(--muted); font-size:13px; }
+    .links { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .links a { color:var(--brand); font-weight:800; text-decoration:none; }
+    .pill { display:inline-flex; align-items:center; border:1px solid var(--line); background:#fff; border-radius:999px; padding:6px 10px; color:var(--muted); font-size:12px; font-weight:800; }
+    .grid { display:grid; grid-template-columns:minmax(420px, 1.5fr) minmax(320px, .9fr); gap:16px; align-items:start; }
+    .card { padding:16px; }
+    .stack { display:flex; flex-direction:column; gap:12px; }
+    .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    input, select, textarea, button { font:inherit; }
+    input, select, textarea { width:100%; border:1px solid var(--line); border-radius:12px; padding:11px 12px; background:#fff; color:var(--ink); }
+    textarea { min-height:112px; resize:vertical; }
+    button { border:none; border-radius:12px; padding:10px 13px; font-weight:800; cursor:pointer; }
+    button.loading { opacity:.72; cursor:wait; }
+    .btn-main { background:linear-gradient(135deg,var(--brand),#118b88); color:#fff; }
+    .btn-muted { background:#ebe5da; color:#41504d; }
+    .btn-ok { background:#dcf2e7; color:var(--ok); }
+    .btn-bad { background:#f9dfd9; color:var(--bad); }
+    .status { display:inline-flex; border-radius:999px; padding:3px 8px; font-size:11px; font-weight:800; }
+    .status.open,.status.new,.status.queued,.status.waiting_approval { background:#fff1d7; color:var(--warn); }
+    .status.resolved,.status.closed,.status.done { background:#ddf4e7; color:var(--ok); }
+    .status.escalated,.status.failed { background:#f9dfd9; color:var(--bad); }
+    .portal-identity { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+    .messages { height:560px; overflow:auto; border:1px solid var(--line); border-radius:16px; background:#fffdfa; padding:14px; display:flex; flex-direction:column; gap:12px; }
+    .msg { display:flex; gap:9px; align-items:flex-start; }
+    .msg.user { flex-direction:row-reverse; }
+    .avatar { width:30px; height:30px; border-radius:50%; flex:0 0 auto; display:grid; place-items:center; font-weight:900; font-size:12px; }
+    .avatar.bot { background:var(--brand2); color:var(--brand); border:1px solid #b9dfd3; }
+    .avatar.user { background:#ece6dc; color:#42514e; border:1px solid var(--line); }
+    .bubble { max-width:min(720px,78%); padding:11px 13px; border-radius:15px; border:1px solid var(--line); background:#fff; line-height:1.65; white-space:pre-wrap; overflow-wrap:break-word; }
+    .msg.user .bubble { background:var(--brand); color:#fff; border-color:var(--brand); }
+    .msg.user > div:not(.avatar) { display:flex; flex-direction:column; align-items:flex-end; max-width:min(720px,78%); }
+    .msg.user .bubble { width:max-content; max-width:100%; min-width:fit-content; white-space:pre-wrap; }
+    .msg-actions { display:flex; gap:6px; margin-top:5px; align-items:center; }
+    .mini-btn { padding:5px 8px; border-radius:8px; font-size:12px; background:#f0ebe2; color:#485552; }
+    .mini-btn.active { background:var(--brand2); color:var(--brand); }
+    .composer { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; align-items:end; }
+    .composer textarea { min-height:76px; max-height:180px; line-height:1.55; }
+    .composer button { min-width:76px; height:46px; }
+    .table { width:100%; border-collapse:separate; border-spacing:0; font-size:13px; }
+    .table th,.table td { padding:9px 8px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+    .table th { position:sticky; top:0; z-index:3; background:linear-gradient(180deg, var(--panel) 0%, #fffaf0 100%); box-shadow:0 1px 0 var(--line), 0 8px 14px rgba(26,37,34,.06); color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+    .scroll { max-height:360px; overflow:auto; position:relative; }
+    .empty-state { padding:14px; border:1px dashed var(--line); border-radius:12px; background:#fff; color:var(--muted); }
+    .empty-state strong { display:block; color:var(--ink); margin-bottom:3px; }
+    .ticket-detail { border:1px solid var(--line); border-radius:14px; background:#fffdfa; padding:12px; }
+    .ticket-detail h3 { color:var(--ink); text-transform:none; letter-spacing:0; font-size:15px; margin-bottom:8px; }
+    .ticket-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:10px 0; }
+    .ticket-grid div { border:1px solid var(--line); border-radius:10px; padding:8px; background:#fff; }
+    .ticket-grid small { display:block; color:var(--muted); margin-bottom:2px; }
+    .ticket-message { white-space:pre-wrap; line-height:1.5; }
+    .reply-list { display:flex; flex-direction:column; gap:8px; margin-top:8px; }
+    .reply-item { border:1px solid var(--line); border-radius:12px; background:#fff; padding:10px; }
+    .reply-item p { white-space:pre-wrap; line-height:1.5; }
+    .toast { position:fixed; right:20px; bottom:20px; padding:12px 14px; border-radius:12px; color:#fff; font-weight:800; z-index:20; }
+    .toast.ok { background:var(--ok); }
+    .toast.err { background:var(--bad); }
+    @media (max-width:1000px) { .grid,.portal-identity,.ticket-grid { grid-template-columns:1fr; } .messages { height:460px; } .topbar { align-items:flex-start; flex-direction:column; } }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="topbar">
+      <div class="stack" style="gap:5px;">
+        <h1>Internal User Portal</h1>
+        <p class="muted">Ask the company knowledge base, submit support requests, and track your own tickets.</p>
+      </div>
+      <div class="links">
+        <span class="pill" id="profilePill">loading identity</span>
+        <a href="/chat">Chat</a>
+        <a href="/admin">Admin</a>
+        <a href="/docs">API Docs</a>
+      </div>
+    </header>
+
+    <section class="card" id="devIdentityCard" hidden>
+      <div class="stack">
+        <div>
+          <h2>Dev Identity</h2>
+          <p class="muted">Used only in local/dev header-auth mode. Production identity should come from gateway/JWT.</p>
+        </div>
+        <div class="portal-identity">
+          <input id="portalUserId" placeholder="employee-1">
+          <input id="portalRoles" placeholder="employee">
+          <input id="portalChannel" placeholder="portal">
+        </div>
+        <div class="row">
+          <button class="btn-muted" id="btnSavePortalIdentity">Save Identity</button>
+          <span class="muted">These values are sent as request headers in dev mode.</span>
+        </div>
+      </div>
+    </section>
+
+    <main class="grid">
+      <section class="card stack">
+        <div class="row" style="justify-content:space-between;">
+          <div>
+            <h2>Ask Knowledge Base</h2>
+            <p class="muted">Answers can be rated and tied to your internal identity.</p>
+          </div>
+          <select id="kbSelect" style="max-width:320px;"><option value="">Default KB</option></select>
+        </div>
+        <div class="messages" id="messages">
+          <div class="msg">
+            <div class="avatar bot">AI</div>
+            <div>
+              <div class="bubble">Ask a policy, product, order, or internal process question. If the issue needs follow-up, create a support ticket on the right.</div>
+            </div>
+          </div>
+        </div>
+        <div class="composer">
+          <textarea id="chatInput" placeholder="Type your question..."></textarea>
+          <button class="btn-main" id="btnSend">Send</button>
+        </div>
+      </section>
+
+      <aside class="stack">
+        <section class="card stack">
+          <div>
+            <h2>Create Support Ticket</h2>
+            <p class="muted">Use this for requests that need human follow-up.</p>
+          </div>
+          <select id="ticketType">
+            <option value="question">Question</option>
+            <option value="technical_issue">Technical issue</option>
+            <option value="account_access">Account access</option>
+            <option value="billing_invoice">Billing / invoice</option>
+            <option value="order_status">Order status</option>
+            <option value="other">Other</option>
+          </select>
+          <input id="ticketContact" placeholder="Contact email or Slack handle (optional)">
+          <textarea id="ticketMessage" placeholder="Describe what you need help with..."></textarea>
+          <button class="btn-main" id="btnCreateTicket">Create Ticket</button>
+          <span class="muted" id="ticketCreateStatus">No ticket created yet.</span>
+        </section>
+
+        <section class="card stack">
+          <div class="row" style="justify-content:space-between;">
+            <div>
+              <h2>My Tickets</h2>
+              <p class="muted">Only tickets created by your user are listed here.</p>
+            </div>
+            <button class="btn-muted" id="btnRefreshTickets">Refresh</button>
+          </div>
+          <div class="scroll">
+            <table class="table" id="ticketsTable">
+              <thead><tr><th>Ticket</th><th>Status</th><th>Updated</th><th>Action</th></tr></thead>
+              <tbody><tr><td colspan="4">No tickets loaded.</td></tr></tbody>
+            </table>
+          </div>
+          <div class="ticket-detail" id="ticketDetail">
+            <h3>Ticket Detail</h3>
+            <p class="muted">Select a ticket to see the request, status, ownership, and resolution summary.</p>
+          </div>
+        </section>
+      </aside>
+    </main>
+  </div>
+
+  <script>
+    let viewerProfile = null;
+    let selectedKb = null;
+
+    function storedIdentity() {
+      const raw = JSON.parse(localStorage.getItem('campusrag_portal_auth') || '{}');
+      return {
+        userId: raw.userId || 'employee-1',
+        roles: raw.roles || 'employee',
+        channel: raw.channel || 'portal',
+      };
+    }
+
+    function buildHeaders(extra = {}) {
+      const identity = storedIdentity();
+      const headers = new Headers(extra);
+      if (identity.userId) headers.set('X-User-Id', identity.userId);
+      if (identity.roles) headers.set('X-Roles', identity.roles);
+      headers.set('X-Channel', identity.channel || 'portal');
+      return headers;
+    }
+
+    function toast(message, ok = true) {
+      const node = document.createElement('div');
+      node.className = `toast ${ok ? 'ok' : 'err'}`;
+      node.textContent = message;
+      document.body.appendChild(node);
+      setTimeout(() => node.remove(), 2800);
+    }
+
+    function escapeHtml(value) {
+      return String(value || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
+    function emptyRow(colspan, title, detail = '') {
+      return `<tr><td colspan="${colspan}"><div class="empty-state"><strong>${escapeHtml(title)}</strong>${detail ? `<small>${escapeHtml(detail)}</small>` : ''}</div></td></tr>`;
+    }
+
+    function loadingRow(colspan, title = 'Loading...') {
+      return `<tr><td colspan="${colspan}"><div class="empty-state"><strong>${escapeHtml(title)}</strong><small>Please wait while the latest data is loaded.</small></div></td></tr>`;
+    }
+
+    function formatDateTime(value) {
+      if (!value) return '-';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return String(value);
+      return date.toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    }
+
+    function shortText(value, limit = 90) {
+      const text = String(value || '').replace(/\s+/g, ' ').trim();
+      return text.length > limit ? `${text.slice(0, limit - 1)}...` : text;
+    }
+
+    function setButtonLoading(button, loading, label = 'Working...') {
+      if (!button) return;
+      if (loading) {
+        button.dataset.originalText = button.textContent;
+        button.textContent = label;
+        button.disabled = true;
+        button.classList.add('loading');
+        return;
+      }
+      button.textContent = button.dataset.originalText || button.textContent;
+      button.disabled = false;
+      button.classList.remove('loading');
+      delete button.dataset.originalText;
+    }
+
+    async function fetchJson(url, options = {}) {
+      const opts = { ...options, headers: buildHeaders(options.headers || {}) };
+      const res = await fetch(url, opts);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+      return data;
+    }
+
+    function appendMessage(role, text, requestId = null) {
+      const row = document.createElement('div');
+      row.className = `msg ${role === 'user' ? 'user' : ''}`;
+      row.innerHTML = `
+        <div class="avatar ${role === 'user' ? 'user' : 'bot'}">${role === 'user' ? 'ME' : 'AI'}</div>
+        <div>
+          <div class="bubble">${escapeHtml(text)}</div>
+          ${role === 'bot' && requestId ? `
+            <div class="msg-actions" data-request-id="${escapeHtml(requestId)}">
+              <button class="mini-btn" data-rating="up">Helpful</button>
+              <button class="mini-btn" data-rating="down">Not helpful</button>
+              <span class="muted"></span>
+            </div>
+          ` : ''}
+        </div>
+      `;
+      document.getElementById('messages').appendChild(row);
+      document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+      return row;
+    }
+
+    async function loadProfile() {
+      viewerProfile = await fetchJson('/api/me');
+      document.getElementById('profilePill').textContent = `${viewerProfile.user_id || 'anonymous'} | ${(viewerProfile.roles || []).join(',') || 'no role'}`;
+      if (viewerProfile.debug_auth_inputs_enabled) {
+        const identity = storedIdentity();
+        document.getElementById('devIdentityCard').hidden = false;
+        document.getElementById('portalUserId').value = identity.userId;
+        document.getElementById('portalRoles').value = identity.roles;
+        document.getElementById('portalChannel').value = identity.channel;
+      }
+    }
+
+    async function loadKbs() {
+      const items = await fetchJson('/api/chat/kbs');
+      const select = document.getElementById('kbSelect');
+      select.innerHTML = '<option value="">Default KB</option>';
+      items.forEach((kb) => {
+        const option = document.createElement('option');
+        option.value = String(kb.id);
+        option.textContent = kb.is_default ? `${kb.name} (Default)` : kb.name;
+        option.dataset.key = kb.key || '';
+        select.appendChild(option);
+      });
+      selectedKb = select.value || null;
+    }
+
+    async function sendChat() {
+      const sendButton = document.getElementById('btnSend');
+      const input = document.getElementById('chatInput');
+      const message = input.value.trim();
+      if (!message) return;
+      setButtonLoading(sendButton, true, 'Sending...');
+      input.value = '';
+      appendMessage('user', message);
+      const botRow = appendMessage('bot', 'Thinking...');
+      const bubble = botRow.querySelector('.bubble');
+      const requestId = `portal-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const payload = {
+        message,
+        request_id: requestId,
+        session_id: `portal-${storedIdentity().userId || 'anonymous'}`,
+        channel: storedIdentity().channel || 'portal',
+      };
+      const kbId = Number(document.getElementById('kbSelect').value || 0);
+      if (kbId) payload.kb_id = kbId;
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: buildHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok || !res.body) throw new Error(`Chat failed: HTTP ${res.status}`);
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let currentEvent = '';
+        let answer = '';
+        let finalRequestId = res.headers.get('X-Request-ID') || requestId;
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const rawLine of lines) {
+            const line = rawLine.trimEnd();
+            if (line.startsWith('event:')) {
+              currentEvent = line.slice(6).trim();
+              continue;
+            }
+            if (!line.startsWith('data:')) continue;
+            const payload = line.slice(5).trim();
+            if (!payload) continue;
+
+            let data;
+            try {
+              data = JSON.parse(payload);
+            } catch (_) {
+              continue;
+            }
+
+            if (currentEvent === 'start' && data.request_id) {
+              finalRequestId = data.request_id;
+            }
+            if (currentEvent === 'token') {
+              answer += data.text || data.token || '';
+              bubble.textContent = answer || 'Thinking...';
+            }
+            if (currentEvent === 'error') {
+              throw new Error(data.message || 'Chat failed.');
+            }
+            if (data.answer) {
+              answer = data.answer;
+              bubble.textContent = answer;
+            }
+          }
+        }
+        if (!answer) bubble.textContent = 'No answer returned.';
+        const actionWrap = document.createElement('div');
+        actionWrap.className = 'msg-actions';
+        actionWrap.dataset.requestId = finalRequestId;
+        actionWrap.innerHTML = '<button class="mini-btn" data-rating="up">Helpful</button><button class="mini-btn" data-rating="down">Not helpful</button><span class="muted"></span>';
+        botRow.children[1].appendChild(actionWrap);
+      } catch (err) {
+        bubble.textContent = err.message || 'Chat failed.';
+        toast(bubble.textContent, false);
+      } finally {
+        setButtonLoading(sendButton, false);
+      }
+    }
+
+    async function submitFeedback(container, rating) {
+      const requestId = container.dataset.requestId;
+      const status = container.querySelector('.muted');
+      status.textContent = 'Saving...';
+      try {
+        await fetchJson('/api/feedback/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ request_id: requestId, rating }),
+        });
+        container.querySelectorAll('.mini-btn').forEach((btn) => btn.classList.toggle('active', btn.dataset.rating === rating));
+        status.textContent = 'Saved';
+      } catch (err) {
+        status.textContent = err.message || 'Failed';
+      }
+    }
+
+    function ticketRows(items) {
+      if (!items.length) return emptyRow(4, 'No tickets found.', 'Create a support ticket when you need human follow-up.');
+      return items.map((item) => `
+        <tr>
+          <td>
+            <strong>${escapeHtml(item.ticket_code)}</strong>
+            <br><small class="muted">${escapeHtml(item.issue_type)}</small>
+            <br><small class="muted">${escapeHtml(shortText(item.message || ''))}</small>
+          </td>
+          <td><span class="status ${escapeHtml(item.workflow_status || item.status)}">${escapeHtml(item.workflow_status || item.status)}</span><br><small class="muted">${escapeHtml(item.priority || '-')}</small></td>
+          <td>${escapeHtml(formatDateTime(item.updated_at || item.created_at))}</td>
+          <td><button class="mini-btn" data-ticket-view="${item.id}">View</button></td>
+        </tr>
+      `).join('');
+    }
+
+    function renderTicketDetail(ticket, notes = []) {
+      const status = ticket.workflow_status || ticket.status || '-';
+      const isClosed = status === 'closed';
+      const repliesHtml = notes.length ? notes.map((note) => `
+        <div class="reply-item">
+          <p>${escapeHtml(note.body || '')}</p>
+          <small class="muted">${escapeHtml(note.created_by_user_id || 'support')} | ${escapeHtml(formatDateTime(note.created_at))}</small>
+        </div>
+      `).join('') : '<div class="empty-state"><strong>No support reply yet.</strong><small>Support team is reviewing this ticket.</small></div>';
+      const replyPanelHtml = isClosed ? `
+        <div class="ticket-detail" style="box-shadow:none; margin-top:8px;">
+          <h3>Reply to Support</h3>
+          <div class="empty-state"><strong>This ticket is closed.</strong><small>Create a new support ticket if you need more help.</small></div>
+        </div>
+      ` : `
+        <div class="ticket-detail" style="box-shadow:none; margin-top:8px;">
+          <h3>Reply to Support</h3>
+          <textarea id="ticketReplyBody" placeholder="Type a follow-up reply for the support team..." style="min-height:90px;"></textarea>
+          <div class="row" style="margin-top:8px;">
+            <button class="btn-main" id="btnSendTicketReply" data-ticket-reply="${ticket.id}">Send Reply</button>
+            <span class="muted">Your reply will reopen the ticket if support was waiting for you.</span>
+          </div>
+        </div>
+      `;
+      document.getElementById('ticketDetail').innerHTML = `
+        <h3>${escapeHtml(ticket.ticket_code || `Ticket ${ticket.id}`)}</h3>
+        <div class="ticket-grid">
+          <div><small>Status</small><span class="status ${escapeHtml(status)}">${escapeHtml(status)}</span></div>
+          <div><small>Priority</small><strong>${escapeHtml(ticket.priority || '-')}</strong></div>
+          <div><small>Type</small><strong>${escapeHtml(ticket.issue_type || '-')}</strong></div>
+          <div><small>Contact</small><strong>${escapeHtml(ticket.contact || '-')}</strong></div>
+          <div><small>Created</small><strong>${escapeHtml(formatDateTime(ticket.created_at))}</strong></div>
+          <div><small>Updated</small><strong>${escapeHtml(formatDateTime(ticket.updated_at))}</strong></div>
+        </div>
+        <div class="ticket-detail" style="box-shadow:none; margin-top:8px;">
+          <h3>Request</h3>
+          <p class="ticket-message">${escapeHtml(ticket.message || '-')}</p>
+        </div>
+        <div class="ticket-detail" style="box-shadow:none; margin-top:8px;">
+          <h3>Support Status</h3>
+          <p class="muted">${ticket.resolution_summary ? escapeHtml(ticket.resolution_summary) : 'Support team is reviewing this ticket.'}</p>
+        </div>
+        <div class="ticket-detail" style="box-shadow:none; margin-top:8px;">
+          <h3>Support Replies</h3>
+          <div class="reply-list">${repliesHtml}</div>
+        </div>
+        ${replyPanelHtml}
+      `;
+    }
+
+    async function viewTicket(ticketId) {
+      document.getElementById('ticketDetail').innerHTML = '<div class="empty-state"><strong>Loading ticket...</strong><small>Please wait while the ticket detail is loaded.</small></div>';
+      const [ticket, notes] = await Promise.all([
+        fetchJson(`/api/support-tickets/${ticketId}`),
+        fetchJson(`/api/support-tickets/${ticketId}/notes`),
+      ]);
+      renderTicketDetail(ticket, notes.items || []);
+    }
+
+    async function sendTicketReply(ticketId) {
+      const button = document.getElementById('btnSendTicketReply');
+      const body = document.getElementById('ticketReplyBody')?.value.trim() || '';
+      if (!body) return toast('Reply body is required.', false);
+      setButtonLoading(button, true, 'Sending...');
+      try {
+        await fetchJson(`/api/support-tickets/${ticketId}/notes`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ body }),
+        });
+        toast('Reply sent');
+        await viewTicket(ticketId);
+        await refreshTickets();
+      } finally {
+        setButtonLoading(button, false);
+      }
+    }
+
+    async function refreshTickets() {
+      setButtonLoading(document.getElementById('btnRefreshTickets'), true, 'Refreshing...');
+      document.querySelector('#ticketsTable tbody').innerHTML = loadingRow(4, 'Loading tickets...');
+      try {
+      const data = await fetchJson('/api/support-tickets?limit=25');
+      document.querySelector('#ticketsTable tbody').innerHTML = ticketRows(data.items || []);
+      } finally {
+        setButtonLoading(document.getElementById('btnRefreshTickets'), false);
+      }
+    }
+
+    async function createTicket() {
+      const button = document.getElementById('btnCreateTicket');
+      const message = document.getElementById('ticketMessage').value.trim();
+      if (!message) return toast('Ticket message is required.', false);
+      setButtonLoading(button, true, 'Creating...');
+      try {
+      const kbId = Number(document.getElementById('kbSelect').value || 0);
+      const payload = {
+        issue_type: document.getElementById('ticketType').value,
+        message,
+        contact: document.getElementById('ticketContact').value.trim() || null,
+      };
+      if (kbId) payload.kb_id = kbId;
+      const ticket = await fetchJson('/api/support-tickets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      document.getElementById('ticketCreateStatus').textContent = `Created ${ticket.ticket_code}`;
+      document.getElementById('ticketMessage').value = '';
+      toast(`Created ${ticket.ticket_code}`);
+      await refreshTickets();
+      } finally {
+        setButtonLoading(button, false);
+      }
+    }
+
+    document.getElementById('btnSavePortalIdentity').addEventListener('click', async () => {
+      localStorage.setItem('campusrag_portal_auth', JSON.stringify({
+        userId: document.getElementById('portalUserId').value.trim() || 'employee-1',
+        roles: document.getElementById('portalRoles').value.trim() || 'employee',
+        channel: document.getElementById('portalChannel').value.trim() || 'portal',
+      }));
+      await bootstrap();
+      toast('Identity saved');
+    });
+    document.getElementById('btnSend').addEventListener('click', () => sendChat());
+    document.getElementById('chatInput').addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' || event.shiftKey) return;
+      event.preventDefault();
+      sendChat();
+    });
+    document.getElementById('btnCreateTicket').addEventListener('click', () => createTicket().catch((err) => toast(err.message, false)));
+    document.getElementById('btnRefreshTickets').addEventListener('click', () => refreshTickets().catch((err) => toast(err.message, false)));
+    document.querySelector('#ticketsTable tbody').addEventListener('click', (event) => {
+      const btn = event.target.closest('[data-ticket-view]');
+      if (!btn) return;
+      viewTicket(Number(btn.dataset.ticketView)).catch((err) => toast(err.message, false));
+    });
+    document.getElementById('ticketDetail').addEventListener('click', (event) => {
+      const btn = event.target.closest('[data-ticket-reply]');
+      if (!btn) return;
+      sendTicketReply(Number(btn.dataset.ticketReply)).catch((err) => toast(err.message, false));
+    });
+    document.getElementById('messages').addEventListener('click', (event) => {
+      const btn = event.target.closest('[data-rating]');
+      if (!btn) return;
+      submitFeedback(btn.closest('.msg-actions'), btn.dataset.rating);
+    });
+
+    async function bootstrap() {
+      await loadProfile();
+      await loadKbs();
+      await refreshTickets().catch(() => {});
+    }
+
+    bootstrap().catch((err) => toast(err.message || 'Portal failed to load', false));
+  </script>
+</body>
+</html>

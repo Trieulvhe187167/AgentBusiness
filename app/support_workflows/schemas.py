@@ -19,6 +19,7 @@ SupportIntent = Literal[
 ]
 
 TicketLifecycleStatus = Literal[
+    "open",
     "new",
     "classified",
     "enriched",
@@ -135,6 +136,14 @@ class SupportTicketItem(BaseModel):
 class ListSupportTicketsOutput(BaseModel):
     total: int
     items: list[SupportTicketItem]
+
+
+class CreateSupportTicketInput(BaseModel):
+    issue_type: str = Field(default="other", min_length=1, max_length=80)
+    message: str = Field(..., min_length=1, max_length=4000)
+    contact: str | None = Field(default=None, max_length=200)
+    kb_id: int | None = Field(default=None, ge=1)
+    kb_key: str | None = Field(default=None, min_length=1, max_length=80)
 
 
 class SupportTicketNoteItem(BaseModel):

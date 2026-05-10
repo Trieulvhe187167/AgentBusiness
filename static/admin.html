@@ -48,14 +48,56 @@
         .upload { border:2px dashed var(--line); border-radius:14px; padding:18px; text-align:center; position:relative; background:#fff; }
         .upload.drag { border-color:var(--brand); background:#f3fbfd; }
         .upload input[type=file] { position:absolute; inset:0; opacity:0; cursor:pointer; }
+        .role-shell { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+        .role-shell-title { font-weight:800; font-size:14px; }
+        .role-shell-detail { display:block; margin-top:3px; color:var(--dim); font-size:12px; }
+        .role-pill { display:inline-flex; align-items:center; border-radius:999px; padding:5px 9px; background:#fff; border:1px solid var(--line); color:var(--dim); font-size:12px; font-weight:700; }
+        .dev-identity { width:100%; border-top:1px solid var(--line); padding-top:10px; }
+        .dev-identity summary { cursor:pointer; font-weight:800; color:var(--brand); }
+        .dev-identity[hidden] { display:none; }
         .tabs { display:flex; gap:10px; flex-wrap:wrap; }
         .tab-btn { background:#ece6dc; color:var(--dim); }
         .tab-btn.active { background:var(--brand); color:#fff; }
+        .tab-btn[hidden] { display:none; }
+        .support-shell { display:grid; grid-template-columns:minmax(360px, 5fr) minmax(360px, 4fr); gap:14px; align-items:start; }
+        .support-panel { display:flex; flex-direction:column; gap:10px; }
+        .support-detail-card { border:1px solid var(--line); border-radius:14px; background:#fff; padding:12px; }
+        .support-detail-card h3 { margin:0 0 6px; font-size:13px; }
+        .support-meta { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+        .subtabs { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; }
+        .subtab-btn { background:#ece6dc; color:var(--dim); }
+        .subtab-btn.active { background:var(--brand); color:#fff; }
+        .subview { display:none; }
+        .subview.active { display:block; }
+        .case-context { display:flex; flex-direction:column; gap:10px; margin-top:10px; }
+        .case-context-section { border:1px solid var(--line); border-radius:12px; background:#fffdfa; padding:10px; }
+        .case-context-section h4 { margin:0 0 6px; font-size:12px; color:var(--dim); text-transform:uppercase; letter-spacing:.04em; }
+        .case-context-section p { margin:0; line-height:1.5; }
+        .case-kv { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+        .case-kv div { border:1px solid var(--line); border-radius:10px; padding:8px; background:#fff; }
+        .case-kv small { display:block; color:var(--dim); font-size:11px; margin-bottom:2px; }
+        .case-list { margin:0; padding-left:18px; }
+        .case-list li { margin:4px 0; }
+        .case-raw summary { cursor:pointer; font-weight:800; color:var(--brand); }
+        .knowledge-shell { display:grid; grid-template-columns:minmax(360px, 5fr) minmax(340px, 4fr); gap:14px; align-items:start; }
+        .knowledge-panel { display:flex; flex-direction:column; gap:10px; }
+        .knowledge-strip { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+        .operations-shell { display:grid; grid-template-columns:minmax(380px, 5fr) minmax(340px, 4fr); gap:14px; align-items:start; }
+        .operations-panel { display:flex; flex-direction:column; gap:10px; }
+        .analytics-hero { display:grid; grid-template-columns:minmax(280px, 1.2fr) repeat(2,minmax(220px, 1fr)); gap:10px; margin-bottom:12px; }
+        .analytics-card { border:1px solid var(--line); border-radius:14px; background:#fff; padding:12px; }
+        .analytics-card h3 { margin:0 0 6px; font-size:13px; color:var(--dim); text-transform:uppercase; letter-spacing:.04em; }
+        .analytics-score { display:flex; align-items:flex-end; gap:8px; margin-bottom:6px; }
+        .analytics-score strong { font-size:34px; line-height:1; color:var(--brand); }
+        .analytics-insights { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-top:10px; }
+        .insight { border:1px solid var(--line); border-radius:12px; padding:10px; background:#fff; }
+        .insight strong { display:block; margin-bottom:4px; font-size:13px; }
         .view { display:none; } .view.active { display:block; }
-        .table { width:100%; border-collapse:collapse; font-size:13px; }
+        .legacy-backfill { display:none !important; }
+        .table { width:100%; border-collapse:separate; border-spacing:0; font-size:13px; }
         .table th, .table td { border-bottom:1px solid var(--line); padding:9px 8px; text-align:left; vertical-align:top; }
-        .table th { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--dim); }
-        .scroll { max-height:360px; overflow:auto; }
+        .table th { position:sticky; top:0; z-index:3; background:linear-gradient(180deg, var(--panel) 0%, #fffaf1 100%); box-shadow:0 1px 0 var(--line), 0 8px 14px rgba(24,35,37,.06); font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--dim); }
+        .scroll { max-height:360px; overflow:auto; position:relative; }
         .status { display:inline-flex; align-items:center; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; }
         .status.uploaded,.status.queued,.status.running,.status.retrying,.status.cancelling,.status.ingesting,.status.attached,.status.clarify { background:#fff2d9; color:var(--warn); }
         .status.ingested,.status.done,.status.active,.status.answer,.status.success { background:#ddf4e7; color:var(--ok); }
@@ -63,7 +105,16 @@
         .mono { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px; }
         .toast { position:fixed; right:18px; bottom:18px; z-index:99; border-radius:10px; padding:10px 14px; color:#fff; font-weight:700; font-size:13px; }
         .toast.ok { background:var(--ok); } .toast.err { background:var(--bad); }
-        @media (max-width:1100px) { .span-8,.span-7,.span-6,.span-5,.span-4 { grid-column:span 12; } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+        button.loading { opacity:.72; cursor:wait; }
+        .empty-state { padding:14px; border:1px dashed var(--line); border-radius:12px; background:#fff; color:var(--dim); }
+        .empty-state strong { display:block; color:var(--ink); margin-bottom:3px; }
+        .modal-backdrop { position:fixed; inset:0; z-index:120; display:none; align-items:center; justify-content:center; padding:18px; background:rgba(20,28,29,.42); backdrop-filter:blur(6px); }
+        .modal-backdrop.active { display:flex; }
+        .modal-card { width:min(520px,100%); background:var(--panel); border:1px solid var(--line); border-radius:18px; box-shadow:0 24px 70px rgba(0,0,0,.18); padding:16px; }
+        .modal-card h2 { margin:0; font-size:17px; }
+        .modal-card p { margin:8px 0 12px; color:var(--dim); font-size:13px; line-height:1.5; }
+        .modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:12px; }
+        @media (max-width:1100px) { .span-8,.span-7,.span-6,.span-5,.span-4 { grid-column:span 12; } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } .support-shell,.knowledge-shell,.operations-shell,.analytics-hero { grid-template-columns:1fr; } .knowledge-strip,.analytics-insights,.case-kv { grid-template-columns:1fr; } }
     </style>
 </head>
 <body>
@@ -74,6 +125,7 @@
                 <small>Manage Knowledge Bases, source files, ingest jobs, and KB-scoped retrieval.</small>
             </div>
             <div class="links">
+                <a href="/portal">Portal</a>
                 <a href="/chat">Chat</a>
                 <a href="/chat?kb=default">Chat Default KB</a>
                 <a href="/docs">API Docs</a>
@@ -81,30 +133,33 @@
             </div>
         </header>
 
-        <section class="card">
-            <div class="section-head">
-                <h2>Admin Request Identity</h2>
-                <p>Set the request headers this Admin UI will send on every API call.</p>
+        <section class="card role-shell">
+            <div>
+                <div class="role-shell-title" id="roleShellTitle">Workspace access</div>
+                <small class="role-shell-detail" id="roleShellDetail">Loading current identity and available modules...</small>
             </div>
-            <div class="authbar">
-                <div class="field-stack">
-                    <label for="authUserId">User ID</label>
-                    <input id="authUserId" type="text" placeholder="X-User-Id" value="admin-1" title="User ID sent in the X-User-Id header.">
-                    <small>Định danh người dùng gửi request, ví dụ `admin-12` hoặc `employee-01`.</small>
-                </div>
-                <div class="field-stack">
-                    <label for="authRoles">Roles</label>
-                    <input id="authRoles" type="text" placeholder="X-Roles" value="admin" title="Roles sent in the X-Roles header. Use comma-separated values like admin,support.">
-                    <small>Vai trò phân quyền, có thể nhập một hoặc nhiều role như `admin`, `employee`, `support`.</small>
-                </div>
-                <div class="field-stack">
-                    <label for="authChannel">Channel</label>
-                    <input id="authChannel" type="text" placeholder="X-Channel" value="admin" title="Client channel sent in the X-Channel header.">
-                    <small>Kênh gọi API, ví dụ `admin`, `web`, `chat`, dùng để backend biết request đến từ đâu.</small>
-                </div>
-                <button class="btn-main" id="btnSaveAuth" title="Save these headers locally and use them for subsequent API requests.">Save Auth</button>
-                <span class="auth-note">Admin UI sends these headers on every API request.</span>
+            <div class="row" id="roleShellBadges">
+                <span class="role-pill">loading</span>
             </div>
+            <details class="dev-identity" id="adminDevIdentity" hidden>
+                <summary>Dev Identity</summary>
+                <div class="row" style="margin-top:10px;">
+                    <div class="field-stack">
+                        <label for="authUserId">User ID</label>
+                        <input id="authUserId" type="text" placeholder="admin-1">
+                    </div>
+                    <div class="field-stack">
+                        <label for="authRoles">Roles</label>
+                        <input id="authRoles" type="text" placeholder="admin, support_manager">
+                    </div>
+                    <div class="field-stack">
+                        <label for="authChannel">Channel</label>
+                        <input id="authChannel" type="text" placeholder="admin">
+                    </div>
+                    <button class="btn-muted" id="btnSaveAuth" title="Save local/dev request identity and reload Admin access.">Save Identity</button>
+                </div>
+                <div class="note">Local/dev only. These values are sent as request headers when header auth debug is enabled.</div>
+            </details>
         </section>
 
         <section class="card">
@@ -140,20 +195,183 @@
         </section>
 
         <div class="tabs">
-            <button class="tab-btn active" data-target="view-kb" title="Create KBs, upload files, and manage selected KB files.">KB & Files</button>
-            <button class="tab-btn" data-target="view-drive" title="Configure Google Drive sources and run Drive sync jobs.">Drive Sources</button>
-            <button class="tab-btn" data-target="view-email" title="Sync support emails, create tickets, and draft replies.">Support Email</button>
-            <button class="tab-btn" data-target="view-support-cases" title="Classify, plan, assign, and resolve support tickets end-to-end.">Support Cases</button>
-            <button class="tab-btn" data-target="view-actions" title="Approve, reject, or execute high-risk pending actions.">Pending Actions</button>
-            <button class="tab-btn" data-target="view-jobs" title="Monitor background jobs and automatic sync schedules.">Background Jobs</button>
+            <button class="tab-btn active" data-target="view-knowledge-workspace" title="Unified workspace for KB files, source library, Google Drive sync, and source quality.">Knowledge Workspace</button>
+            <button class="tab-btn" data-target="view-support-workspace" title="Unified workspace for support inbox, case context, notes, assignment, and escalation.">Support Workspace</button>
+            <button class="tab-btn" data-target="view-operations-workspace" title="Unified workspace for approvals, jobs, schedules, and audit snapshots.">Operations Workspace</button>
             <button class="tab-btn" data-target="view-analytics" title="Track chat quality, workflow health, jobs, and support operations.">Analytics</button>
-            <button class="tab-btn" data-target="view-audit" title="Review chat and authorization audit logs.">Audit Logs</button>
             <button class="tab-btn" data-target="view-calibrate" title="Test retrieval quality in the currently selected Knowledge Base.">Calibrate</button>
             <button class="tab-btn" data-target="view-mcp" title="Inspect MCP server status, exposed tools, and resources.">MCP Server</button>
             <button class="tab-btn" data-target="view-system" title="Inspect selected KB and runtime system payload.">System</button>
         </div>
 
-        <div id="view-kb" class="view active">
+        <div id="view-access-denied" class="view">
+            <section class="card">
+                <div class="section-head">
+                    <h2>Access Denied</h2>
+                    <p id="accessDeniedMessage">Your current role does not have access to this module.</p>
+                </div>
+                <button class="btn-muted" id="btnAccessFirstModule" title="Open the first module available to your role.">Open Available Module</button>
+            </section>
+        </div>
+
+        <div id="view-knowledge-workspace" class="view active">
+            <section class="card">
+                <div class="section-head">
+                    <h2>Knowledge Workspace</h2>
+                    <p>Operate the selected KB from one place: upload files, attach library sources, ingest/reindex, sync Drive, and inspect source quality.</p>
+                </div>
+                <div class="toolbar" style="margin-bottom:10px;">
+                    <button class="btn-main" id="btnKnowledgeRefresh" title="Reload KB files, library, Drive sources, and source distribution.">Refresh Knowledge</button>
+                    <button class="btn-ok" id="btnKnowledgeIngest" title="Ingest pending, failed, or stale files in the selected KB.">Ingest Stale</button>
+                    <button class="btn-muted" id="btnKnowledgeReindex" title="Rebuild vectors for every file attached to the selected KB.">Reindex All</button>
+                    <span class="note" id="knowledgeWorkspaceSummary">No Knowledge Base selected.</span>
+                </div>
+                <div class="knowledge-strip">
+                    <div class="stat"><div class="value" id="kwFiles">-</div><div class="label">KB Files</div></div>
+                    <div class="stat"><div class="value" id="kwLibrary">-</div><div class="label">Library Sources</div></div>
+                    <div class="stat"><div class="value" id="kwDrive">-</div><div class="label">Drive Sources</div></div>
+                </div>
+                <div class="grid" style="margin-top:12px;">
+                    <div class="span-6">
+                        <div class="support-detail-card">
+                            <h3>Create Knowledge Base</h3>
+                            <div class="row" style="margin-bottom:8px;">
+                                <input id="kwNewKbName" type="text" placeholder="KB name" title="Human-readable Knowledge Base name.">
+                                <input id="kwNewKbKey" type="text" placeholder="kb-key" title="Stable KB key used in API calls and routing.">
+                            </div>
+                            <div class="row" style="margin-bottom:8px;">
+                                <select id="kwNewKbAccessLevel" title="Choose access level for the new Knowledge Base.">
+                                    <option value="public">Public</option>
+                                    <option value="internal">Internal</option>
+                                    <option value="admin">Admin Only</option>
+                                </select>
+                                <button class="btn-main" id="btnKwCreateKb" title="Create a new Knowledge Base from this workspace.">Create KB</button>
+                            </div>
+                            <textarea id="kwNewKbDescription" placeholder="Short description..." title="Short explanation of what this Knowledge Base contains." style="min-height:70px;"></textarea>
+                        </div>
+                    </div>
+                    <div class="span-6">
+                        <div class="support-detail-card">
+                            <h3>Selected KB Controls</h3>
+                            <div class="row" style="margin-bottom:8px;">
+                                <input id="kwSelectedKbName" type="text" placeholder="Selected KB name" title="Rename the currently selected Knowledge Base.">
+                                <button class="btn-main" id="btnKwRenameKb" title="Save a new display name for the selected Knowledge Base.">Rename KB</button>
+                            </div>
+                            <div class="row" style="margin-bottom:8px;">
+                                <select id="kwSelectedKbAccessLevel" title="Change the access level for the currently selected Knowledge Base.">
+                                    <option value="public">Public</option>
+                                    <option value="internal">Internal</option>
+                                    <option value="admin">Admin Only</option>
+                                </select>
+                                <button class="btn-muted" id="btnKwSaveKbAccess" title="Save access level for the selected Knowledge Base.">Save Access</button>
+                                <button class="btn-danger" id="btnKwClearCache" title="Clear retrieval and runtime cache.">Clear Cache</button>
+                            </div>
+                            <div class="note" id="knowledgeJobSummary">No active ingest job.</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            <div class="knowledge-shell">
+                <div class="knowledge-panel">
+                    <section class="card">
+                        <div class="section-head">
+                            <h2>Upload To Selected KB</h2>
+                            <p>Drop files here to add them to the source library and attach them to the current KB.</p>
+                        </div>
+                        <div class="upload" id="knowledgeUploadZone">
+                            <input type="file" id="knowledgeFileInput" multiple accept=".pdf,.txt,.md,.html,.htm,.csv,.xlsx,.xls,.docx,.json,.jsonl">
+                            <strong>Drop files or click to upload</strong>
+                            <p class="note">Upload is attached to the selected KB and then available for ingest.</p>
+                        </div>
+                    </section>
+
+                    <section class="card">
+                        <div class="section-head">
+                            <h2>Files In Selected KB</h2>
+                            <p>Per-file ingest status and actions for the active KB.</p>
+                        </div>
+                        <div class="scroll">
+                            <table class="table" id="knowledgeWorkspaceKbFilesTable">
+                                <thead><tr><th>ID</th><th>Name</th><th>KB Status</th><th>Source Status</th><th>Chunks</th><th>Actions</th></tr></thead>
+                                <tbody><tr><td colspan="6">No files loaded.</td></tr></tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <section class="card">
+                        <div class="section-head">
+                            <h2>Source Quality</h2>
+                            <p>Chunk and language distribution after ingest.</p>
+                        </div>
+                        <div class="scroll">
+                            <table class="table" id="knowledgeWorkspaceSourcesTable">
+                                <thead><tr><th>Filename</th><th>Chunks</th><th>VI %</th><th>EN %</th><th>Other %</th></tr></thead>
+                                <tbody><tr><td colspan="5">No sources loaded.</td></tr></tbody>
+                            </table>
+                        </div>
+                    </section>
+                </div>
+
+                <div class="knowledge-panel">
+                    <section class="card">
+                        <div class="section-head">
+                            <h2>Source Library</h2>
+                            <p>Attach existing uploads to the active KB or delete unused library files.</p>
+                        </div>
+                        <div class="scroll">
+                            <table class="table" id="knowledgeWorkspaceLibraryTable">
+                                <thead><tr><th>ID</th><th>Name</th><th>Status</th><th>Rows/Pages</th><th>Actions</th></tr></thead>
+                                <tbody><tr><td colspan="5">No library loaded.</td></tr></tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <section class="card">
+                        <div class="section-head">
+                            <h2>Google Drive Sync</h2>
+                            <p>Run, schedule, inspect, or delete Drive sources bound to this KB.</p>
+                        </div>
+                        <div class="support-detail-card" style="margin-bottom:10px;">
+                            <h3>Create Drive Source</h3>
+                            <div class="row" style="margin-bottom:8px;">
+                                <input id="kwDriveSourceName" type="text" placeholder="Source name" title="Human-readable name for this Google Drive source.">
+                                <input id="kwDriveFolderId" type="text" placeholder="Google Drive folder ID" title="Google Drive folder ID to scan.">
+                            </div>
+                            <div class="row" style="margin-bottom:8px;">
+                                <input id="kwDriveSharedDriveId" type="text" placeholder="Optional shared drive ID" title="Optional shared drive ID if the folder belongs to a shared drive.">
+                                <select id="kwDriveRecursive" title="Choose whether the sync should scan nested folders.">
+                                    <option value="true">Recursive</option>
+                                    <option value="false">Current folder only</option>
+                                </select>
+                            </div>
+                            <div class="row" style="margin-bottom:8px;">
+                                <input id="kwDriveIncludePatterns" type="text" placeholder="Include: *.csv,*.pdf" title="Optional comma-separated filename patterns to include.">
+                                <input id="kwDriveExcludePatterns" type="text" placeholder="Exclude: draft-*,tmp-*" title="Optional comma-separated filename patterns to exclude.">
+                            </div>
+                            <div class="btn-row">
+                                <button class="btn-main" id="btnKwCreateDriveSource" title="Create a Google Drive source for the selected KB.">Create Drive Source</button>
+                            </div>
+                        </div>
+                        <div class="toolbar" style="margin-bottom:10px;">
+                            <select id="knowledgeDriveForceSync" title="Choose whether workspace Drive sync runs changed files only or full refresh.">
+                                <option value="false">Changed files only</option>
+                                <option value="true">Force full sync</option>
+                            </select>
+                            <button class="btn-muted" id="btnKnowledgeDriveRefresh" title="Reload Google Drive source status.">Refresh Drive</button>
+                        </div>
+                        <div class="note" id="knowledgeDriveStatusSummary">No Google Drive source loaded.</div>
+                        <div class="scroll">
+                            <table class="table" id="knowledgeWorkspaceDriveSourcesTable">
+                                <thead><tr><th>ID</th><th>Name</th><th>Folder</th><th>Last Sync</th><th>Latest Run</th><th>Actions</th></tr></thead>
+                                <tbody><tr><td colspan="6">No Drive sources loaded.</td></tr></tbody>
+                            </table>
+                        </div>
+                    </section>
+                </div>
+            </div>
+        </div>
+
+        <div id="view-kb" class="view legacy-backfill" hidden aria-hidden="true">
             <div class="grid">
                 <section class="card span-4">
                     <div class="section-head">
@@ -265,7 +483,7 @@
             </div>
         </div>
 
-        <div id="view-drive" class="view">
+        <div id="view-drive" class="view legacy-backfill" hidden aria-hidden="true">
             <div class="grid">
                 <section class="card span-4">
                     <div class="section-head">
@@ -380,6 +598,31 @@
                         <button class="btn-main" id="btnRefreshAnalytics" title="Reload analytics metrics.">Refresh Analytics</button>
                         <span class="note" id="analyticsSummary">No analytics loaded.</span>
                     </div>
+                    <div class="analytics-hero">
+                        <div class="analytics-card">
+                            <h3>System Health</h3>
+                            <div class="analytics-score">
+                                <strong id="aHealthScore">-</strong>
+                                <span class="status queued" id="aHealthLabel">not loaded</span>
+                            </div>
+                            <small class="note" id="aHealthReasons">Health is calculated from feedback quality, tool errors, failed jobs, pending approvals, and open support load.</small>
+                        </div>
+                        <div class="analytics-card">
+                            <h3>Usage Pulse</h3>
+                            <div class="stats" style="grid-template-columns:repeat(2,minmax(0,1fr));">
+                                <div class="stat"><div class="value" id="aUsers">-</div><div class="label">Unique Users</div></div>
+                                <div class="stat"><div class="value" id="aLatency">-</div><div class="label">Avg Latency</div></div>
+                            </div>
+                        </div>
+                        <div class="analytics-card">
+                            <h3>Ops Pressure</h3>
+                            <div class="analytics-score">
+                                <strong id="aOpsPressure">-</strong>
+                                <span class="status queued" id="aOpsPressureLabel">items</span>
+                            </div>
+                            <small class="note" id="aOpsPressureDetail">Open tickets + failed jobs + pending approvals.</small>
+                        </div>
+                    </div>
                     <div class="stats">
                         <div class="stat"><div class="value" id="aChats">-</div><div class="label">Chats</div></div>
                         <div class="stat"><div class="value" id="aPositive">-</div><div class="label">Positive Feedback</div></div>
@@ -387,6 +630,9 @@
                         <div class="stat"><div class="value" id="aOpenTickets">-</div><div class="label">Open Tickets</div></div>
                         <div class="stat"><div class="value" id="aFailedJobs">-</div><div class="label">Failed Jobs</div></div>
                         <div class="stat"><div class="value" id="aPendingActions">-</div><div class="label">Open Approvals</div></div>
+                    </div>
+                    <div class="analytics-insights" id="analyticsInsights">
+                        <div class="insight"><strong>No insights yet</strong><small class="note">Refresh analytics to generate operating signals.</small></div>
                     </div>
                 </section>
                 <section class="card span-12">
@@ -428,7 +674,7 @@
             </div>
         </div>
 
-        <div id="view-audit" class="view">
+        <div id="view-audit" class="view legacy-backfill" hidden aria-hidden="true">
             <div class="grid">
                 <section class="card span-6">
                     <div class="section-head">
@@ -487,7 +733,255 @@
             </div>
         </div>
 
-        <div id="view-email" class="view">
+        <div id="view-operations-workspace" class="view">
+            <section class="card">
+                <div class="section-head">
+                    <h2>Operations Workspace</h2>
+                    <p>Review approvals, job health, automatic schedules, and audit signals from one operational console.</p>
+                </div>
+                <div class="toolbar" style="margin-bottom:10px;">
+                    <select id="operationsPendingActionStatus" title="Filter pending actions in the operations workspace.">
+                        <option value="">All action statuses</option>
+                        <option value="draft">Draft</option>
+                        <option value="approved">Approved</option>
+                        <option value="executed">Executed</option>
+                        <option value="rejected">Rejected</option>
+                        <option value="failed">Failed</option>
+                    </select>
+                    <select id="operationsBackgroundJobStatus" title="Filter background jobs in the operations workspace.">
+                        <option value="">All job statuses</option>
+                        <option value="queued">Queued</option>
+                        <option value="retrying">Retrying</option>
+                        <option value="running">Running</option>
+                        <option value="cancelling">Cancelling</option>
+                        <option value="done">Done</option>
+                        <option value="failed">Failed</option>
+                        <option value="cancelled">Cancelled</option>
+                    </select>
+                    <button class="btn-main" id="btnOperationsRefresh" title="Reload approvals, jobs, schedules, logs, and feedback.">Refresh Operations</button>
+                    <span class="note" id="operationsSummary">No operations data loaded.</span>
+                </div>
+                <div class="stats">
+                    <div class="stat"><div class="value" id="opPendingReview">-</div><div class="label">Needs Review</div></div>
+                    <div class="stat"><div class="value" id="opActiveJobs">-</div><div class="label">Active Jobs</div></div>
+                    <div class="stat"><div class="value" id="opFailedJobs">-</div><div class="label">Failed Jobs</div></div>
+                    <div class="stat"><div class="value" id="opSchedulesEnabled">-</div><div class="label">Enabled Schedules</div></div>
+                    <div class="stat"><div class="value" id="opDownFeedback">-</div><div class="label">Down Feedback</div></div>
+                    <div class="stat"><div class="value" id="opAuthDenies">-</div><div class="label">Auth Denies</div></div>
+                </div>
+            </section>
+            <div class="operations-shell">
+                <div class="operations-panel">
+                    <section class="card">
+                        <div class="section-head">
+                            <h2>Pending Approvals</h2>
+                            <p>Approve, execute, or reject high-risk draft actions.</p>
+                        </div>
+                        <div class="scroll">
+                            <table class="table" id="operationsPendingActionsTable">
+                                <thead><tr><th>ID</th><th>Action</th><th>Status</th><th>Summary</th><th>Actions</th></tr></thead>
+                                <tbody><tr><td colspan="5">No pending action loaded.</td></tr></tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <section class="card">
+                        <div class="section-head">
+                            <h2>Background Jobs</h2>
+                            <p>Cancel active work or retry failed/cancelled jobs.</p>
+                        </div>
+                        <div class="scroll">
+                            <table class="table" id="operationsBackgroundJobsTable">
+                                <thead><tr><th>Job ID</th><th>Type</th><th>Status</th><th>Progress</th><th>Result</th><th>Actions</th></tr></thead>
+                                <tbody><tr><td colspan="6">No background job loaded.</td></tr></tbody>
+                            </table>
+                        </div>
+                    </section>
+                </div>
+
+                <div class="operations-panel">
+                    <section class="card">
+                        <div class="section-head">
+                            <h2>Sync Schedules</h2>
+                            <p>Enable, disable, edit, or remove recurring sync schedules.</p>
+                        </div>
+                        <div class="scroll">
+                            <table class="table" id="operationsSyncSchedulesTable">
+                                <thead><tr><th>ID</th><th>Name</th><th>Type</th><th>Interval</th><th>Last / Next</th><th>Actions</th></tr></thead>
+                                <tbody><tr><td colspan="6">No sync schedule loaded.</td></tr></tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <section class="card">
+                        <div class="section-head">
+                            <h2>Audit Snapshot</h2>
+                            <p>Latest chat logs, feedback, and authorization decisions.</p>
+                        </div>
+                        <div class="scroll" style="max-height:260px;">
+                            <table class="table" id="operationsChatLogsTable">
+                                <thead><tr><th>Time</th><th>Mode</th><th>Feedback</th><th>Question</th></tr></thead>
+                                <tbody><tr><td colspan="4">No chat log loaded.</td></tr></tbody>
+                            </table>
+                        </div>
+                        <div class="scroll" style="max-height:220px; margin-top:10px;">
+                            <table class="table" id="operationsFeedbackTable">
+                                <thead><tr><th>Time</th><th>Rating</th><th>KB</th><th>Reason</th></tr></thead>
+                                <tbody><tr><td colspan="4">No feedback loaded.</td></tr></tbody>
+                            </table>
+                        </div>
+                        <div class="scroll" style="max-height:220px; margin-top:10px;">
+                            <table class="table" id="operationsAuthAuditTable">
+                                <thead><tr><th>Time</th><th>Decision</th><th>Resource</th><th>Actor</th></tr></thead>
+                                <tbody><tr><td colspan="4">No auth audit loaded.</td></tr></tbody>
+                            </table>
+                        </div>
+                    </section>
+                </div>
+            </div>
+        </div>
+
+        <div id="view-support-workspace" class="view">
+            <div class="grid">
+                <section class="card span-12">
+                    <div class="section-head">
+                        <h2>Support Workspace</h2>
+                        <p>Start from inbound support email, reply or create tickets, then operate cases end-to-end below.</p>
+                    </div>
+                    <div class="subtabs">
+                        <button class="subtab-btn active" data-subtarget="support-email-subview" title="Inbound emails and reply workflow.">Email Queue</button>
+                        <button class="subtab-btn" data-subtarget="support-cases-subview" title="Support case filters, inbox, selected context, and operations.">Support Cases</button>
+                    </div>
+                    <div id="support-email-subview" class="subview active">
+                        <div class="support-detail-card" style="margin-bottom:10px;">
+                            <h3>Inbound Email Queue</h3>
+                            <div class="toolbar" style="margin-bottom:8px;">
+                                <select id="workspaceEmailSyncFirst" title="Choose whether Refresh also syncs mailbox.">
+                                    <option value="false">Snapshot only</option>
+                                    <option value="true">Sync mailbox first</option>
+                                </select>
+                                <button class="btn-muted" id="btnWorkspaceRefreshEmails" title="Reload inbound support email queue.">Refresh Emails</button>
+                            </div>
+                            <div class="scroll" style="max-height:420px; overflow-x:hidden;">
+                                <table class="table" id="supportWorkspaceEmailsTable" style="table-layout:fixed; width:100%;">
+                                    <colgroup>
+                                        <col style="width:5%;">
+                                        <col style="width:20%;">
+                                        <col style="width:40%;">
+                                        <col style="width:10%;">
+                                        <col style="width:25%;">
+                                    </colgroup>
+                                    <thead><tr><th>ID</th><th>From</th><th>Subject</th><th>Status</th><th>Actions</th></tr></thead>
+                                    <tbody><tr><td colspan="5">No email loaded.</td></tr></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="support-detail-card" style="margin-bottom:10px;">
+                            <h3>Email Thread & Reply</h3>
+                            <div class="note" id="workspaceEmailThreadSummary">No thread selected.</div>
+                            <textarea id="workspaceEmailThreadBody" readonly placeholder="Thread content will appear here after clicking Read on an email." style="min-height:220px; margin:8px 0;"></textarea>
+                            <textarea id="workspaceEmailReplyBody" placeholder="Reply body..." style="min-height:90px;"></textarea>
+                            <div class="btn-row" style="margin-top:8px;">
+                                <button class="btn-main" id="btnWorkspaceSendSupportEmailReply" title="Create a pending email reply action for approval.">Send Reply</button>
+                                <button class="btn-muted" id="btnWorkspaceClearSupportEmailSelection" title="Clear selected email and reply draft.">Clear Email</button>
+                            </div>
+                            <div class="note">Reply creates a pending action first; approve and execute it in Operations Workspace.</div>
+                        </div>
+                    </div>
+                    <div id="support-cases-subview" class="subview">
+                        <div class="support-detail-card" style="margin-bottom:10px;">
+                            <div class="section-head">
+                                <h2>Support Cases</h2>
+                                <p>Operate support cases end-to-end: triage inbox, inspect agent context, add notes, assign owners, escalate, and monitor approvals.</p>
+                            </div>
+                            <div class="toolbar">
+                                <select id="workspaceCaseStatus" title="Filter support cases by lifecycle status.">
+                                    <option value="">All statuses</option>
+                                    <option value="open">Open</option>
+                                    <option value="new">New</option>
+                                    <option value="classified">Classified</option>
+                                    <option value="planned">Planned</option>
+                                    <option value="waiting_approval">Waiting Approval</option>
+                                    <option value="escalated">Escalated</option>
+                                    <option value="resolved">Resolved</option>
+                                    <option value="closed">Closed</option>
+                                </select>
+                                <select id="workspaceCasePriority" title="Filter support cases by priority.">
+                                    <option value="">All priorities</option>
+                                    <option value="P0">P0</option>
+                                    <option value="P1">P1</option>
+                                    <option value="P2">P2</option>
+                                    <option value="P3">P3</option>
+                                </select>
+                                <button class="btn-main" id="btnWorkspaceRefresh" title="Reload support workspace data.">Refresh Workspace</button>
+                                <button class="btn-ok" id="btnWorkspaceRunSla" title="Run SLA monitor now.">Run SLA Monitor</button>
+                                <span class="note" id="workspaceSummary">No workspace data loaded.</span>
+                            </div>
+                        </div>
+                        <div class="support-shell">
+                            <div class="support-panel">
+                                <div class="support-detail-card">
+                                    <h3>Case Inbox</h3>
+                                    <div class="scroll" style="max-height:560px;">
+                                        <table class="table" id="supportWorkspaceCasesTable">
+                                            <thead><tr><th>Ticket</th><th>Intent</th><th>SLA</th><th>Owner</th><th>Actions</th></tr></thead>
+                                            <tbody><tr><td colspan="5">Click Refresh Workspace.</td></tr></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="support-panel">
+                                <div class="support-detail-card">
+                                    <h3>Selected Case</h3>
+                                    <div class="note" id="workspaceCaseDetailSummary">No case selected.</div>
+                                    <div class="support-meta" id="workspaceCaseMeta"></div>
+                                    <div id="workspaceCaseContextView" class="case-context">
+                                        <div class="empty-state"><strong>No case selected.</strong><small>Select Context on a case to view the readable workflow context.</small></div>
+                                    </div>
+                                    <textarea id="workspaceCaseContextBody" readonly hidden aria-hidden="true" placeholder="Raw agent context JSON fallback."></textarea>
+                                </div>
+                                <div class="support-detail-card">
+                                    <h3>Operate Case</h3>
+                                    <div class="row" style="margin-bottom:8px;">
+                                        <input id="workspaceAssignTeam" type="text" placeholder="Assigned team, e.g. support" title="Team that should own the case.">
+                                        <input id="workspaceAssignUser" type="text" placeholder="Assigned user id" title="Optional user id to own this case.">
+                                    </div>
+                                    <textarea id="workspaceCaseNoteBody" placeholder="Internal note / assignment note / escalation reason..." style="min-height:90px;"></textarea>
+                                    <div class="btn-row" style="margin-top:8px;">
+                                        <button class="btn-main" id="btnWorkspaceHandle" title="Queue the agent workflow for the selected case.">Handle</button>
+                                        <button class="btn-ok" id="btnWorkspaceAssign" title="Assign selected case using the fields above.">Assign</button>
+                                        <button class="btn-muted" id="btnWorkspaceAddNote" title="Add an internal note to selected case.">Add Note</button>
+                                        <button class="btn-danger" id="btnWorkspaceEscalate" title="Escalate selected case with note as reason.">Escalate</button>
+                                        <button class="btn-muted" id="btnWorkspaceClear" title="Clear selected case and forms.">Clear</button>
+                                    </div>
+                                </div>
+                                <div class="support-detail-card">
+                                    <h3>Reply To Employee</h3>
+                                    <textarea id="workspacePublicReplyBody" placeholder="Public reply visible to the employee in Portal..." style="min-height:100px;"></textarea>
+                                    <div class="btn-row" style="margin-top:8px;">
+                                        <button class="btn-main" id="btnWorkspacePublicReply" title="Send a public portal reply and move the case to waiting_customer.">Reply</button>
+                                        <button class="btn-ok" id="btnWorkspacePublicReplyResolve" title="Send a public portal reply and mark the case resolved.">Reply & Resolve</button>
+                                        <button class="btn-danger" id="btnWorkspaceCloseCase" title="Close selected case. Employee portal replies are blocked after close.">Close Ticket</button>
+                                    </div>
+                                    <div class="note">Public replies are visible in the employee Portal ticket detail. Email notification can be added later as a pending action.</div>
+                                </div>
+                                <div class="support-detail-card">
+                                    <h3>Related Approvals</h3>
+                                    <div class="scroll" style="max-height:220px;">
+                                        <table class="table" id="supportWorkspaceActionsTable">
+                                            <thead><tr><th>ID</th><th>Action</th><th>Status</th><th>Summary</th></tr></thead>
+                                            <tbody><tr><td colspan="4">Select a case to inspect related approvals.</td></tr></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+
+        <div id="view-email" class="view legacy-backfill" hidden aria-hidden="true">
             <div class="grid">
                 <section class="card span-12">
                     <div class="section-head">
@@ -526,7 +1020,7 @@
             </div>
         </div>
 
-        <div id="view-support-cases" class="view">
+        <div id="view-support-cases" class="view legacy-backfill" hidden aria-hidden="true">
             <div class="grid">
                 <section class="card span-12">
                     <div class="section-head">
@@ -536,6 +1030,7 @@
                     <div class="toolbar" style="margin-bottom:10px;">
                         <select id="supportCaseStatus" title="Filter tickets by lifecycle status.">
                             <option value="">All statuses</option>
+                            <option value="open">Open</option>
                             <option value="new">New</option>
                             <option value="classified">Classified</option>
                             <option value="planned">Planned</option>
@@ -579,7 +1074,7 @@
             </div>
         </div>
 
-        <div id="view-actions" class="view">
+        <div id="view-actions" class="view legacy-backfill" hidden aria-hidden="true">
             <div class="grid">
                 <section class="card span-12">
                     <div class="section-head">
@@ -608,7 +1103,7 @@
             </div>
         </div>
 
-        <div id="view-jobs" class="view">
+        <div id="view-jobs" class="view legacy-backfill" hidden aria-hidden="true">
             <div class="grid">
                 <section class="card span-12">
                     <div class="section-head">
@@ -720,20 +1215,79 @@
         </div>
     </div>
 
+    <div class="modal-backdrop" id="adminModal" role="dialog" aria-modal="true" aria-labelledby="adminModalTitle">
+        <div class="modal-card">
+            <h2 id="adminModalTitle">Confirm action</h2>
+            <p id="adminModalMessage">Review this action before continuing.</p>
+            <input id="adminModalInput" type="text" hidden>
+            <div class="modal-actions">
+                <button class="btn-muted" id="adminModalCancel">Cancel</button>
+                <button class="btn-main" id="adminModalConfirm">Continue</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         const activeJobs = new Set();
         let activeKb = null;
         let kbFiles = [];
         let libraryFiles = [];
         let driveSources = [];
+        let sourceStats = [];
         let supportEmails = [];
         let supportCases = [];
         let backgroundJobs = [];
         let syncSchedules = [];
+        let chatLogs = [];
+        let feedbackItems = [];
+        let authAuditLogs = [];
         let selectedSupportEmailId = null;
         let selectedSupportCaseId = null;
         let pendingActions = [];
         let mcpStatus = null;
+        let viewerProfile = null;
+        let visibleTargets = new Set();
+
+        const TAB_ACCESS = {
+            'view-knowledge-workspace': ['admin', 'content_manager', 'integration_admin'],
+            'view-kb': ['admin', 'content_manager', 'integration_admin'],
+            'view-drive': ['admin', 'content_manager', 'integration_admin'],
+            'view-support-workspace': ['admin', 'support_manager', 'support_agent'],
+            'view-email': ['admin', 'support_manager', 'support_agent'],
+            'view-support-cases': ['admin', 'support_manager', 'support_agent'],
+            'view-operations-workspace': ['admin', 'support_manager', 'approver', 'integration_admin', 'auditor'],
+            'view-actions': ['admin', 'support_manager', 'approver'],
+            'view-jobs': ['admin', 'integration_admin'],
+            'view-analytics': ['admin', 'support_manager', 'analyst'],
+            'view-audit': ['admin', 'auditor'],
+            'view-calibrate': ['admin', 'content_manager', 'support_manager', 'analyst'],
+            'view-mcp': ['admin', 'integration_admin'],
+            'view-system': ['admin', 'integration_admin', 'auditor'],
+        };
+
+        const TASK_ACCESS = {
+            knowledge: TAB_ACCESS['view-knowledge-workspace'],
+            drive: ['admin', 'integration_admin'],
+            support: TAB_ACCESS['view-support-workspace'],
+            operations: TAB_ACCESS['view-operations-workspace'],
+            analytics: TAB_ACCESS['view-analytics'],
+            audit: ['admin', 'auditor'],
+            mcp: ['admin', 'integration_admin'],
+            system: ['admin', 'integration_admin', 'auditor'],
+            calibrate: TAB_ACCESS['view-calibrate'],
+        };
+
+        const ROLE_LABELS = {
+            admin: 'Admin',
+            support_manager: 'Support Manager',
+            support_agent: 'Support Agent',
+            content_manager: 'Content Manager',
+            analyst: 'Analyst',
+            auditor: 'Auditor',
+            approver: 'Approver',
+            integration_admin: 'Integration Admin',
+            employee: 'Employee',
+        };
 
         function loadAdminAuth() {
             const stored = JSON.parse(localStorage.getItem('campusrag_admin_auth') || '{}');
@@ -745,6 +1299,7 @@
         }
 
         function saveAdminAuth() {
+            if (!document.getElementById('authUserId')) return loadAdminAuth();
             const auth = {
                 userId: document.getElementById('authUserId').value.trim() || 'admin-1',
                 roles: document.getElementById('authRoles').value.trim() || 'admin',
@@ -756,6 +1311,7 @@
 
         function applyAdminAuthInputs() {
             const auth = loadAdminAuth();
+            if (!document.getElementById('authUserId')) return;
             document.getElementById('authUserId').value = auth.userId;
             document.getElementById('authRoles').value = auth.roles;
             document.getElementById('authChannel').value = auth.channel;
@@ -770,12 +1326,201 @@
             return headers;
         }
 
+        function roleSet() {
+            return new Set((viewerProfile?.roles || []).map((role) => String(role).toLowerCase()));
+        }
+
+        function roleLabel(role) {
+            const normalized = String(role || '').toLowerCase();
+            return ROLE_LABELS[normalized] || normalized || 'unknown';
+        }
+
+        function canAccessTarget(target) {
+            const allowed = TAB_ACCESS[target] || [];
+            const roles = roleSet();
+            if (!allowed.length) return true;
+            if (roles.has('admin')) return true;
+            return allowed.some((role) => roles.has(role));
+        }
+
+        function canAccessTask(task) {
+            const allowed = TASK_ACCESS[task] || [];
+            const roles = roleSet();
+            if (!allowed.length) return true;
+            if (roles.has('admin')) return true;
+            return allowed.some((role) => roles.has(role));
+        }
+
+        async function refreshIfAllowed(task, fn) {
+            if (!canAccessTask(task)) return null;
+            return await fn();
+        }
+
+        async function allAllowed(tasks) {
+            return await Promise.all(tasks.map(([task, fn]) => refreshIfAllowed(task, fn)));
+        }
+
+        function activeViewId() {
+            return document.querySelector('.view.active')?.id || '';
+        }
+
+        function isActiveView(...targets) {
+            const current = activeViewId();
+            return targets.includes(current);
+        }
+
+        function activateSupportSubtab(target) {
+            document.querySelectorAll('.subtab-btn[data-subtarget]').forEach((btn) => {
+                btn.classList.toggle('active', btn.dataset.subtarget === target);
+            });
+            document.querySelectorAll('#view-support-workspace .subview').forEach((view) => {
+                view.classList.toggle('active', view.id === target);
+            });
+        }
+
+        function firstVisibleTarget() {
+            return Array.from(document.querySelectorAll('.tab-btn'))
+                .map((btn) => btn.dataset.target)
+                .find((target) => visibleTargets.has(target)) || null;
+        }
+
+        function activateTab(target) {
+            if (!target || !canAccessTarget(target)) {
+                document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
+                document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
+                document.getElementById('accessDeniedMessage').textContent = `Your current role cannot access ${target || 'this module'}.`;
+                document.getElementById('view-access-denied').classList.add('active');
+                return;
+            }
+            document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.target === target));
+            document.querySelectorAll('.view').forEach((v) => v.classList.toggle('active', v.id === target));
+        }
+
+        async function loadViewerProfile() {
+            try {
+                viewerProfile = await fetchJson('/api/me');
+            } catch (_) {
+                const fallback = loadAdminAuth();
+                viewerProfile = {
+                    authenticated: Boolean(fallback.userId || fallback.roles),
+                    auth_mode: 'dev',
+                    debug_auth_inputs_enabled: false,
+                    user_id: fallback.userId,
+                    roles: parseCommaList(fallback.roles),
+                    channel: fallback.channel,
+                };
+            }
+            return viewerProfile;
+        }
+
+        function applyRoleShell() {
+            const roles = Array.from(roleSet());
+            const roleText = roles.length ? roles.map(roleLabel).join(', ') : 'No role';
+            document.getElementById('roleShellTitle').textContent = `${viewerProfile?.user_id || 'Unknown user'} | ${roleText}`;
+            document.getElementById('roleShellDetail').textContent = `Auth mode: ${viewerProfile?.auth_mode || '-'} | Channel: ${viewerProfile?.channel || '-'} | UI modules are filtered by role.`;
+            const devIdentity = document.getElementById('adminDevIdentity');
+            if (devIdentity) devIdentity.hidden = !viewerProfile?.debug_auth_inputs_enabled;
+            document.getElementById('roleShellBadges').innerHTML = [
+                ...(roles.length ? roles : ['no_role']),
+                viewerProfile?.tenant_id ? `tenant:${viewerProfile.tenant_id}` : null,
+                viewerProfile?.org_id ? `org:${viewerProfile.org_id}` : null,
+            ].filter(Boolean).map((item) => `<span class="role-pill">${escapeHtml(roleLabel(item))}</span>`).join('');
+
+            visibleTargets = new Set();
+            document.querySelectorAll('.tab-btn').forEach((btn) => {
+                const target = btn.dataset.target;
+                const allowed = canAccessTarget(target);
+                btn.hidden = !allowed;
+                btn.setAttribute('aria-hidden', allowed ? 'false' : 'true');
+                if (allowed) visibleTargets.add(target);
+            });
+
+            const current = document.querySelector('.tab-btn.active')?.dataset.target;
+            if (!current || !visibleTargets.has(current)) {
+                activateTab(firstVisibleTarget());
+            }
+        }
+
         function toast(msg, ok = true) {
             const node = document.createElement('div');
             node.className = `toast ${ok ? 'ok' : 'err'}`;
             node.textContent = msg;
             document.body.appendChild(node);
             setTimeout(() => node.remove(), 3200);
+        }
+
+        function emptyRow(colspan, title, detail = '') {
+            return `<tr><td colspan="${colspan}"><div class="empty-state"><strong>${escapeHtml(title)}</strong>${detail ? `<small>${escapeHtml(detail)}</small>` : ''}</div></td></tr>`;
+        }
+
+        function loadingRow(colspan, label = 'Loading...') {
+            return `<tr><td colspan="${colspan}"><div class="empty-state"><strong>${escapeHtml(label)}</strong><small>Please wait while the latest data is loaded.</small></div></td></tr>`;
+        }
+
+        function setButtonLoading(button, loading, label = 'Working...') {
+            if (!button) return;
+            if (loading) {
+                button.dataset.originalText = button.textContent;
+                button.textContent = label;
+                button.classList.add('loading');
+                button.disabled = true;
+                return;
+            }
+            button.textContent = button.dataset.originalText || button.textContent;
+            button.classList.remove('loading');
+            button.disabled = false;
+            delete button.dataset.originalText;
+        }
+
+        async function withButtonLoading(button, label, fn) {
+            setButtonLoading(button, true, label);
+            try {
+                return await fn();
+            } finally {
+                setButtonLoading(button, false);
+            }
+        }
+
+        function showAdminModal({ title, message, input = false, defaultValue = '', confirmLabel = 'Continue', danger = false }) {
+            return new Promise((resolve) => {
+                const modal = document.getElementById('adminModal');
+                const inputEl = document.getElementById('adminModalInput');
+                const confirmBtn = document.getElementById('adminModalConfirm');
+                const cancelBtn = document.getElementById('adminModalCancel');
+                document.getElementById('adminModalTitle').textContent = title;
+                document.getElementById('adminModalMessage').textContent = message;
+                inputEl.hidden = !input;
+                inputEl.value = defaultValue || '';
+                confirmBtn.textContent = confirmLabel;
+                confirmBtn.className = danger ? 'btn-danger' : 'btn-main';
+                modal.classList.add('active');
+                if (input) setTimeout(() => inputEl.focus(), 0);
+
+                const cleanup = (value) => {
+                    modal.classList.remove('active');
+                    confirmBtn.removeEventListener('click', onConfirm);
+                    cancelBtn.removeEventListener('click', onCancel);
+                    modal.removeEventListener('click', onBackdrop);
+                    inputEl.removeEventListener('keydown', onKeydown);
+                    resolve(value);
+                };
+                const onConfirm = () => cleanup(input ? inputEl.value : true);
+                const onCancel = () => cleanup(input ? null : false);
+                const onBackdrop = (event) => { if (event.target === modal) onCancel(); };
+                const onKeydown = (event) => { if (event.key === 'Enter') onConfirm(); if (event.key === 'Escape') onCancel(); };
+                confirmBtn.addEventListener('click', onConfirm);
+                cancelBtn.addEventListener('click', onCancel);
+                modal.addEventListener('click', onBackdrop);
+                inputEl.addEventListener('keydown', onKeydown);
+            });
+        }
+
+        function modalConfirm(title, message, options = {}) {
+            return showAdminModal({ title, message, confirmLabel: options.confirmLabel || 'Confirm', danger: Boolean(options.danger) });
+        }
+
+        function modalPrompt(title, message, defaultValue = '') {
+            return showAdminModal({ title, message, input: true, defaultValue, confirmLabel: 'Save' });
         }
 
         async function fetchJson(url, options) {
@@ -798,6 +1543,25 @@
                 .filter(Boolean);
         }
 
+        function byId(id) {
+            return document.getElementById(id);
+        }
+
+        function valueFrom(...ids) {
+            const node = ids.map(byId).find(Boolean);
+            return node ? node.value : '';
+        }
+
+        function setValueIfExists(id, value) {
+            const node = byId(id);
+            if (node) node.value = value;
+        }
+
+        function setTextIfExists(id, value) {
+            const node = byId(id);
+            if (node) node.textContent = value;
+        }
+
         function escapeHtml(value) {
             return String(value || '')
                 .replaceAll('&', '&amp;')
@@ -811,17 +1575,114 @@
             return driveSources.filter((item) => Number(item.kb_id) === Number(selectedKbId()));
         }
 
+        function setTableBody(tableId, html) {
+            const tbody = document.querySelector(`#${tableId} tbody`);
+            if (tbody) tbody.innerHTML = html;
+        }
+
+        function kbFileRowsHtml(items) {
+            if (!items.length) return '<tr><td colspan="6">No files attached to this KB.</td></tr>';
+            return items.map((file) => `
+                <tr>
+                    <td>${file.file_id}</td>
+                    <td>${escapeHtml(file.original_name)}</td>
+                    <td><span class="status ${file.kb_status}">${file.kb_status}</span></td>
+                    <td><span class="status ${file.upload_status}">${file.upload_status}</span></td>
+                    <td>${file.chunk_count ?? 0}</td>
+                    <td>
+                        <button class="btn-main" data-kb-ingest="${file.file_id}">${file.kb_status === 'ingested' ? 'Reindex' : 'Ingest'}</button>
+                        <button class="btn-danger" data-detach="${file.file_id}">Detach</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function libraryRowsHtml(items) {
+            if (!items.length) return '<tr><td colspan="5">No source files uploaded.</td></tr>';
+            const attachedSet = new Set(kbFiles.map((item) => Number(item.file_id)));
+            return items.map((file) => `
+                <tr>
+                    <td>${file.id}</td>
+                    <td>${escapeHtml(file.original_name)}</td>
+                    <td><span class="status ${file.status}">${file.status}</span></td>
+                    <td>${file.pages_or_rows ?? '-'}</td>
+                    <td>
+                        ${attachedSet.has(Number(file.id)) ? '<button class="btn-muted" disabled>Attached</button>' : `<button class="btn-ok" data-attach="${file.id}">Attach</button>`}
+                        <button class="btn-danger" data-del="${file.id}">Delete</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function sourceStatsRowsHtml(items) {
+            if (!items.length) return '<tr><td colspan="5">No sources ingested for this KB.</td></tr>';
+            return items.map((src) => `
+                <tr><td><strong>${escapeHtml(src.filename)}</strong></td><td>${src.chunks}</td><td>${src.vi_pct}%</td><td>${src.en_pct}%</td><td>${src.other_pct}%</td></tr>
+            `).join('');
+        }
+
+        function driveSourceRowsHtml(items, cellPrefix = 'drive') {
+            if (!items.length) return '<tr><td colspan="6">No Google Drive source for this KB.</td></tr>';
+            return items.map((item) => `
+                <tr>
+                    <td>${item.id}</td>
+                    <td><strong>${escapeHtml(item.name)}</strong><br><small class="note mono">${item.status}</small></td>
+                    <td class="mono">${escapeHtml(item.folder_id)}${item.shared_drive_id ? `<br><small>drive: ${escapeHtml(item.shared_drive_id)}</small>` : ''}</td>
+                    <td>${item.last_sync_at || '-'}</td>
+                    <td id="${cellPrefix}-drive-run-${item.id}">-</td>
+                    <td>
+                        <button class="btn-main" data-drive-sync="${item.id}">Sync</button>
+                        <button class="btn-ok" data-drive-schedule="${item.id}">Schedule</button>
+                        <button class="btn-muted" data-drive-status="${item.id}">Status</button>
+                        <button class="btn-danger" data-drive-delete="${item.id}">Delete</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function setDriveStatusSummary(text) {
+            const legacy = document.getElementById('driveStatusSummary');
+            const workspace = document.getElementById('knowledgeDriveStatusSummary');
+            if (legacy) legacy.textContent = text;
+            if (workspace) workspace.textContent = text;
+        }
+
+        function renderKnowledgeWorkspace() {
+            const selectedDriveSources = driveSourcesForSelectedKb();
+            setTableBody('knowledgeWorkspaceKbFilesTable', kbFileRowsHtml(kbFiles));
+            setTableBody('knowledgeWorkspaceLibraryTable', libraryRowsHtml(libraryFiles));
+            setTableBody('knowledgeWorkspaceSourcesTable', sourceStatsRowsHtml(sourceStats));
+            setTableBody('knowledgeWorkspaceDriveSourcesTable', selectedKbId() ? driveSourceRowsHtml(selectedDriveSources, 'knowledge') : '<tr><td colspan="6">No Knowledge Base selected.</td></tr>');
+
+            const summary = document.getElementById('knowledgeWorkspaceSummary');
+            if (summary) {
+                summary.textContent = activeKb
+                    ? `${activeKb.name} | ${kbFiles.length} KB file(s), ${libraryFiles.length} library source(s), ${selectedDriveSources.length} Drive source(s).`
+                    : 'No Knowledge Base selected.';
+            }
+            const files = document.getElementById('kwFiles');
+            const library = document.getElementById('kwLibrary');
+            const drive = document.getElementById('kwDrive');
+            if (files) files.textContent = String(kbFiles.length);
+            if (library) library.textContent = String(libraryFiles.length);
+            if (drive) drive.textContent = String(selectedDriveSources.length);
+        }
+
         function updateKbHeader() {
-            document.getElementById('kbKeyLabel').textContent = activeKb?.key || '-';
-            document.getElementById('kbStatusLabel').textContent = activeKb?.status || '-';
-            document.getElementById('kbAccessLabel').textContent = activeKb?.access_level || '-';
-            document.getElementById('kbDefaultLabel').textContent = activeKb?.is_default ? 'Yes' : 'No';
-            document.getElementById('kbDescription').textContent = activeKb?.description || 'No description.';
-            document.getElementById('s-kb-version').textContent = activeKb?.kb_version || '-';
-            document.getElementById('selectedKbAccessLevel').value = activeKb?.access_level || 'public';
-            document.getElementById('driveSourceHint').textContent = activeKb
+            setTextIfExists('kbKeyLabel', activeKb?.key || '-');
+            setTextIfExists('kbStatusLabel', activeKb?.status || '-');
+            setTextIfExists('kbAccessLabel', activeKb?.access_level || '-');
+            setTextIfExists('kbDefaultLabel', activeKb?.is_default ? 'Yes' : 'No');
+            setTextIfExists('kbDescription', activeKb?.description || 'No description.');
+            setTextIfExists('s-kb-version', activeKb?.kb_version || '-');
+            setValueIfExists('selectedKbAccessLevel', activeKb?.access_level || 'public');
+            setValueIfExists('kwSelectedKbAccessLevel', activeKb?.access_level || 'public');
+            setValueIfExists('kwSelectedKbName', activeKb?.name || '');
+            const driveHint = activeKb
                 ? `Drive sources created here will sync into KB "${activeKb.name}" (${activeKb.key}).`
                 : 'Drive sources are always bound to the selected KB.';
+            setTextIfExists('driveSourceHint', driveHint);
+            setTextIfExists('knowledgeDriveStatusSummary', driveHint);
         }
 
         async function loadKnowledgeBases(preferredId = null) {
@@ -905,137 +1766,89 @@
         }
 
         async function refreshKbFiles() {
-            if (!selectedKbId()) return;
-            kbFiles = await fetchJson(`/api/kbs/${selectedKbId()}/files`);
-            const tbody = document.querySelector('#kbFilesTable tbody');
-            if (!kbFiles.length) {
-                tbody.innerHTML = '<tr><td colspan="6">No files attached to this KB.</td></tr>';
+            if (!selectedKbId()) {
+                kbFiles = [];
+                setTableBody('kbFilesTable', emptyRow(6, 'No Knowledge Base selected.', 'Choose a KB before loading attached files.'));
+                renderKnowledgeWorkspace();
                 return;
             }
-            tbody.innerHTML = kbFiles.map((file) => `
-                <tr>
-                    <td>${file.file_id}</td>
-                    <td>${file.original_name}</td>
-                    <td><span class="status ${file.kb_status}">${file.kb_status}</span></td>
-                    <td><span class="status ${file.upload_status}">${file.upload_status}</span></td>
-                    <td>${file.chunk_count ?? 0}</td>
-                    <td>
-                        <button class="btn-main" data-kb-ingest="${file.file_id}">${file.kb_status === 'ingested' ? 'Reindex' : 'Ingest'}</button>
-                        <button class="btn-danger" data-detach="${file.file_id}">Detach</button>
-                    </td>
-                </tr>
-            `).join('');
+            setTableBody('kbFilesTable', loadingRow(6, 'Loading KB files...'));
+            kbFiles = await fetchJson(`/api/kbs/${selectedKbId()}/files`);
+            setTableBody('kbFilesTable', kbFileRowsHtml(kbFiles));
+            renderKnowledgeWorkspace();
         }
 
         async function refreshLibrary() {
+            setTableBody('libraryTable', loadingRow(5, 'Loading source library...'));
             libraryFiles = await fetchJson('/api/files');
-            const attachedSet = new Set(kbFiles.map((item) => Number(item.file_id)));
-            const tbody = document.querySelector('#libraryTable tbody');
-            if (!libraryFiles.length) {
-                tbody.innerHTML = '<tr><td colspan="5">No source files uploaded.</td></tr>';
-                return;
-            }
-            tbody.innerHTML = libraryFiles.map((file) => `
-                <tr>
-                    <td>${file.id}</td>
-                    <td>${file.original_name}</td>
-                    <td><span class="status ${file.status}">${file.status}</span></td>
-                    <td>${file.pages_or_rows ?? '-'}</td>
-                    <td>
-                        ${attachedSet.has(Number(file.id)) ? '<button class="btn-muted" disabled>Attached</button>' : `<button class="btn-ok" data-attach="${file.id}">Attach</button>`}
-                        <button class="btn-danger" data-del="${file.id}">Delete</button>
-                    </td>
-                </tr>
-            `).join('');
+            setTableBody('libraryTable', libraryRowsHtml(libraryFiles));
+            renderKnowledgeWorkspace();
         }
 
         async function refreshDriveSources() {
             driveSources = (await fetchJson('/api/admin/google-drive/sources')).items || [];
             const items = driveSourcesForSelectedKb();
-            const tbody = document.querySelector('#driveSourcesTable tbody');
-            const summary = document.getElementById('driveStatusSummary');
 
             if (!selectedKbId()) {
-                summary.textContent = 'Select a Knowledge Base to manage Google Drive sync.';
-                tbody.innerHTML = '<tr><td colspan="6">No Knowledge Base selected.</td></tr>';
+                setDriveStatusSummary('Select a Knowledge Base to manage Google Drive sync.');
+                setTableBody('driveSourcesTable', emptyRow(6, 'No Knowledge Base selected.', 'Choose a KB before managing Drive sources.'));
+                renderKnowledgeWorkspace();
                 return;
             }
+            setTableBody('driveSourcesTable', loadingRow(6, 'Loading Drive sources...'));
 
             if (!items.length) {
-                summary.textContent = `No Google Drive source is configured for KB "${activeKb?.name || '-'}".`;
-                tbody.innerHTML = '<tr><td colspan="6">No Google Drive source for this KB.</td></tr>';
+                setDriveStatusSummary(`No Google Drive source is configured for KB "${activeKb?.name || '-'}".`);
+                setTableBody('driveSourcesTable', driveSourceRowsHtml(items, 'drive'));
+                renderKnowledgeWorkspace();
                 return;
             }
 
             const latest = items
                 .slice()
                 .sort((a, b) => String(b.last_sync_at || '').localeCompare(String(a.last_sync_at || '')))[0];
-            summary.textContent = `Found ${items.length} Google Drive source(s) for KB "${activeKb?.name || '-'}". Latest sync: ${latest?.last_sync_at || 'never'}.`;
+            setDriveStatusSummary(`Found ${items.length} Google Drive source(s) for KB "${activeKb?.name || '-'}". Latest sync: ${latest?.last_sync_at || 'never'}.`);
 
-            tbody.innerHTML = items.map((item) => `
-                <tr>
-                    <td>${item.id}</td>
-                    <td><strong>${item.name}</strong><br><small class="note mono">${item.status}</small></td>
-                    <td class="mono">${item.folder_id}${item.shared_drive_id ? `<br><small>drive: ${item.shared_drive_id}</small>` : ''}</td>
-                    <td>${item.last_sync_at || '-'}</td>
-                    <td id="drive-run-${item.id}">-</td>
-                    <td>
-                        <button class="btn-main" data-drive-sync="${item.id}">Sync</button>
-                        <button class="btn-ok" data-drive-schedule="${item.id}">Schedule</button>
-                        <button class="btn-muted" data-drive-status="${item.id}">Status</button>
-                        <button class="btn-danger" data-drive-delete="${item.id}">Delete</button>
-                    </td>
-                </tr>
-            `).join('');
+            setTableBody('driveSourcesTable', driveSourceRowsHtml(items, 'drive'));
+            renderKnowledgeWorkspace();
 
             await Promise.all(items.map(async (item) => {
                 try {
                     const status = await fetchJson(`/api/admin/google-drive/sources/${item.id}/status`);
-                    const cell = document.getElementById(`drive-run-${item.id}`);
-                    if (!cell) return;
+                    const cells = document.querySelectorAll(`#drive-drive-run-${item.id}, #knowledge-drive-run-${item.id}`);
                     const lastRun = status.last_run;
                     if (!lastRun) {
-                        cell.textContent = 'No run yet';
+                        cells.forEach((cell) => { cell.textContent = 'No run yet'; });
                         return;
                     }
-                    cell.innerHTML = `<span class="status ${lastRun.status}">${lastRun.status}</span><br><small>${lastRun.imported_count} imported / ${lastRun.failed_count} failed</small>`;
+                    cells.forEach((cell) => {
+                        cell.innerHTML = `<span class="status ${lastRun.status}">${lastRun.status}</span><br><small>${lastRun.imported_count} imported / ${lastRun.failed_count} failed</small>`;
+                    });
                 } catch (_) {
-                    const cell = document.getElementById(`drive-run-${item.id}`);
-                    if (cell) cell.textContent = 'Status unavailable';
+                    document.querySelectorAll(`#drive-drive-run-${item.id}, #knowledge-drive-run-${item.id}`).forEach((cell) => {
+                        cell.textContent = 'Status unavailable';
+                    });
                 }
             }));
         }
 
         async function refreshSources() {
-            if (!selectedKbId()) return;
-            const sources = await fetchJson(`/api/kbs/${selectedKbId()}/sources/stats`);
-            const tbody = document.querySelector('#sourcesTable tbody');
-            if (!sources.length) {
-                tbody.innerHTML = '<tr><td colspan="5">No sources ingested for this KB.</td></tr>';
+            if (!selectedKbId()) {
+                sourceStats = [];
+                setTableBody('sourcesTable', emptyRow(5, 'No Knowledge Base selected.', 'Choose a KB before loading source distribution.'));
+                renderKnowledgeWorkspace();
                 return;
             }
-            tbody.innerHTML = sources.map((src) => `
-                <tr><td><strong>${src.filename}</strong></td><td>${src.chunks}</td><td>${src.vi_pct}%</td><td>${src.en_pct}%</td><td>${src.other_pct}%</td></tr>
-            `).join('');
+            setTableBody('sourcesTable', loadingRow(5, 'Loading source distribution...'));
+            sourceStats = await fetchJson(`/api/kbs/${selectedKbId()}/sources/stats`);
+            setTableBody('sourcesTable', sourceStatsRowsHtml(sourceStats));
+            renderKnowledgeWorkspace();
         }
 
         async function refreshLogs() {
-            const logs = await fetchJson('/api/admin/chat-logs?limit=50');
-            const tbody = document.querySelector('#logsTable tbody');
-            if (!logs.length) {
-                tbody.innerHTML = '<tr><td colspan="6">No chat logs yet.</td></tr>';
-                return;
-            }
-            tbody.innerHTML = logs.map((log) => `
-                <tr>
-                    <td>${log.created_at || '-'}</td>
-                    <td><span class="status ${log.mode}">${log.mode}</span></td>
-                    <td>${log.top_score ?? '-'}</td>
-                    <td>${log.latency_ms ?? '-'} ms</td>
-                    <td><span class="status done">${log.feedback_up || 0} up</span> <span class="status failed">${log.feedback_down || 0} down</span></td>
-                    <td>${escapeHtml((log.user_message || '').slice(0, 110))}</td>
-                </tr>
-            `).join('');
+            chatLogs = await fetchJson('/api/admin/chat-logs?limit=50');
+            setTableBody('logsTable', chatLogRowsHtml(chatLogs));
+            renderOperationsWorkspace();
         }
 
         async function refreshFeedback() {
@@ -1060,20 +1873,10 @@
                 </tr>
             `).join('') : '<tr><td colspan="5">No feedback summary found.</td></tr>';
 
-            const tbody = document.querySelector('#feedbackTable tbody');
             const items = list.items || [];
-            tbody.innerHTML = items.length ? items.map((item) => `
-                <tr>
-                    <td>${item.created_at || '-'}</td>
-                    <td><span class="status ${item.rating === 'up' ? 'done' : 'failed'}">${item.rating}</span></td>
-                    <td>${escapeHtml(item.kb_key || item.kb_id || '-')}</td>
-                    <td>${escapeHtml(item.created_by_user_id || '-')}</td>
-                    <td>
-                        ${escapeHtml(item.reason_code || '-')}
-                        <br><small class="note">${escapeHtml(item.comment || item.chat_answer_text || '').slice(0, 180)}</small>
-                    </td>
-                </tr>
-            `).join('') : '<tr><td colspan="5">No feedback found.</td></tr>';
+            feedbackItems = items;
+            setTableBody('feedbackTable', feedbackRowsHtml(feedbackItems));
+            renderOperationsWorkspace();
         }
 
         function formatRate(value) {
@@ -1090,6 +1893,76 @@
             `).join('') : `<tr><td colspan="2">${emptyLabel}</td></tr>`;
         }
 
+        function clampNumber(value, min, max) {
+            return Math.max(min, Math.min(max, Number(value) || 0));
+        }
+
+        function analyticsHealth(summary) {
+            const positiveRate = Number(summary.positive_rate ?? 0);
+            const toolErrorRate = Number(summary.tool_error_rate ?? 0);
+            const failedJobs = Number(summary.background_jobs_failed || 0);
+            const pendingActions = Number(summary.pending_actions_open || 0);
+            const openTickets = Number(summary.support_tickets_open || 0);
+            let score = 100;
+            if (Number(summary.chat_count || 0) > 0 && positiveRate > 0) {
+                score -= clampNumber((0.85 - positiveRate) * 90, 0, 30);
+            }
+            score -= clampNumber(toolErrorRate * 100, 0, 30);
+            score -= clampNumber(failedJobs * 4, 0, 20);
+            score -= clampNumber(pendingActions * 2, 0, 12);
+            score -= clampNumber(openTickets, 0, 10);
+            score = Math.round(clampNumber(score, 0, 100));
+            const label = score >= 85 ? 'healthy' : score >= 70 ? 'watch' : 'action needed';
+            const status = score >= 85 ? 'done' : score >= 70 ? 'queued' : 'failed';
+            return { score, label, status };
+        }
+
+        function renderAnalyticsInsights(summary) {
+            const positiveRate = Number(summary.positive_rate ?? 0);
+            const toolErrorRate = Number(summary.tool_error_rate ?? 0);
+            const failedJobs = Number(summary.background_jobs_failed || 0);
+            const pendingActions = Number(summary.pending_actions_open || 0);
+            const openTickets = Number(summary.support_tickets_open || 0);
+            const insights = [
+                {
+                    status: positiveRate >= 0.8 ? 'done' : 'queued',
+                    title: 'Answer Quality',
+                    body: `Positive feedback is ${formatRate(positiveRate)} in this window.`,
+                },
+                {
+                    status: toolErrorRate <= 0.05 ? 'done' : 'failed',
+                    title: 'Tool Reliability',
+                    body: `Tool error rate is ${formatRate(toolErrorRate)}.`,
+                },
+                {
+                    status: failedJobs ? 'failed' : 'done',
+                    title: 'Worker Health',
+                    body: `${failedJobs} failed background job(s) need review.`,
+                },
+                {
+                    status: pendingActions ? 'queued' : 'done',
+                    title: 'Approval Queue',
+                    body: `${pendingActions} pending approval(s) are open.`,
+                },
+                {
+                    status: openTickets > 10 ? 'queued' : 'done',
+                    title: 'Support Load',
+                    body: `${openTickets} support ticket(s) are currently open.`,
+                },
+                {
+                    status: 'active',
+                    title: 'Scope',
+                    body: document.getElementById('analyticsScope').value === 'selected' ? 'Metrics are filtered to the selected KB.' : 'Metrics are aggregated across all KBs.',
+                },
+            ];
+            document.getElementById('analyticsInsights').innerHTML = insights.map((item) => `
+                <div class="insight">
+                    <strong><span class="status ${item.status}">${escapeHtml(item.title)}</span></strong>
+                    <small class="note">${escapeHtml(item.body)}</small>
+                </div>
+            `).join('');
+        }
+
         async function refreshAnalytics() {
             const days = Number(document.getElementById('analyticsDays').value || '7');
             const selectedOnly = document.getElementById('analyticsScope').value === 'selected';
@@ -1104,6 +1977,21 @@
             document.getElementById('aOpenTickets').textContent = summary.support_tickets_open || 0;
             document.getElementById('aFailedJobs').textContent = summary.background_jobs_failed || 0;
             document.getElementById('aPendingActions').textContent = summary.pending_actions_open || 0;
+            document.getElementById('aUsers').textContent = summary.unique_users || 0;
+            document.getElementById('aLatency').textContent = summary.avg_latency_ms === null || summary.avg_latency_ms === undefined ? '-' : `${Math.round(summary.avg_latency_ms)} ms`;
+            const health = analyticsHealth(summary);
+            document.getElementById('aHealthScore').textContent = String(health.score);
+            const healthLabel = document.getElementById('aHealthLabel');
+            healthLabel.textContent = health.label;
+            healthLabel.className = `status ${health.status}`;
+            document.getElementById('aHealthReasons').textContent = `Quality ${formatRate(summary.positive_rate)}, tool errors ${formatRate(summary.tool_error_rate)}, ${summary.background_jobs_failed || 0} failed job(s), ${summary.pending_actions_open || 0} approval(s).`;
+            const opsPressure = Number(summary.support_tickets_open || 0) + Number(summary.background_jobs_failed || 0) + Number(summary.pending_actions_open || 0);
+            document.getElementById('aOpsPressure').textContent = String(opsPressure);
+            const pressureLabel = document.getElementById('aOpsPressureLabel');
+            pressureLabel.textContent = opsPressure > 10 ? 'high' : opsPressure > 0 ? 'open' : 'clear';
+            pressureLabel.className = `status ${opsPressure > 10 ? 'failed' : opsPressure > 0 ? 'queued' : 'done'}`;
+            document.getElementById('aOpsPressureDetail').textContent = `${summary.support_tickets_open || 0} open ticket(s), ${summary.background_jobs_failed || 0} failed job(s), ${summary.pending_actions_open || 0} approval(s).`;
+            renderAnalyticsInsights(summary);
 
             const timelineBody = document.querySelector('#analyticsTimelineTable tbody');
             timelineBody.innerHTML = (data.timeseries || []).length ? data.timeseries.map((item) => `
@@ -1126,31 +2014,340 @@
         }
 
         async function refreshAuthAudit() {
-            const items = await fetchJson('/api/admin/auth-audit-logs?limit=50');
-            const tbody = document.querySelector('#authAuditTable tbody');
-            if (!items.length) {
-                tbody.innerHTML = '<tr><td colspan="5">No authorization audit logs yet.</td></tr>';
-                return;
-            }
-            tbody.innerHTML = items.map((item) => {
-                const resource = [item.resource_type || '-', item.resource_id || '-'].join(' / ');
-                const actor = item.user_id
-                    ? `${item.user_id}${(item.roles || []).length ? ` (${item.roles.join(',')})` : ''}`
-                    : 'anonymous';
+            authAuditLogs = await fetchJson('/api/admin/auth-audit-logs?limit=50');
+            setTableBody('authAuditTable', authAuditRowsHtml(authAuditLogs));
+            renderOperationsWorkspace();
+        }
+
+        function supportCaseRowsHtml(items, compact = false) {
+            if (!items.length) return '<tr><td colspan="5">No support cases found.</td></tr>';
+            return items.map((item) => {
+                const wf = item.workflow_status || item.status || 'new';
+                const slaClass = item.sla_breached_at ? 'failed' : 'queued';
+                const owner = `${item.assigned_team || '-'}<br><small class="note">${item.assigned_user_id || '-'}</small>`;
                 return `
                     <tr>
-                        <td>${item.created_at || '-'}</td>
-                        <td><span class="status ${item.decision === 'allow' ? 'done' : 'failed'}">${item.decision || '-'}</span></td>
-                        <td>${resource}</td>
-                        <td>${actor}</td>
-                        <td>${item.reason || '-'}</td>
+                        <td><strong>${item.ticket_code}</strong><br><small class="note">${escapeHtml(item.contact || item.created_by_user_id || '-')}</small><br><span class="status ${wf}">${wf}</span></td>
+                        <td>${item.intent || '-'}<br><small class="note">risk: ${item.risk_level || '-'} / sentiment: ${item.sentiment || '-'}</small></td>
+                        <td><span class="status ${slaClass}">${item.priority || '-'}</span><br><small class="note">Due: ${item.sla_due_at || '-'}</small>${item.sla_breached_at ? `<br><small class="note">Breached: ${item.sla_breached_at}</small>` : ''}</td>
+                        <td>${owner}${compact ? '' : `<br><small class="note">${item.note_count || 0} note(s), ${item.pending_action_count || 0} approval(s)</small>`}</td>
+                        <td>
+                            <button class="btn-muted" data-case-view="${item.id}">Context</button>
+                            <button class="btn-main" data-case-handle="${item.id}">Handle</button>
+                            <button class="btn-ok" data-case-assign="${item.id}">Assign</button>
+                            <button class="btn-danger" data-case-escalate="${item.id}">Escalate</button>
+                        </td>
                     </tr>
                 `;
             }).join('');
         }
 
-        async function refreshSupportEmails(allowSync = true) {
-            const syncFirst = allowSync && document.getElementById('emailSyncFirst').value === 'true';
+        function supportEmailRowsHtml(items) {
+            if (!items.length) return '<tr><td colspan="5">No support emails found.</td></tr>';
+            return items.map((item) => `
+                <tr>
+                    <td>${escapeHtml(String(item.id))}</td>
+                    <td style="overflow:hidden; max-width:0;"><span style="display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(item.from_address || '')}">${escapeHtml(item.from_address || '-')}</span><small class="note" style="display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(item.received_at || '-')}</small></td>
+                    <td style="overflow:hidden; max-width:0;"><strong style="display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(item.subject || '')}">${escapeHtml(item.subject || '(no subject)')}</strong><small class="note" style="display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(item.snippet || '')}</small></td>
+                    <td><span class="status ${item.ticket_code ? 'done' : escapeHtml(item.status || '')}">${escapeHtml(item.ticket_code || item.status || '-')}</span></td>
+                    <td style="white-space:nowrap; vertical-align:middle;"><button class="btn-muted" style="padding:4px 7px;font-size:12px;margin:1px 2px;" data-email-read="${item.id}">Read</button><button class="btn-ok" style="padding:4px 7px;font-size:12px;margin:1px 2px;" data-email-ticket="${item.id}">Ticket</button><button class="btn-main" style="padding:4px 7px;font-size:12px;margin:1px 2px;" data-email-handle="${item.id}">Handle</button></td>
+                </tr>
+            `).join('');
+        }
+
+        function renderSupportWorkspaceCases() {
+            const tbody = document.querySelector('#supportWorkspaceCasesTable tbody');
+            if (tbody) tbody.innerHTML = supportCaseRowsHtml(supportCases, true);
+            const overdue = supportCases.filter((item) => item.sla_breached_at).length;
+            const waiting = supportCases.filter((item) => item.workflow_status === 'waiting_approval').length;
+            const summary = document.getElementById('workspaceSummary');
+            if (summary) summary.textContent = `Loaded ${supportCases.length} case(s). Waiting approval: ${waiting}. Overdue SLA: ${overdue}.`;
+        }
+
+        function renderSupportWorkspaceEmails() {
+            const tbody = document.querySelector('#supportWorkspaceEmailsTable tbody');
+            if (tbody) tbody.innerHTML = supportEmailRowsHtml(supportEmails);
+        }
+
+        function renderSupportWorkspaceActions() {
+            const tbody = document.querySelector('#supportWorkspaceActionsTable tbody');
+            if (!tbody) return;
+            if (!selectedSupportCaseId) {
+                tbody.innerHTML = '<tr><td colspan="4">Select a case to inspect related approvals.</td></tr>';
+                return;
+            }
+            const related = pendingActions.filter((item) => Number(item.payload?.ticket_id) === Number(selectedSupportCaseId));
+            tbody.innerHTML = related.length ? related.map((item) => `
+                <tr>
+                    <td>${item.id}</td>
+                    <td><strong>${escapeHtml(item.title || item.action_type)}</strong><br><small class="note">${item.action_type} / ${item.risk_level}</small></td>
+                    <td><span class="status ${item.status}">${item.status}</span></td>
+                    <td>${escapeHtml(item.summary || '-')}</td>
+                </tr>
+            `).join('') : '<tr><td colspan="4">No related pending approvals for this case.</td></tr>';
+        }
+
+        function asPercent(value) {
+            if (value === null || value === undefined || value === '') return '-';
+            const number = Number(value);
+            return Number.isFinite(number) ? `${Math.round(number * 100)}%` : String(value);
+        }
+
+        function listHtml(items, emptyLabel = 'No data available.') {
+            if (!Array.isArray(items) || !items.length) return `<p class="note">${escapeHtml(emptyLabel)}</p>`;
+            return `<ul class="case-list">${items.map((item) => `<li>${escapeHtml(typeof item === 'string' ? item : JSON.stringify(item))}</li>`).join('')}</ul>`;
+        }
+
+        function renderActionPlan(plan) {
+            const steps = Array.isArray(plan?.steps) ? plan.steps : [];
+            if (!steps.length) return '<p class="note">No action plan has been generated yet. Click Handle to run the workflow.</p>';
+            return `<ol class="case-list">${steps.map((step) => `
+                <li>
+                    <strong>${escapeHtml(step.description || step.type || 'Step')}</strong>
+                    <br><small class="note">${escapeHtml(step.tool || 'no tool')} | risk: ${escapeHtml(step.risk || '-')} | status: ${escapeHtml(step.status || '-')} ${step.requires_approval ? '| approval required' : ''}</small>
+                </li>
+            `).join('')}</ol>`;
+        }
+
+        function renderReadableCaseContext(ctx, notes) {
+            const ticket = ctx.ticket || {};
+            const classification = ctx.classification || {};
+            const caseContext = ctx.context || {};
+            const actionPlan = ctx.action_plan || {};
+            const escalation = ctx.escalation || {};
+            const noteItems = notes.items || [];
+            const raw = { ticket, classification, context: caseContext, action_plan: actionPlan, escalation, notes: noteItems };
+            const status = ticket.workflow_status || ticket.status || '-';
+            const findings = Array.isArray(caseContext.findings) ? caseContext.findings : [];
+            const previousTickets = Array.isArray(caseContext.previous_tickets) ? caseContext.previous_tickets : [];
+            const kbSuggestions = Array.isArray(caseContext.kb_suggestions) ? caseContext.kb_suggestions : [];
+            return `
+                <section class="case-context-section">
+                    <h4>Summary</h4>
+                    <p>${escapeHtml(ticket.message || 'No customer message.')}</p>
+                </section>
+                <section class="case-context-section">
+                    <h4>Status & Ownership</h4>
+                    <div class="case-kv">
+                        <div><small>Ticket</small><strong>${escapeHtml(ticket.ticket_code || ticket.id || '-')}</strong></div>
+                        <div><small>Status</small><span class="status ${escapeHtml(status)}">${escapeHtml(status)}</span></div>
+                        <div><small>Priority / SLA</small><strong>${escapeHtml(ticket.priority || '-')}</strong><br><small>Due: ${escapeHtml(ticket.sla_due_at || '-')}</small></div>
+                        <div><small>Owner</small><strong>${escapeHtml(ticket.assigned_team || '-')}</strong><br><small>${escapeHtml(ticket.assigned_user_id || '-')}</small></div>
+                    </div>
+                </section>
+                <section class="case-context-section">
+                    <h4>Customer</h4>
+                    <div class="case-kv">
+                        <div><small>User</small><strong>${escapeHtml(ticket.created_by_user_id || '-')}</strong></div>
+                        <div><small>Contact</small><strong>${escapeHtml(ticket.contact || '-')}</strong></div>
+                        <div><small>Channel</small><strong>${escapeHtml(ticket.channel || '-')}</strong></div>
+                        <div><small>KB</small><strong>${escapeHtml(ticket.kb_key || ticket.kb_id || '-')}</strong></div>
+                    </div>
+                </section>
+                <section class="case-context-section">
+                    <h4>Classification</h4>
+                    <div class="case-kv">
+                        <div><small>Intent</small><strong>${escapeHtml(classification.intent || ticket.intent || '-')}</strong></div>
+                        <div><small>Confidence</small><strong>${escapeHtml(asPercent(classification.confidence ?? ticket.intent_confidence))}</strong></div>
+                        <div><small>Risk</small><strong>${escapeHtml(classification.risk_level || ticket.risk_level || '-')}</strong></div>
+                        <div><small>Sentiment</small><strong>${escapeHtml(classification.customer_sentiment || ticket.sentiment || '-')}</strong></div>
+                    </div>
+                    ${classification.reason ? `<p class="note" style="margin-top:8px;">${escapeHtml(classification.reason)}</p>` : ''}
+                </section>
+                <section class="case-context-section">
+                    <h4>Action Plan</h4>
+                    ${actionPlan.goal ? `<p style="margin-bottom:6px;"><strong>Goal:</strong> ${escapeHtml(actionPlan.goal)}</p>` : ''}
+                    ${renderActionPlan(actionPlan)}
+                </section>
+                <section class="case-context-section">
+                    <h4>Findings</h4>
+                    ${listHtml(findings, 'No workflow findings yet.')}
+                    ${previousTickets.length ? `<p class="note" style="margin-top:6px;">Previous related tickets: ${previousTickets.length}</p>` : ''}
+                    ${kbSuggestions.length ? `<p class="note" style="margin-top:6px;">KB suggestions: ${kbSuggestions.length}</p>` : ''}
+                </section>
+                ${Object.keys(escalation).length ? `
+                    <section class="case-context-section">
+                        <h4>Escalation</h4>
+                        <p>${escapeHtml(escalation.summary || escalation.suggested_next_action || '-')}</p>
+                        ${escalation.draft_reply ? `<p class="note" style="margin-top:6px;"><strong>Draft reply:</strong> ${escapeHtml(escalation.draft_reply)}</p>` : ''}
+                    </section>
+                ` : ''}
+                <section class="case-context-section">
+                    <h4>Internal Notes</h4>
+                    ${noteItems.length ? `<ul class="case-list">${noteItems.map((note) => `<li><strong>${escapeHtml(note.note_type || 'note')}</strong>: ${escapeHtml(note.body || '')}<br><small class="note">${escapeHtml(note.created_by_user_id || '-')} | ${escapeHtml(note.created_at || '-')}</small></li>`).join('')}</ul>` : '<p class="note">No internal notes yet.</p>'}
+                </section>
+                <details class="case-context-section case-raw">
+                    <summary>Raw JSON Debug</summary>
+                    <pre class="mono" style="white-space:pre-wrap; margin:8px 0 0;">${escapeHtml(JSON.stringify(raw, null, 2))}</pre>
+                </details>
+            `;
+        }
+
+        function pendingActionRowsHtml(items) {
+            if (!items.length) return '<tr><td colspan="5">No pending actions found.</td></tr>';
+            return items.map((item) => {
+                const canApprove = item.status === 'draft';
+                const canExecute = item.status === 'approved';
+                const canReject = item.status === 'draft' || item.status === 'approved';
+                return `
+                    <tr>
+                        <td>${item.id}</td>
+                        <td><strong>${escapeHtml(item.title)}</strong><br><small class="note mono">${item.action_type} / ${item.risk_level}</small></td>
+                        <td><span class="status ${item.status}">${item.status}</span></td>
+                        <td>${escapeHtml(item.summary || '-')}<br><small class="note">By: ${escapeHtml(item.created_by_user_id || '-')}</small></td>
+                        <td>
+                            ${canApprove ? `<button class="btn-ok" data-action-approve="${item.id}">Approve</button>` : ''}
+                            ${canExecute ? `<button class="btn-main" data-action-execute="${item.id}">Execute</button>` : ''}
+                            ${canReject ? `<button class="btn-danger" data-action-reject="${item.id}">Reject</button>` : ''}
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function syncScheduleRowsHtml(items) {
+            if (!items.length) return '<tr><td colspan="6">No sync schedules found.</td></tr>';
+            return items.map((item) => `
+                <tr>
+                    <td>${item.id}</td>
+                    <td><strong>${escapeHtml(item.name)}</strong><br><small class="note">${item.enabled ? 'enabled' : 'disabled'}</small></td>
+                    <td><span class="status ${item.enabled ? 'active' : 'archived'}">${item.schedule_type}</span><br><small class="note mono">${escapeHtml(JSON.stringify(item.payload || {}))}</small></td>
+                    <td>${Math.round((item.interval_seconds || 0) / 60)} min</td>
+                    <td><small>Last: ${item.last_run_at || '-'}</small><br><small>Next: ${item.next_run_at || '-'}</small><br><small class="note mono">${item.last_job_id || ''}</small></td>
+                    <td>
+                        <button class="btn-muted" data-schedule-toggle="${item.id}">${item.enabled ? 'Disable' : 'Enable'}</button>
+                        <button class="btn-main" data-schedule-edit="${item.id}">Interval</button>
+                        <button class="btn-danger" data-schedule-delete="${item.id}">Delete</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function backgroundJobRowsHtml(items) {
+            if (!items.length) return '<tr><td colspan="6">No background jobs found.</td></tr>';
+            return items.map((job) => {
+                const result = job.error_message || JSON.stringify(job.result || {});
+                const canCancel = ['queued', 'retrying', 'running', 'cancelling'].includes(job.status);
+                const canRetry = ['failed', 'cancelled'].includes(job.status);
+                const retryText = job.retry_after ? `<br><small class="note">Retry after: ${job.retry_after}</small>` : '';
+                const workerText = job.worker_id ? `<br><small class="note mono">Worker: ${escapeHtml(job.worker_id)}</small>` : '';
+                const heartbeatText = job.heartbeat_at ? `<br><small class="note">Heartbeat: ${job.heartbeat_at}</small>` : '';
+                return `
+                    <tr>
+                        <td class="mono">${job.job_id}</td>
+                        <td>${job.job_type}</td>
+                        <td><span class="status ${job.status}">${job.status}</span>${retryText}<br><small class="note">Attempts: ${job.attempts}/${job.max_attempts}</small>${workerText}${heartbeatText}</td>
+                        <td>${Math.round((job.progress || 0) * 100)}%</td>
+                        <td><small class="note">${escapeHtml(result).slice(0, 220)}</small></td>
+                        <td>
+                            ${canCancel ? `<button class="btn-danger" data-job-cancel="${job.job_id}">Cancel</button>` : ''}
+                            ${canRetry ? `<button class="btn-main" data-job-retry="${job.job_id}">Retry</button>` : ''}
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function chatLogRowsHtml(items, compact = false) {
+            if (!items.length) return `<tr><td colspan="${compact ? 4 : 6}">No chat logs yet.</td></tr>`;
+            return items.map((log) => compact ? `
+                <tr>
+                    <td>${log.created_at || '-'}</td>
+                    <td><span class="status ${log.mode}">${log.mode}</span></td>
+                    <td><span class="status done">${log.feedback_up || 0} up</span> <span class="status failed">${log.feedback_down || 0} down</span></td>
+                    <td>${escapeHtml((log.user_message || '').slice(0, 120))}</td>
+                </tr>
+            ` : `
+                <tr>
+                    <td>${log.created_at || '-'}</td>
+                    <td><span class="status ${log.mode}">${log.mode}</span></td>
+                    <td>${log.top_score ?? '-'}</td>
+                    <td>${log.latency_ms ?? '-'} ms</td>
+                    <td><span class="status done">${log.feedback_up || 0} up</span> <span class="status failed">${log.feedback_down || 0} down</span></td>
+                    <td>${escapeHtml((log.user_message || '').slice(0, 110))}</td>
+                </tr>
+            `).join('');
+        }
+
+        function feedbackRowsHtml(items, compact = false) {
+            if (!items.length) return `<tr><td colspan="${compact ? 4 : 5}">No feedback found.</td></tr>`;
+            return items.map((item) => compact ? `
+                <tr>
+                    <td>${item.created_at || '-'}</td>
+                    <td><span class="status ${item.rating === 'up' ? 'done' : 'failed'}">${item.rating}</span></td>
+                    <td>${escapeHtml(item.kb_key || item.kb_id || '-')}</td>
+                    <td>${escapeHtml(item.reason_code || '-')}</td>
+                </tr>
+            ` : `
+                <tr>
+                    <td>${item.created_at || '-'}</td>
+                    <td><span class="status ${item.rating === 'up' ? 'done' : 'failed'}">${item.rating}</span></td>
+                    <td>${escapeHtml(item.kb_key || item.kb_id || '-')}</td>
+                    <td>${escapeHtml(item.created_by_user_id || '-')}</td>
+                    <td>
+                        ${escapeHtml(item.reason_code || '-')}
+                        <br><small class="note">${escapeHtml(item.comment || item.chat_answer_text || '').slice(0, 180)}</small>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function authAuditRowsHtml(items, compact = false) {
+            if (!items.length) return `<tr><td colspan="${compact ? 4 : 5}">No authorization audit logs yet.</td></tr>`;
+            return items.map((item) => {
+                const resource = [item.resource_type || '-', item.resource_id || '-'].join(' / ');
+                const actor = item.user_id
+                    ? `${item.user_id}${(item.roles || []).length ? ` (${item.roles.join(',')})` : ''}`
+                    : 'anonymous';
+                return compact ? `
+                    <tr>
+                        <td>${item.created_at || '-'}</td>
+                        <td><span class="status ${item.decision === 'allow' ? 'done' : 'failed'}">${item.decision || '-'}</span></td>
+                        <td>${escapeHtml(resource)}</td>
+                        <td>${escapeHtml(actor)}</td>
+                    </tr>
+                ` : `
+                    <tr>
+                        <td>${item.created_at || '-'}</td>
+                        <td><span class="status ${item.decision === 'allow' ? 'done' : 'failed'}">${item.decision || '-'}</span></td>
+                        <td>${escapeHtml(resource)}</td>
+                        <td>${escapeHtml(actor)}</td>
+                        <td>${escapeHtml(item.reason || '-')}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function renderOperationsWorkspace() {
+            setTableBody('operationsPendingActionsTable', pendingActionRowsHtml(pendingActions));
+            setTableBody('operationsSyncSchedulesTable', syncScheduleRowsHtml(syncSchedules));
+            setTableBody('operationsBackgroundJobsTable', backgroundJobRowsHtml(backgroundJobs));
+            setTableBody('operationsChatLogsTable', chatLogRowsHtml(chatLogs, true));
+            setTableBody('operationsFeedbackTable', feedbackRowsHtml(feedbackItems, true));
+            setTableBody('operationsAuthAuditTable', authAuditRowsHtml(authAuditLogs, true));
+
+            const needsReview = pendingActions.filter((item) => ['draft', 'approved'].includes(item.status)).length;
+            const activeJobCount = backgroundJobs.filter((job) => ['queued', 'retrying', 'running', 'cancelling'].includes(job.status)).length;
+            const failedJobCount = backgroundJobs.filter((job) => job.status === 'failed').length;
+            const enabledSchedules = syncSchedules.filter((item) => item.enabled).length;
+            const downFeedback = feedbackItems.filter((item) => item.rating === 'down').length;
+            const authDenies = authAuditLogs.filter((item) => item.decision && item.decision !== 'allow').length;
+            document.getElementById('opPendingReview').textContent = String(needsReview);
+            document.getElementById('opActiveJobs').textContent = String(activeJobCount);
+            document.getElementById('opFailedJobs').textContent = String(failedJobCount);
+            document.getElementById('opSchedulesEnabled').textContent = String(enabledSchedules);
+            document.getElementById('opDownFeedback').textContent = String(downFeedback);
+            document.getElementById('opAuthDenies').textContent = String(authDenies);
+            document.getElementById('operationsSummary').textContent = `${needsReview} approval(s) need review, ${activeJobCount} active job(s), ${failedJobCount} failed job(s).`;
+        }
+
+        async function refreshSupportEmails(allowSync = true, showLoading = true) {
+            const syncMode = document.getElementById('workspaceEmailSyncFirst')?.value || document.getElementById('emailSyncFirst').value;
+            const syncFirst = allowSync && syncMode === 'true';
+            if (showLoading) {
+                setTableBody('supportEmailsTable', loadingRow(5, syncFirst ? 'Syncing mailbox...' : 'Loading support emails...'));
+                setTableBody('supportWorkspaceEmailsTable', loadingRow(5, syncFirst ? 'Syncing mailbox...' : 'Loading support emails...'));
+            }
             let syncJob = null;
             if (syncFirst) {
                 syncJob = await fetchJson('/api/admin/support-email/sync?limit=30', { method: 'POST' });
@@ -1163,33 +2360,22 @@
             const syncText = data.sync ? ` Sync run ${data.sync.run_id}: ${data.sync.imported_count} imported.` : '';
             const jobText = syncJob ? ` Sync job queued: ${syncJob.job_id}.` : '';
             summary.textContent = `Loaded ${supportEmails.length} support email(s) from ${data.source}.${syncText}${jobText}`;
-            if (!supportEmails.length) {
-                tbody.innerHTML = '<tr><td colspan="5">No support emails found.</td></tr>';
-                return;
-            }
-            tbody.innerHTML = supportEmails.map((item) => `
-                <tr>
-                    <td>${item.id}</td>
-                    <td>${item.from_address || '-'}<br><small class="note">${item.received_at || '-'}</small></td>
-                    <td><strong>${item.subject || '(no subject)'}</strong><br><small class="note">${item.snippet || ''}</small></td>
-                    <td><span class="status ${item.ticket_code ? 'done' : item.status}">${item.ticket_code || item.status}</span></td>
-                    <td>
-                        <button class="btn-muted" data-email-read="${item.id}">Read</button>
-                        <button class="btn-ok" data-email-ticket="${item.id}">Ticket</button>
-                        <button class="btn-main" data-email-handle="${item.id}">Handle</button>
-                    </td>
-                </tr>
-            `).join('');
+            tbody.innerHTML = supportEmailRowsHtml(supportEmails);
+            renderSupportWorkspaceEmails();
         }
 
         async function readSupportEmail(emailId) {
             selectedSupportEmailId = Number(emailId);
             const data = await fetchJson(`/api/admin/support-email/messages/${emailId}/thread`);
-            document.getElementById('supportEmailThreadSummary').textContent = `Thread ${data.thread_id}: ${data.total} message(s). Selected email ID ${emailId}.`;
-            document.getElementById('supportEmailThreadBody').value = (data.messages || []).map((msg) => {
+            const summary = `Thread ${data.thread_id}: ${data.total} message(s). Selected email ID ${emailId}.`;
+            const body = (data.messages || []).map((msg) => {
                 const who = msg.direction === 'outbound' ? `Support -> ${(msg.to_addresses || []).join(', ')}` : `${msg.from_address || '-'}`;
                 return `[${msg.received_at || '-'}] ${who}\nSubject: ${msg.subject || '(no subject)'}\n\n${msg.body_text || msg.snippet || ''}`;
             }).join('\n\n---\n\n');
+            setTextIfExists('supportEmailThreadSummary', summary);
+            setTextIfExists('workspaceEmailThreadSummary', summary);
+            setValueIfExists('supportEmailThreadBody', body);
+            setValueIfExists('workspaceEmailThreadBody', body);
         }
 
         async function createTicketFromSupportEmail(emailId) {
@@ -1199,12 +2385,15 @@
                 body: JSON.stringify({ issue_type: 'other' }),
             });
             toast(`Created ticket ${result.ticket_code} from email ${emailId}`);
-            await Promise.all([refreshSupportEmails(), refreshSupportCases()]);
+            await allAllowed([
+                ['support', refreshSupportEmails],
+                ['support', refreshSupportCases],
+            ]);
         }
 
         async function sendSupportEmailReply() {
             if (!selectedSupportEmailId) return toast('Select a support email first.', false);
-            const body = document.getElementById('supportEmailReplyBody').value.trim();
+            const body = valueFrom('workspaceEmailReplyBody', 'supportEmailReplyBody').trim();
             if (!body) return toast('Reply body is required.', false);
             const result = await fetchJson(`/api/admin/support-email/messages/${selectedSupportEmailId}/reply`, {
                 method: 'POST',
@@ -1212,23 +2401,31 @@
                 body: JSON.stringify({ body }),
             });
             toast(`Created pending email reply action ${result.id}`);
-            document.getElementById('supportEmailReplyBody').value = '';
-            await refreshPendingActions();
+            setValueIfExists('supportEmailReplyBody', '');
+            setValueIfExists('workspaceEmailReplyBody', '');
+            await refreshIfAllowed('operations', refreshPendingActions);
         }
 
         function clearSupportEmailSelection() {
             selectedSupportEmailId = null;
-            document.getElementById('supportEmailThreadSummary').textContent = 'No thread selected.';
-            document.getElementById('supportEmailThreadBody').value = '';
-            document.getElementById('supportEmailReplyBody').value = '';
+            setTextIfExists('supportEmailThreadSummary', 'No thread selected.');
+            setTextIfExists('workspaceEmailThreadSummary', 'No thread selected.');
+            setValueIfExists('supportEmailThreadBody', '');
+            setValueIfExists('workspaceEmailThreadBody', '');
+            setValueIfExists('supportEmailReplyBody', '');
+            setValueIfExists('workspaceEmailReplyBody', '');
         }
 
-        async function refreshSupportCases() {
-            const status = document.getElementById('supportCaseStatus').value;
-            const priority = document.getElementById('supportCasePriority').value;
+        async function refreshSupportCases(showLoading = true) {
+            const status = document.getElementById('workspaceCaseStatus')?.value || document.getElementById('supportCaseStatus').value;
+            const priority = document.getElementById('workspaceCasePriority')?.value || document.getElementById('supportCasePriority').value;
             const params = new URLSearchParams({ limit: '50' });
             if (status) params.set('workflow_status', status);
             if (priority) params.set('priority', priority);
+            if (showLoading) {
+                setTableBody('supportCasesTable', loadingRow(5, 'Loading support cases...'));
+                setTableBody('supportWorkspaceCasesTable', loadingRow(5, 'Loading support cases...'));
+            }
             const [data, summary] = await Promise.all([
                 fetchJson(`/api/admin/support-tickets?${params.toString()}`),
                 fetchJson('/api/admin/support-workflows/summary'),
@@ -1237,42 +2434,29 @@
             const overdue = summary.overdue_sla_count ?? 0;
             document.getElementById('supportCaseSummary').textContent = `Loaded ${supportCases.length} case(s). Overdue SLA: ${overdue}.`;
             const tbody = document.querySelector('#supportCasesTable tbody');
-            if (!supportCases.length) {
-                tbody.innerHTML = '<tr><td colspan="5">No support cases found.</td></tr>';
-                return;
-            }
-            tbody.innerHTML = supportCases.map((item) => {
-                const wf = item.workflow_status || item.status || 'new';
-                const slaClass = item.sla_breached_at ? 'failed' : 'queued';
-                return `
-                    <tr>
-                        <td><strong>${item.ticket_code}</strong><br><small class="note">${escapeHtml(item.contact || item.created_by_user_id || '-')}</small><br><span class="status ${wf}">${wf}</span></td>
-                        <td>${item.intent || '-'}<br><small class="note">risk: ${item.risk_level || '-'} / sentiment: ${item.sentiment || '-'}</small></td>
-                        <td><span class="status ${slaClass}">${item.priority || '-'}</span><br><small class="note">Due: ${item.sla_due_at || '-'}</small>${item.sla_breached_at ? `<br><small class="note">Breached: ${item.sla_breached_at}</small>` : ''}</td>
-                        <td>${item.assigned_team || '-'}<br><small class="note">${item.assigned_user_id || '-'}</small><br><small class="note">${item.note_count || 0} note(s), ${item.pending_action_count || 0} approval(s)</small></td>
-                        <td>
-                            <button class="btn-muted" data-case-view="${item.id}">Context</button>
-                            <button class="btn-main" data-case-handle="${item.id}">Handle</button>
-                            <button class="btn-ok" data-case-assign="${item.id}">Assign</button>
-                            <button class="btn-danger" data-case-escalate="${item.id}">Escalate</button>
-                        </td>
-                    </tr>
-                `;
-            }).join('');
+            tbody.innerHTML = supportCaseRowsHtml(supportCases);
+            renderSupportWorkspaceCases();
         }
 
         async function handleSupportCase(caseId) {
             const job = await fetchJson(`/api/admin/support-workflows/tickets/${caseId}/enqueue`, { method: 'POST' });
             toast(`Support workflow queued: ${job.job_id}`);
             pollJob(job.job_id);
-            await Promise.all([refreshSupportCases(), refreshBackgroundJobs()]);
+            await allAllowed([
+                ['support', refreshSupportCases],
+                ['operations', refreshBackgroundJobs],
+            ]);
         }
 
         async function handleSupportEmailWorkflow(emailId) {
             const job = await fetchJson(`/api/admin/support-workflows/emails/${emailId}/enqueue`, { method: 'POST' });
             toast(`Email workflow queued: ${job.job_id}`);
             pollJob(job.job_id);
-            await Promise.all([refreshSupportEmails(false), refreshSupportCases(), refreshBackgroundJobs()]);
+            await allAllowed([
+                ['support', () => refreshSupportEmails(false)],
+                ['support', refreshSupportCases],
+                ['operations', refreshBackgroundJobs],
+            ]);
         }
 
         async function viewSupportCase(caseId) {
@@ -1290,12 +2474,51 @@
                 escalation: ctx.escalation || {},
                 notes: notes.items || [],
             }, null, 2);
+            const workspaceSummary = document.getElementById('workspaceCaseDetailSummary');
+            const workspaceBody = document.getElementById('workspaceCaseContextBody');
+            const workspaceMeta = document.getElementById('workspaceCaseMeta');
+            const workspaceContextView = document.getElementById('workspaceCaseContextView');
+            if (workspaceSummary && workspaceBody && workspaceMeta) {
+                workspaceSummary.textContent = `${ticket.ticket_code || caseId}: ${ticket.workflow_status || ticket.status || '-'} / ${ticket.intent || '-'}`;
+                const rawContext = {
+                    ticket,
+                    classification: ctx.classification || {},
+                    context: ctx.context || {},
+                    action_plan: ctx.action_plan || {},
+                    escalation: ctx.escalation || {},
+                    notes: notes.items || [],
+                };
+                workspaceBody.value = JSON.stringify(rawContext, null, 2);
+                if (workspaceContextView) workspaceContextView.innerHTML = renderReadableCaseContext(ctx, notes);
+                workspaceMeta.innerHTML = [
+                    ticket.priority ? `<span class="status queued">${ticket.priority}</span>` : '',
+                    ticket.risk_level ? `<span class="status ${ticket.risk_level === 'low' ? 'done' : 'queued'}">risk: ${ticket.risk_level}</span>` : '',
+                    ticket.sla_breached_at ? '<span class="status failed">SLA breached</span>' : '',
+                    ticket.assigned_team ? `<span class="role-pill">team: ${escapeHtml(ticket.assigned_team)}</span>` : '',
+                    ticket.assigned_user_id ? `<span class="role-pill">owner: ${escapeHtml(ticket.assigned_user_id)}</span>` : '',
+                ].filter(Boolean).join('');
+                document.getElementById('workspaceAssignTeam').value = ticket.assigned_team || '';
+                document.getElementById('workspaceAssignUser').value = ticket.assigned_user_id || '';
+            }
+            renderSupportWorkspaceActions();
         }
 
         async function assignSupportCase(caseId) {
-            const assignedTeam = prompt('Assigned team:', 'support') || '';
-            const assignedUserId = prompt('Assigned user id (optional):', '') || '';
-            const note = prompt('Assignment note (optional):', '') || '';
+            const useWorkspace = Number(selectedSupportCaseId) === Number(caseId) && document.getElementById('workspaceAssignTeam');
+            let assignedTeam = document.getElementById('workspaceAssignTeam')?.value.trim() || '';
+            let assignedUserId = document.getElementById('workspaceAssignUser')?.value.trim() || '';
+            let note = document.getElementById('workspaceCaseNoteBody')?.value.trim() || '';
+            if (!useWorkspace) {
+                const promptedTeam = await modalPrompt('Assign case', 'Assigned team:', 'support');
+                if (promptedTeam === null) return;
+                const promptedUser = await modalPrompt('Assign case', 'Assigned user id (optional):', '');
+                if (promptedUser === null) return;
+                const promptedNote = await modalPrompt('Assign case', 'Assignment note (optional):', '');
+                if (promptedNote === null) return;
+                assignedTeam = promptedTeam;
+                assignedUserId = promptedUser;
+                note = promptedNote;
+            }
             const updated = await fetchJson(`/api/admin/support-tickets/${caseId}/assign`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1306,25 +2529,33 @@
                 }),
             });
             toast(`Assigned ${updated.ticket_code}`);
+            if (useWorkspace) document.getElementById('workspaceCaseNoteBody').value = '';
             await refreshSupportCases();
             if (selectedSupportCaseId === Number(caseId)) await viewSupportCase(caseId);
         }
 
         async function escalateSupportCase(caseId) {
-            const note = prompt('Escalation reason:', 'Needs human review.') || 'Needs human review.';
+            const useWorkspace = Number(selectedSupportCaseId) === Number(caseId) && document.getElementById('workspaceCaseNoteBody');
+            let note = document.getElementById('workspaceCaseNoteBody')?.value.trim() || 'Needs human review.';
+            if (!useWorkspace) {
+                const promptedNote = await modalPrompt('Escalate case', 'Escalation reason:', 'Needs human review.');
+                if (promptedNote === null) return;
+                note = promptedNote || 'Needs human review.';
+            }
             await fetchJson(`/api/admin/support-tickets/${caseId}/escalate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ note }),
             });
             toast(`Escalated case ${caseId}`);
+            if (useWorkspace) document.getElementById('workspaceCaseNoteBody').value = '';
             await refreshSupportCases();
             if (selectedSupportCaseId === Number(caseId)) await viewSupportCase(caseId);
         }
 
         async function addSupportCaseNote() {
             if (!selectedSupportCaseId) return toast('Select a support case first.', false);
-            const body = document.getElementById('supportCaseNoteBody').value.trim();
+            const body = document.getElementById('workspaceCaseNoteBody')?.value.trim() || document.getElementById('supportCaseNoteBody').value.trim();
             if (!body) return toast('Internal note body is required.', false);
             const note = await fetchJson(`/api/admin/support-tickets/${selectedSupportCaseId}/notes`, {
                 method: 'POST',
@@ -1333,6 +2564,55 @@
             });
             toast(`Added note ${note.id}`);
             document.getElementById('supportCaseNoteBody').value = '';
+            if (document.getElementById('workspaceCaseNoteBody')) document.getElementById('workspaceCaseNoteBody').value = '';
+            await viewSupportCase(selectedSupportCaseId);
+            await refreshSupportCases();
+        }
+
+        async function sendPublicSupportReply(resolve = false) {
+            if (!selectedSupportCaseId) return toast('Select a support case first.', false);
+            const replyBody = document.getElementById('workspacePublicReplyBody')?.value.trim() || '';
+            if (!replyBody) return toast('Public reply body is required.', false);
+            await fetchJson(`/api/admin/support-tickets/${selectedSupportCaseId}/notes`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    body: replyBody,
+                    note_type: resolve ? 'public_resolution' : 'public_reply',
+                    visibility: 'public',
+                    metadata: { source: 'admin_support_workspace' },
+                }),
+            });
+            await fetchJson(`/api/admin/support-tickets/${selectedSupportCaseId}/status`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    status: resolve ? 'resolved' : 'waiting_customer',
+                    resolution_summary: resolve ? replyBody : null,
+                    note: resolve ? 'Public reply sent and case marked resolved.' : 'Public reply sent; waiting for employee response.',
+                }),
+            });
+            document.getElementById('workspacePublicReplyBody').value = '';
+            toast(resolve ? 'Public reply sent and case resolved' : 'Public reply sent; waiting for employee');
+            await viewSupportCase(selectedSupportCaseId);
+            await refreshSupportCases();
+        }
+
+        async function closeSupportCase() {
+            if (!selectedSupportCaseId) return toast('Select a support case first.', false);
+            const confirmed = await modalConfirm('Close ticket', 'Close this ticket permanently? Employee portal replies will be blocked after close.');
+            if (!confirmed) return;
+            const note = document.getElementById('workspaceCaseNoteBody')?.value.trim() || 'Ticket closed by support.';
+            await fetchJson(`/api/admin/support-tickets/${selectedSupportCaseId}/status`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    status: 'closed',
+                    note,
+                }),
+            });
+            if (document.getElementById('workspaceCaseNoteBody')) document.getElementById('workspaceCaseNoteBody').value = '';
+            toast('Ticket closed');
             await viewSupportCase(selectedSupportCaseId);
             await refreshSupportCases();
         }
@@ -1342,6 +2622,18 @@
             document.getElementById('supportCaseDetailSummary').textContent = 'No case selected.';
             document.getElementById('supportCaseContextBody').value = '';
             document.getElementById('supportCaseNoteBody').value = '';
+            if (document.getElementById('workspaceCaseDetailSummary')) {
+                document.getElementById('workspaceCaseDetailSummary').textContent = 'No case selected.';
+                document.getElementById('workspaceCaseContextBody').value = '';
+                if (document.getElementById('workspacePublicReplyBody')) document.getElementById('workspacePublicReplyBody').value = '';
+                const workspaceContextView = document.getElementById('workspaceCaseContextView');
+                if (workspaceContextView) workspaceContextView.innerHTML = '<div class="empty-state"><strong>No case selected.</strong><small>Select Context on a case to view the readable workflow context.</small></div>';
+                document.getElementById('workspaceCaseNoteBody').value = '';
+                document.getElementById('workspaceAssignTeam').value = '';
+                document.getElementById('workspaceAssignUser').value = '';
+                document.getElementById('workspaceCaseMeta').innerHTML = '';
+            }
+            renderSupportWorkspaceActions();
         }
 
         async function runSlaMonitor() {
@@ -1351,7 +2643,9 @@
         }
 
         async function createSlaMonitorSchedule() {
-            const minutes = Number(prompt('SLA monitor interval in minutes (minimum 1):', '5') || '5');
+            const rawMinutes = await modalPrompt('Schedule SLA monitor', 'Interval in minutes (minimum 1):', '5');
+            if (rawMinutes === null) return;
+            const minutes = Number(rawMinutes || '5');
             if (!Number.isFinite(minutes) || minutes < 1) return toast('Invalid interval.', false);
             const item = await fetchJson('/api/admin/sync-schedules', {
                 method: 'POST',
@@ -1369,35 +2663,22 @@
             await refreshSyncSchedules();
         }
 
-        async function refreshPendingActions() {
-            const status = document.getElementById('pendingActionStatus').value;
+        async function refreshPendingActions(showLoading = true) {
+            const useOperationsFilter = document.getElementById('view-operations-workspace')?.classList.contains('active');
+            const status = useOperationsFilter
+                ? document.getElementById('operationsPendingActionStatus').value
+                : document.getElementById('pendingActionStatus').value;
             const query = status ? `?status=${encodeURIComponent(status)}&limit=50` : '?limit=50';
+            if (showLoading) {
+                setTableBody('pendingActionsTable', loadingRow(5, 'Loading pending actions...'));
+                setTableBody('operationsPendingActionsTable', loadingRow(5, 'Loading pending actions...'));
+            }
             const data = await fetchJson(`/api/admin/pending-actions${query}`);
             pendingActions = data.items || [];
             document.getElementById('pendingActionSummary').textContent = `Loaded ${pendingActions.length} pending action(s).`;
-            const tbody = document.querySelector('#pendingActionsTable tbody');
-            if (!pendingActions.length) {
-                tbody.innerHTML = '<tr><td colspan="5">No pending actions found.</td></tr>';
-                return;
-            }
-            tbody.innerHTML = pendingActions.map((item) => {
-                const canApprove = item.status === 'draft';
-                const canExecute = item.status === 'approved';
-                const canReject = item.status === 'draft' || item.status === 'approved';
-                return `
-                    <tr>
-                        <td>${item.id}</td>
-                        <td><strong>${item.title}</strong><br><small class="note mono">${item.action_type} / ${item.risk_level}</small></td>
-                        <td><span class="status ${item.status}">${item.status}</span></td>
-                        <td>${item.summary || '-'}<br><small class="note">By: ${item.created_by_user_id || '-'}</small></td>
-                        <td>
-                            ${canApprove ? `<button class="btn-ok" data-action-approve="${item.id}">Approve</button>` : ''}
-                            ${canExecute ? `<button class="btn-main" data-action-execute="${item.id}">Execute</button>` : ''}
-                            ${canReject ? `<button class="btn-danger" data-action-reject="${item.id}">Reject</button>` : ''}
-                        </td>
-                    </tr>
-                `;
-            }).join('');
+            renderSupportWorkspaceActions();
+            setTableBody('pendingActionsTable', pendingActionRowsHtml(pendingActions));
+            renderOperationsWorkspace();
         }
 
         async function approvePendingAction(actionId) {
@@ -1407,51 +2688,49 @@
         }
 
         async function executePendingAction(actionId) {
-            if (!confirm(`Execute approved action ${actionId}? This can send email, delete Drive links/files, or queue full sync jobs.`)) return;
+            const confirmed = await modalConfirm(
+                'Execute approved action',
+                `Execute action ${actionId}? This can send email, delete Drive links/files, or queue full sync jobs.`,
+                { danger: true, confirmLabel: 'Execute' },
+            );
+            if (!confirmed) return;
             const job = await fetchJson(`/api/admin/pending-actions/${actionId}/execute`, { method: 'POST' });
             toast(`Execution job queued: ${job.job_id}`);
             pollJob(job.job_id);
-            await Promise.all([refreshPendingActions(), refreshBackgroundJobs()]);
+            await allAllowed([
+                ['operations', refreshPendingActions],
+                ['operations', refreshBackgroundJobs],
+            ]);
         }
 
         async function rejectPendingAction(actionId) {
-            const note = prompt('Reject note (optional):') || '';
+            const note = await modalPrompt('Reject action', 'Reject note (optional):', '');
+            if (note === null) return;
             const item = await fetchJson(`/api/admin/pending-actions/${actionId}/reject`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ note }),
+                body: JSON.stringify({ note: note || '' }),
             });
             toast(`Rejected action ${item.id}`);
             await refreshPendingActions();
         }
 
-        async function refreshSyncSchedules() {
+        async function refreshSyncSchedules(showLoading = true) {
+            if (showLoading) {
+                setTableBody('syncSchedulesTable', loadingRow(6, 'Loading sync schedules...'));
+                setTableBody('operationsSyncSchedulesTable', loadingRow(6, 'Loading sync schedules...'));
+            }
             const data = await fetchJson('/api/admin/sync-schedules?limit=100');
             syncSchedules = data.items || [];
             document.getElementById('syncScheduleSummary').textContent = `Loaded ${syncSchedules.length} sync schedule(s).`;
-            const tbody = document.querySelector('#syncSchedulesTable tbody');
-            if (!syncSchedules.length) {
-                tbody.innerHTML = '<tr><td colspan="6">No sync schedules found.</td></tr>';
-                return;
-            }
-            tbody.innerHTML = syncSchedules.map((item) => `
-                <tr>
-                    <td>${item.id}</td>
-                    <td><strong>${item.name}</strong><br><small class="note">${item.enabled ? 'enabled' : 'disabled'}</small></td>
-                    <td><span class="status ${item.enabled ? 'active' : 'archived'}">${item.schedule_type}</span><br><small class="note mono">${JSON.stringify(item.payload || {})}</small></td>
-                    <td>${Math.round((item.interval_seconds || 0) / 60)} min</td>
-                    <td><small>Last: ${item.last_run_at || '-'}</small><br><small>Next: ${item.next_run_at || '-'}</small><br><small class="note mono">${item.last_job_id || ''}</small></td>
-                    <td>
-                        <button class="btn-muted" data-schedule-toggle="${item.id}">${item.enabled ? 'Disable' : 'Enable'}</button>
-                        <button class="btn-main" data-schedule-edit="${item.id}">Interval</button>
-                        <button class="btn-danger" data-schedule-delete="${item.id}">Delete</button>
-                    </td>
-                </tr>
-            `).join('');
+            setTableBody('syncSchedulesTable', syncScheduleRowsHtml(syncSchedules));
+            renderOperationsWorkspace();
         }
 
         async function createDriveSchedule(sourceId) {
-            const minutes = Number(prompt('Drive sync interval in minutes (minimum 1):', '15') || '15');
+            const rawMinutes = await modalPrompt('Schedule Drive sync', 'Drive sync interval in minutes (minimum 1):', '15');
+            if (rawMinutes === null) return;
+            const minutes = Number(rawMinutes || '15');
             if (!Number.isFinite(minutes) || minutes < 1) return toast('Invalid interval.', false);
             const source = driveSources.find((item) => Number(item.id) === Number(sourceId));
             const item = await fetchJson('/api/admin/sync-schedules', {
@@ -1471,7 +2750,9 @@
         }
 
         async function createSupportEmailSchedule() {
-            const minutes = Number(prompt('Support email sync interval in minutes (minimum 1):', '2') || '2');
+            const rawMinutes = await modalPrompt('Schedule support email sync', 'Support email sync interval in minutes (minimum 1):', '2');
+            if (rawMinutes === null) return;
+            const minutes = Number(rawMinutes || '2');
             if (!Number.isFinite(minutes) || minutes < 1) return toast('Invalid interval.', false);
             const item = await fetchJson('/api/admin/sync-schedules', {
                 method: 'POST',
@@ -1504,7 +2785,9 @@
         async function editSyncScheduleInterval(scheduleId) {
             const item = syncSchedules.find((schedule) => Number(schedule.id) === Number(scheduleId));
             if (!item) return;
-            const minutes = Number(prompt('New interval in minutes:', String(Math.round(item.interval_seconds / 60))) || '');
+            const rawMinutes = await modalPrompt('Edit schedule interval', 'New interval in minutes:', String(Math.round(item.interval_seconds / 60)));
+            if (rawMinutes === null) return;
+            const minutes = Number(rawMinutes || '');
             if (!Number.isFinite(minutes) || minutes < 1) return toast('Invalid interval.', false);
             const updated = await fetchJson(`/api/admin/sync-schedules/${scheduleId}`, {
                 method: 'PATCH',
@@ -1516,52 +2799,39 @@
         }
 
         async function deleteSyncSchedule(scheduleId) {
-            if (!confirm(`Delete sync schedule ${scheduleId}?`)) return;
+            if (!await modalConfirm('Delete sync schedule', `Delete sync schedule ${scheduleId}?`, { danger: true, confirmLabel: 'Delete' })) return;
             await fetchJson(`/api/admin/sync-schedules/${scheduleId}`, { method: 'DELETE' });
             toast(`Deleted schedule ${scheduleId}`);
             await refreshSyncSchedules();
         }
 
-        async function refreshBackgroundJobs() {
-            const status = document.getElementById('backgroundJobStatus').value;
+        async function refreshBackgroundJobs(showLoading = false) {
+            const useOperationsFilter = document.getElementById('view-operations-workspace')?.classList.contains('active');
+            const status = useOperationsFilter
+                ? document.getElementById('operationsBackgroundJobStatus').value
+                : document.getElementById('backgroundJobStatus').value;
             const query = status ? `?status=${encodeURIComponent(status)}&limit=50` : '?limit=50';
+            // Only show loading placeholder on first load (table is empty) or when explicitly requested
+            const bgTbody = document.querySelector('#backgroundJobsTable tbody');
+            const opTbody = document.querySelector('#operationsBackgroundJobsTable tbody');
+            if (showLoading || !bgTbody?.children.length || bgTbody?.querySelector('td[colspan]')) {
+                setTableBody('backgroundJobsTable', loadingRow(6, 'Loading background jobs...'));
+                setTableBody('operationsBackgroundJobsTable', loadingRow(6, 'Loading background jobs...'));
+            }
             const data = await fetchJson(`/api/admin/background-jobs${query}`);
             backgroundJobs = data.items || [];
             document.getElementById('backgroundJobSummary').textContent = `Loaded ${backgroundJobs.length} background job(s).`;
-            const tbody = document.querySelector('#backgroundJobsTable tbody');
-            if (!backgroundJobs.length) {
-                tbody.innerHTML = '<tr><td colspan="6">No background jobs found.</td></tr>';
-                return;
-            }
-            tbody.innerHTML = backgroundJobs.map((job) => {
-                const result = job.error_message || JSON.stringify(job.result || {});
-                const canCancel = ['queued', 'retrying', 'running', 'cancelling'].includes(job.status);
-                const canRetry = ['failed', 'cancelled'].includes(job.status);
-                const retryText = job.retry_after ? `<br><small class="note">Retry after: ${job.retry_after}</small>` : '';
-                const workerText = job.worker_id ? `<br><small class="note mono">Worker: ${job.worker_id}</small>` : '';
-                const heartbeatText = job.heartbeat_at ? `<br><small class="note">Heartbeat: ${job.heartbeat_at}</small>` : '';
-                return `
-                    <tr>
-                        <td class="mono">${job.job_id}</td>
-                        <td>${job.job_type}</td>
-                        <td><span class="status ${job.status}">${job.status}</span>${retryText}<br><small class="note">Attempts: ${job.attempts}/${job.max_attempts}</small>${workerText}${heartbeatText}</td>
-                        <td>${Math.round((job.progress || 0) * 100)}%</td>
-                        <td><small class="note">${escapeHtml(result).slice(0, 220)}</small></td>
-                        <td>
-                            ${canCancel ? `<button class="btn-danger" data-job-cancel="${job.job_id}">Cancel</button>` : ''}
-                            ${canRetry ? `<button class="btn-main" data-job-retry="${job.job_id}">Retry</button>` : ''}
-                        </td>
-                    </tr>
-                `;
-            }).join('');
+            setTableBody('backgroundJobsTable', backgroundJobRowsHtml(backgroundJobs));
+            renderOperationsWorkspace();
         }
 
         async function cancelBackgroundJob(jobId) {
-            const reason = prompt(`Cancel job ${jobId}? Reason (optional):`) || '';
+            const reason = await modalPrompt('Cancel background job', `Cancel job ${jobId}? Reason (optional):`, '');
+            if (reason === null) return;
             const job = await fetchJson(`/api/admin/background-jobs/${jobId}/cancel`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ reason }),
+                body: JSON.stringify({ reason: reason || '' }),
             });
             toast(`Cancel requested for job ${job.job_id}`);
             activeJobs.delete(jobId);
@@ -1579,14 +2849,30 @@
         async function refreshAll(preferredKbId = null) {
             await loadKnowledgeBases(preferredKbId);
             if (!selectedKbId()) return;
-            await Promise.all([refreshStatsAndSystem(), refreshMcpStatus(), refreshKbFiles(), refreshLogs(), refreshFeedback(), refreshAnalytics(), refreshAuthAudit(), refreshSources(), refreshDriveSources(), refreshSupportEmails(false), refreshSupportCases(), refreshSyncSchedules(), refreshPendingActions(), refreshBackgroundJobs()]);
-            await refreshLibrary();
+            await allAllowed([
+                ['system', refreshStatsAndSystem],
+                ['mcp', refreshMcpStatus],
+                ['knowledge', refreshKbFiles],
+                ['knowledge', refreshSources],
+                ['drive', refreshDriveSources],
+                ['support', () => refreshSupportEmails(false)],
+                ['support', refreshSupportCases],
+                ['operations', refreshSyncSchedules],
+                ['operations', refreshPendingActions],
+                ['operations', refreshBackgroundJobs],
+                ['audit', refreshLogs],
+                ['audit', refreshAuthAudit],
+                ['analytics', refreshFeedback],
+                ['analytics', refreshAnalytics],
+            ]);
+            await refreshIfAllowed('knowledge', refreshLibrary);
             renderJobSummary();
         }
 
         function renderJobSummary() {
-            const el = document.getElementById('jobSummary');
-            el.textContent = activeJobs.size ? `Tracking ${activeJobs.size} ingest job(s): ${Array.from(activeJobs).join(', ')}` : 'No active ingest job.';
+            const text = activeJobs.size ? `Tracking ${activeJobs.size} ingest job(s): ${Array.from(activeJobs).join(', ')}` : 'No active ingest job.';
+            setTextIfExists('jobSummary', text);
+            setTextIfExists('knowledgeJobSummary', text);
         }
 
         async function pollJob(jobId) {
@@ -1607,7 +2893,9 @@
                         await refreshAll(job.kb_id || selectedKbId());
                         return;
                     }
-                    await refreshBackgroundJobs();
+                    if (isActiveView('view-operations-workspace')) {
+                        await refreshIfAllowed('operations', () => refreshBackgroundJobs(false));
+                    }
                 } catch (_) {}
                 setTimeout(check, 2000);
             };
@@ -1660,28 +2948,26 @@
         }
 
         async function createKb() {
-            const name = document.getElementById('newKbName').value.trim();
-            const key = document.getElementById('newKbKey').value.trim();
-            const accessLevel = document.getElementById('newKbAccessLevel').value;
-            const description = document.getElementById('newKbDescription').value.trim();
+            const name = valueFrom('kwNewKbName', 'newKbName').trim();
+            const key = valueFrom('kwNewKbKey', 'newKbKey').trim();
+            const accessLevel = valueFrom('kwNewKbAccessLevel', 'newKbAccessLevel') || 'public';
+            const description = valueFrom('kwNewKbDescription', 'newKbDescription').trim();
             if (!name || !key) return toast('KB name and key are required.', false);
             const created = await fetchJson('/api/kbs', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ name, key, access_level: accessLevel, description: description || null }) });
-            document.getElementById('newKbName').value = '';
-            document.getElementById('newKbKey').value = '';
-            document.getElementById('newKbAccessLevel').value = 'public';
-            document.getElementById('newKbDescription').value = '';
+            ['newKbName', 'kwNewKbName', 'newKbKey', 'kwNewKbKey', 'newKbDescription', 'kwNewKbDescription'].forEach((id) => setValueIfExists(id, ''));
+            ['newKbAccessLevel', 'kwNewKbAccessLevel'].forEach((id) => setValueIfExists(id, 'public'));
             toast(`Created KB: ${created.name}`);
             await refreshAll(created.id);
         }
 
         async function createDriveSource() {
             if (!selectedKbId()) return toast('Select a Knowledge Base first.', false);
-            const name = document.getElementById('driveSourceName').value.trim();
-            const folderId = document.getElementById('driveFolderId').value.trim();
-            const sharedDriveId = document.getElementById('driveSharedDriveId').value.trim();
-            const recursive = document.getElementById('driveRecursive').value === 'true';
-            const includePatterns = parseCommaList(document.getElementById('driveIncludePatterns').value);
-            const excludePatterns = parseCommaList(document.getElementById('driveExcludePatterns').value);
+            const name = valueFrom('kwDriveSourceName', 'driveSourceName').trim();
+            const folderId = valueFrom('kwDriveFolderId', 'driveFolderId').trim();
+            const sharedDriveId = valueFrom('kwDriveSharedDriveId', 'driveSharedDriveId').trim();
+            const recursive = valueFrom('kwDriveRecursive', 'driveRecursive') !== 'false';
+            const includePatterns = parseCommaList(valueFrom('kwDriveIncludePatterns', 'driveIncludePatterns'));
+            const excludePatterns = parseCommaList(valueFrom('kwDriveExcludePatterns', 'driveExcludePatterns'));
 
             if (!name || !folderId) {
                 return toast('Source name and folder ID are required.', false);
@@ -1701,30 +2987,33 @@
                 }),
             });
 
-            document.getElementById('driveSourceName').value = '';
-            document.getElementById('driveFolderId').value = '';
-            document.getElementById('driveSharedDriveId').value = '';
-            document.getElementById('driveRecursive').value = 'true';
-            document.getElementById('driveIncludePatterns').value = '';
-            document.getElementById('driveExcludePatterns').value = '';
+            ['driveSourceName', 'kwDriveSourceName', 'driveFolderId', 'kwDriveFolderId', 'driveSharedDriveId', 'kwDriveSharedDriveId', 'driveIncludePatterns', 'kwDriveIncludePatterns', 'driveExcludePatterns', 'kwDriveExcludePatterns'].forEach((id) => setValueIfExists(id, ''));
+            ['driveRecursive', 'kwDriveRecursive'].forEach((id) => setValueIfExists(id, 'true'));
 
             toast(`Created Google Drive source ${created.id}`);
             await refreshDriveSources();
         }
 
         async function syncDriveSource(sourceId) {
-            const forceFull = document.getElementById('driveForceSync').value === 'true';
+            const inKnowledgeWorkspace = document.getElementById('view-knowledge-workspace')?.classList.contains('active');
+            const forceValue = inKnowledgeWorkspace
+                ? document.getElementById('knowledgeDriveForceSync')?.value
+                : document.getElementById('driveForceSync')?.value;
+            const forceFull = forceValue === 'true';
             const data = await fetchJson(`/api/admin/google-drive/sources/${sourceId}/sync?force_full=${forceFull ? 'true' : 'false'}`, {
                 method: 'POST',
             });
             if (data.action_type) {
                 toast(`Created pending full sync action ${data.id}`);
-                await refreshPendingActions();
+                await refreshIfAllowed('operations', refreshPendingActions);
                 return;
             }
             toast(`Drive sync job queued: ${data.job_id}`);
             pollJob(data.job_id);
-            await Promise.all([refreshDriveSources(), refreshBackgroundJobs()]);
+            await allAllowed([
+                ['drive', refreshDriveSources],
+                ['operations', refreshBackgroundJobs],
+            ]);
         }
 
         async function showDriveSourceStatus(sourceId) {
@@ -1739,15 +3028,21 @@
                 parts.push(`Run: ${lastRun.status}`);
                 parts.push(`Scanned ${lastRun.scanned_count}, imported ${lastRun.imported_count}, failed ${lastRun.failed_count}`);
             }
-            document.getElementById('driveStatusSummary').textContent = parts.join(' | ');
+            setDriveStatusSummary(parts.join(' | '));
         }
 
         async function deleteDriveSource(sourceId) {
-            const purge = confirm('OK = purge imported files from this KB too. Cancel = unlink source only.');
-            const confirmed = confirm(
+            const purge = await modalConfirm(
+                'Delete Drive source',
+                'Purge imported files from this KB too? Cancel will unlink the source only.',
+                { danger: true, confirmLabel: 'Purge files' },
+            );
+            const confirmed = await modalConfirm(
+                purge ? 'Purge Drive source' : 'Unlink Drive source',
                 purge
                     ? 'Delete this Drive source and purge its imported files from the selected KB?'
-                    : 'Delete this Drive source link only and keep imported files?'
+                    : 'Delete this Drive source link only and keep imported files?',
+                { danger: true, confirmLabel: purge ? 'Purge' : 'Unlink' },
             );
             if (!confirmed) return;
 
@@ -1756,13 +3051,13 @@
                 method: 'DELETE',
             });
             toast(`Created pending Drive delete action ${result.id}`);
-            document.getElementById('driveStatusSummary').textContent = `Pending action ${result.id} created for source ${sourceId} (${mode}). Approve and execute it in Pending Actions.`;
-            await refreshPendingActions();
+            setDriveStatusSummary(`Pending action ${result.id} created for source ${sourceId} (${mode}). Approve and execute it in Pending Actions.`);
+            await refreshIfAllowed('operations', refreshPendingActions);
         }
 
         async function saveKbAccessLevel() {
             if (!selectedKbId()) return;
-            const accessLevel = document.getElementById('selectedKbAccessLevel').value;
+            const accessLevel = valueFrom('kwSelectedKbAccessLevel', 'selectedKbAccessLevel') || 'public';
             await fetchJson(`/api/kbs/${selectedKbId()}`, {
                 method:'PATCH',
                 headers:{'Content-Type':'application/json'},
@@ -1770,6 +3065,20 @@
             });
             toast(`KB access updated to ${accessLevel}`);
             await refreshAll(selectedKbId());
+        }
+
+        async function renameSelectedKb() {
+            if (!selectedKbId()) return toast('Select a Knowledge Base first.', false);
+            const name = valueFrom('kwSelectedKbName').trim();
+            if (!name) return toast('KB name is required.', false);
+            if (activeKb && name === activeKb.name) return toast('KB name is unchanged.');
+            const updated = await fetchJson(`/api/kbs/${selectedKbId()}`, {
+                method:'PATCH',
+                headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({ name }),
+            });
+            toast(`Renamed KB to ${updated.name}`);
+            await refreshAll(updated.id);
         }
 
         async function setDefaultKb() {
@@ -1781,7 +3090,7 @@
 
         async function deleteKb() {
             if (!selectedKbId()) return;
-            if (!confirm(`Delete KB "${activeKb.name}"?`)) return;
+            if (!await modalConfirm('Delete Knowledge Base', `Delete KB "${activeKb.name}"?`, { danger: true, confirmLabel: 'Delete KB' })) return;
             await fetchJson(`/api/kbs/${selectedKbId()}`, { method:'DELETE' });
             toast(`Deleted KB ${activeKb.name}`);
             activeKb = null;
@@ -1795,7 +3104,7 @@
         }
 
         async function detachFile(fileId) {
-            if (!confirm('Detach this file from the selected Knowledge Base?')) return;
+            if (!await modalConfirm('Detach file', 'Detach this file from the selected Knowledge Base?', { confirmLabel: 'Detach' })) return;
             await fetchJson(`/api/kbs/${selectedKbId()}/files/${fileId}`, { method:'DELETE' });
             toast(`Detached file ${fileId}`);
             await refreshAll(selectedKbId());
@@ -1823,7 +3132,7 @@
         }
 
         async function deleteFile(fileId) {
-            if (!confirm('Delete this source file? It will fail if still attached to multiple KBs.')) return;
+            if (!await modalConfirm('Delete source file', 'Delete this source file? It will fail if still attached to multiple KBs.', { danger: true, confirmLabel: 'Delete file' })) return;
             await fetchJson(`/api/files/${fileId}`, { method:'DELETE' });
             toast(`Deleted source file ${fileId}`);
             await refreshAll(selectedKbId());
@@ -1835,16 +3144,40 @@
             await refreshAll(selectedKbId());
         }
 
+        document.querySelectorAll('.subtab-btn[data-subtarget]').forEach((btn) => {
+            btn.addEventListener('click', () => activateSupportSubtab(btn.dataset.subtarget));
+        });
+        document.getElementById('btnSaveAuth').addEventListener('click', async () => {
+            saveAdminAuth();
+            await loadViewerProfile();
+            applyRoleShell();
+            await refreshAll(selectedKbId()).catch((err) => toast(explainAuthError(err), false));
+            toast('Admin dev identity saved');
+        });
         document.getElementById('kbSelect').addEventListener('change', (e) => refreshAll(Number(e.target.value)).catch((err) => toast(explainAuthError(err), false)));
         document.getElementById('btnCreateKb').addEventListener('click', () => createKb().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnKwCreateKb').addEventListener('click', () => createKb().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnKwRenameKb').addEventListener('click', () => renameSelectedKb().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnRefreshAll').addEventListener('click', () => refreshAll(selectedKbId()).catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnCreateDriveSource').addEventListener('click', () => createDriveSource().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnKwCreateDriveSource').addEventListener('click', () => createDriveSource().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnRefreshDriveSources').addEventListener('click', () => refreshDriveSources().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnKnowledgeRefresh').addEventListener('click', () => allAllowed([
+            ['knowledge', refreshKbFiles],
+            ['knowledge', refreshLibrary],
+            ['knowledge', refreshSources],
+            ['drive', refreshDriveSources],
+        ]).catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnKnowledgeIngest').addEventListener('click', () => ingestKb().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnKnowledgeReindex').addEventListener('click', () => reindexKb().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnKnowledgeDriveRefresh').addEventListener('click', () => refreshDriveSources().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnClearCache').addEventListener('click', () => clearCache().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnKwClearCache').addEventListener('click', () => clearCache().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnIngestKb').addEventListener('click', () => ingestKb().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnReindexKb').addEventListener('click', () => reindexKb().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnSetDefault').addEventListener('click', () => setDefaultKb().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnSaveKbAccess').addEventListener('click', () => saveKbAccessLevel().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnKwSaveKbAccess').addEventListener('click', () => saveKbAccessLevel().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnDeleteKb').addEventListener('click', () => deleteKb().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnCalib').addEventListener('click', () => runCalibrate().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnRefreshSupportEmails').addEventListener('click', () => refreshSupportEmails().catch((e) => toast(explainAuthError(e), false)));
@@ -1861,6 +3194,35 @@
         document.getElementById('btnClearSupportCaseSelection').addEventListener('click', clearSupportCaseSelection);
         document.getElementById('supportCaseStatus').addEventListener('change', () => refreshSupportCases().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('supportCasePriority').addEventListener('change', () => refreshSupportCases().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnWorkspaceRefresh').addEventListener('click', () => allAllowed([
+            ['support', refreshSupportCases],
+            ['support', () => refreshSupportEmails(false)],
+            ['operations', refreshPendingActions],
+        ]).catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnWorkspaceRefreshEmails').addEventListener('click', () => refreshSupportEmails(document.getElementById('workspaceEmailSyncFirst').value === 'true').catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnWorkspaceSendSupportEmailReply').addEventListener('click', () => sendSupportEmailReply().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnWorkspaceClearSupportEmailSelection').addEventListener('click', clearSupportEmailSelection);
+        document.getElementById('btnWorkspaceRunSla').addEventListener('click', () => runSlaMonitor().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('workspaceCaseStatus').addEventListener('change', () => refreshSupportCases().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('workspaceCasePriority').addEventListener('change', () => refreshSupportCases().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnWorkspaceHandle').addEventListener('click', () => selectedSupportCaseId ? handleSupportCase(selectedSupportCaseId).catch((e) => toast(explainAuthError(e), false)) : toast('Select a support case first.', false));
+        document.getElementById('btnWorkspaceAssign').addEventListener('click', () => selectedSupportCaseId ? assignSupportCase(selectedSupportCaseId).catch((e) => toast(explainAuthError(e), false)) : toast('Select a support case first.', false));
+        document.getElementById('btnWorkspaceAddNote').addEventListener('click', () => addSupportCaseNote().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnWorkspaceEscalate').addEventListener('click', () => selectedSupportCaseId ? escalateSupportCase(selectedSupportCaseId).catch((e) => toast(explainAuthError(e), false)) : toast('Select a support case first.', false));
+        document.getElementById('btnWorkspaceClear').addEventListener('click', clearSupportCaseSelection);
+        document.getElementById('btnWorkspacePublicReply').addEventListener('click', () => sendPublicSupportReply(false).catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnWorkspacePublicReplyResolve').addEventListener('click', () => sendPublicSupportReply(true).catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnWorkspaceCloseCase').addEventListener('click', () => closeSupportCase().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnOperationsRefresh').addEventListener('click', () => allAllowed([
+            ['operations', refreshPendingActions],
+            ['operations', refreshBackgroundJobs],
+            ['operations', refreshSyncSchedules],
+            ['audit', refreshLogs],
+            ['analytics', refreshFeedback],
+            ['audit', refreshAuthAudit],
+        ]).catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('operationsPendingActionStatus').addEventListener('change', () => refreshPendingActions().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('operationsBackgroundJobStatus').addEventListener('change', () => refreshBackgroundJobs().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnRefreshMcp').addEventListener('click', () => refreshMcpStatus().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnCopyMcpEndpoint').addEventListener('click', async () => {
             const value = document.getElementById('mcpEndpoint').value;
@@ -1878,11 +3240,6 @@
         document.getElementById('pendingActionStatus').addEventListener('change', () => refreshPendingActions().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnRefreshBackgroundJobs').addEventListener('click', () => refreshBackgroundJobs().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('backgroundJobStatus').addEventListener('change', () => refreshBackgroundJobs().catch((e) => toast(explainAuthError(e), false)));
-        document.getElementById('btnSaveAuth').addEventListener('click', () => {
-            saveAdminAuth();
-            toast('Saved admin auth headers');
-            refreshAll(selectedKbId()).catch((e) => toast(explainAuthError(e), false));
-        });
         document.getElementById('calibQuery').addEventListener('keypress', (e) => { if (e.key === 'Enter') runCalibrate(); });
 
         document.querySelector('#kbFilesTable tbody').addEventListener('click', (event) => {
@@ -1909,8 +3266,38 @@
             const deleteBtn = event.target.closest('[data-drive-delete]');
             if (deleteBtn) return deleteDriveSource(Number(deleteBtn.dataset.driveDelete)).catch((e) => toast(explainAuthError(e), false));
         });
+        document.querySelector('#knowledgeWorkspaceKbFilesTable tbody').addEventListener('click', (event) => {
+            const ingestBtn = event.target.closest('[data-kb-ingest]');
+            if (ingestBtn) return ingestOne(Number(ingestBtn.dataset.kbIngest)).catch((e) => toast(explainAuthError(e), false));
+            const detachBtn = event.target.closest('[data-detach]');
+            if (detachBtn) return detachFile(Number(detachBtn.dataset.detach)).catch((e) => toast(explainAuthError(e), false));
+        });
+        document.querySelector('#knowledgeWorkspaceLibraryTable tbody').addEventListener('click', (event) => {
+            const attachBtn = event.target.closest('[data-attach]');
+            if (attachBtn) return attachFile(Number(attachBtn.dataset.attach)).catch((e) => toast(explainAuthError(e), false));
+            const delBtn = event.target.closest('[data-del]');
+            if (delBtn) return deleteFile(Number(delBtn.dataset.del)).catch((e) => toast(explainAuthError(e), false));
+        });
+        document.querySelector('#knowledgeWorkspaceDriveSourcesTable tbody').addEventListener('click', (event) => {
+            const syncBtn = event.target.closest('[data-drive-sync]');
+            if (syncBtn) return syncDriveSource(Number(syncBtn.dataset.driveSync)).catch((e) => toast(explainAuthError(e), false));
+            const scheduleBtn = event.target.closest('[data-drive-schedule]');
+            if (scheduleBtn) return createDriveSchedule(Number(scheduleBtn.dataset.driveSchedule)).catch((e) => toast(explainAuthError(e), false));
+            const statusBtn = event.target.closest('[data-drive-status]');
+            if (statusBtn) return showDriveSourceStatus(Number(statusBtn.dataset.driveStatus)).catch((e) => toast(explainAuthError(e), false));
+            const deleteBtn = event.target.closest('[data-drive-delete]');
+            if (deleteBtn) return deleteDriveSource(Number(deleteBtn.dataset.driveDelete)).catch((e) => toast(explainAuthError(e), false));
+        });
 
         document.querySelector('#supportEmailsTable tbody').addEventListener('click', (event) => {
+            const readBtn = event.target.closest('[data-email-read]');
+            if (readBtn) return readSupportEmail(Number(readBtn.dataset.emailRead)).catch((e) => toast(explainAuthError(e), false));
+            const ticketBtn = event.target.closest('[data-email-ticket]');
+            if (ticketBtn) return createTicketFromSupportEmail(Number(ticketBtn.dataset.emailTicket)).catch((e) => toast(explainAuthError(e), false));
+            const handleBtn = event.target.closest('[data-email-handle]');
+            if (handleBtn) return handleSupportEmailWorkflow(Number(handleBtn.dataset.emailHandle)).catch((e) => toast(explainAuthError(e), false));
+        });
+        document.querySelector('#supportWorkspaceEmailsTable tbody').addEventListener('click', (event) => {
             const readBtn = event.target.closest('[data-email-read]');
             if (readBtn) return readSupportEmail(Number(readBtn.dataset.emailRead)).catch((e) => toast(explainAuthError(e), false));
             const ticketBtn = event.target.closest('[data-email-ticket]');
@@ -1929,8 +3316,26 @@
             const escalateBtn = event.target.closest('[data-case-escalate]');
             if (escalateBtn) return escalateSupportCase(Number(escalateBtn.dataset.caseEscalate)).catch((e) => toast(explainAuthError(e), false));
         });
+        document.querySelector('#supportWorkspaceCasesTable tbody').addEventListener('click', (event) => {
+            const viewBtn = event.target.closest('[data-case-view]');
+            if (viewBtn) return viewSupportCase(Number(viewBtn.dataset.caseView)).catch((e) => toast(explainAuthError(e), false));
+            const handleBtn = event.target.closest('[data-case-handle]');
+            if (handleBtn) return handleSupportCase(Number(handleBtn.dataset.caseHandle)).catch((e) => toast(explainAuthError(e), false));
+            const assignBtn = event.target.closest('[data-case-assign]');
+            if (assignBtn) return assignSupportCase(Number(assignBtn.dataset.caseAssign)).catch((e) => toast(explainAuthError(e), false));
+            const escalateBtn = event.target.closest('[data-case-escalate]');
+            if (escalateBtn) return escalateSupportCase(Number(escalateBtn.dataset.caseEscalate)).catch((e) => toast(explainAuthError(e), false));
+        });
 
         document.querySelector('#pendingActionsTable tbody').addEventListener('click', (event) => {
+            const approveBtn = event.target.closest('[data-action-approve]');
+            if (approveBtn) return approvePendingAction(Number(approveBtn.dataset.actionApprove)).catch((e) => toast(explainAuthError(e), false));
+            const executeBtn = event.target.closest('[data-action-execute]');
+            if (executeBtn) return executePendingAction(Number(executeBtn.dataset.actionExecute)).catch((e) => toast(explainAuthError(e), false));
+            const rejectBtn = event.target.closest('[data-action-reject]');
+            if (rejectBtn) return rejectPendingAction(Number(rejectBtn.dataset.actionReject)).catch((e) => toast(explainAuthError(e), false));
+        });
+        document.querySelector('#operationsPendingActionsTable tbody').addEventListener('click', (event) => {
             const approveBtn = event.target.closest('[data-action-approve]');
             if (approveBtn) return approvePendingAction(Number(approveBtn.dataset.actionApprove)).catch((e) => toast(explainAuthError(e), false));
             const executeBtn = event.target.closest('[data-action-execute]');
@@ -1947,8 +3352,22 @@
             const deleteBtn = event.target.closest('[data-schedule-delete]');
             if (deleteBtn) return deleteSyncSchedule(Number(deleteBtn.dataset.scheduleDelete)).catch((e) => toast(explainAuthError(e), false));
         });
+        document.querySelector('#operationsSyncSchedulesTable tbody').addEventListener('click', (event) => {
+            const toggleBtn = event.target.closest('[data-schedule-toggle]');
+            if (toggleBtn) return toggleSyncSchedule(Number(toggleBtn.dataset.scheduleToggle)).catch((e) => toast(explainAuthError(e), false));
+            const editBtn = event.target.closest('[data-schedule-edit]');
+            if (editBtn) return editSyncScheduleInterval(Number(editBtn.dataset.scheduleEdit)).catch((e) => toast(explainAuthError(e), false));
+            const deleteBtn = event.target.closest('[data-schedule-delete]');
+            if (deleteBtn) return deleteSyncSchedule(Number(deleteBtn.dataset.scheduleDelete)).catch((e) => toast(explainAuthError(e), false));
+        });
 
         document.querySelector('#backgroundJobsTable tbody').addEventListener('click', (event) => {
+            const cancelBtn = event.target.closest('[data-job-cancel]');
+            if (cancelBtn) return cancelBackgroundJob(cancelBtn.dataset.jobCancel).catch((e) => toast(explainAuthError(e), false));
+            const retryBtn = event.target.closest('[data-job-retry]');
+            if (retryBtn) return retryBackgroundJob(retryBtn.dataset.jobRetry).catch((e) => toast(explainAuthError(e), false));
+        });
+        document.querySelector('#operationsBackgroundJobsTable tbody').addEventListener('click', (event) => {
             const cancelBtn = event.target.closest('[data-job-cancel]');
             if (cancelBtn) return cancelBackgroundJob(cancelBtn.dataset.jobCancel).catch((e) => toast(explainAuthError(e), false));
             const retryBtn = event.target.closest('[data-job-retry]');
@@ -1957,6 +3376,8 @@
 
         const uploadZone = document.getElementById('uploadZone');
         const fileInput = document.getElementById('fileInput');
+        const knowledgeUploadZone = document.getElementById('knowledgeUploadZone');
+        const knowledgeFileInput = document.getElementById('knowledgeFileInput');
         uploadZone.addEventListener('dragover', (event) => { event.preventDefault(); uploadZone.classList.add('drag'); });
         uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag'));
         uploadZone.addEventListener('drop', (event) => {
@@ -1968,29 +3389,65 @@
             handleUpload(fileInput.files).catch((e) => toast(explainAuthError(e), false));
             fileInput.value = '';
         });
+        knowledgeUploadZone.addEventListener('dragover', (event) => { event.preventDefault(); knowledgeUploadZone.classList.add('drag'); });
+        knowledgeUploadZone.addEventListener('dragleave', () => knowledgeUploadZone.classList.remove('drag'));
+        knowledgeUploadZone.addEventListener('drop', (event) => {
+            event.preventDefault();
+            knowledgeUploadZone.classList.remove('drag');
+            handleUpload(event.dataTransfer.files).catch((e) => toast(explainAuthError(e), false));
+        });
+        knowledgeFileInput.addEventListener('change', () => {
+            handleUpload(knowledgeFileInput.files).catch((e) => toast(explainAuthError(e), false));
+            knowledgeFileInput.value = '';
+        });
 
         document.querySelectorAll('.tab-btn').forEach((btn) => {
             btn.addEventListener('click', () => {
-                document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
-                document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
-                btn.classList.add('active');
-                document.getElementById(btn.dataset.target).classList.add('active');
+                activateTab(btn.dataset.target);
             });
         });
+        document.getElementById('btnAccessFirstModule').addEventListener('click', () => activateTab(firstVisibleTarget()));
 
         applyAdminAuthInputs();
-        refreshAll().catch((e) => toast(explainAuthError(e), false));
-        setInterval(() => refreshStatsAndSystem().catch(() => {}), 15000);
-        setInterval(() => refreshMcpStatus().catch(() => {}), 30000);
-        setInterval(() => refreshLogs().catch(() => {}), 12000);
-        setInterval(() => refreshFeedback().catch(() => {}), 30000);
-        setInterval(() => refreshAnalytics().catch(() => {}), 30000);
-        setInterval(() => refreshAuthAudit().catch(() => {}), 12000);
-        setInterval(() => refreshSupportEmails(false).catch(() => {}), 30000);
-        setInterval(() => refreshSupportCases().catch(() => {}), 30000);
-        setInterval(() => refreshSyncSchedules().catch(() => {}), 15000);
-        setInterval(() => refreshPendingActions().catch(() => {}), 30000);
-        setInterval(() => refreshBackgroundJobs().catch(() => {}), 5000);
+        loadViewerProfile()
+            .then(() => {
+                applyRoleShell();
+                return refreshAll();
+            })
+            .catch((e) => toast(explainAuthError(e), false));
+        setInterval(() => {
+            if (isActiveView('view-system')) refreshIfAllowed('system', refreshStatsAndSystem).catch(() => {});
+        }, 15000);
+        setInterval(() => {
+            if (isActiveView('view-mcp')) refreshIfAllowed('mcp', refreshMcpStatus).catch(() => {});
+        }, 30000);
+        setInterval(() => {
+            if (isActiveView('view-operations-workspace')) refreshIfAllowed('audit', refreshLogs).catch(() => {});
+        }, 12000);
+        setInterval(() => {
+            if (isActiveView('view-analytics')) refreshIfAllowed('analytics', refreshFeedback).catch(() => {});
+        }, 30000);
+        setInterval(() => {
+            if (isActiveView('view-analytics')) refreshIfAllowed('analytics', refreshAnalytics).catch(() => {});
+        }, 30000);
+        setInterval(() => {
+            if (isActiveView('view-operations-workspace')) refreshIfAllowed('audit', refreshAuthAudit).catch(() => {});
+        }, 12000);
+        setInterval(() => {
+            if (isActiveView('view-support-workspace')) refreshIfAllowed('support', () => refreshSupportEmails(false, false)).catch(() => {});
+        }, 30000);
+        setInterval(() => {
+            if (isActiveView('view-support-workspace')) refreshIfAllowed('support', () => refreshSupportCases(false)).catch(() => {});
+        }, 30000);
+        setInterval(() => {
+            if (isActiveView('view-operations-workspace')) refreshIfAllowed('operations', () => refreshSyncSchedules(false)).catch(() => {});
+        }, 15000);
+        setInterval(() => {
+            if (isActiveView('view-operations-workspace')) refreshIfAllowed('operations', () => refreshPendingActions(false)).catch(() => {});
+        }, 30000);
+        setInterval(() => {
+            if (isActiveView('view-operations-workspace')) refreshIfAllowed('operations', () => refreshBackgroundJobs(false)).catch(() => {});
+        }, 10000);
     </script>
 </body>
 </html>

@@ -83,3 +83,22 @@ def test_ingest_endpoint_reports_no_stale_files_after_smoke_run(isolated_client:
     payload = second_ingest.json()
     assert payload["jobs"] == []
     assert payload["message"] == "No stale files to ingest for this Knowledge Base"
+
+
+def test_update_knowledge_base_name(isolated_client: TestClient):
+    admin = admin_headers()
+    kb_response = isolated_client.get("/api/kbs/default", headers=admin)
+    kb_response.raise_for_status()
+    kb_id = kb_response.json()["id"]
+
+    updated = isolated_client.patch(
+        f"/api/kbs/{kb_id}",
+        headers=admin,
+        json={"name": "Renamed Default KB"},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["name"] == "Renamed Default KB"
+
+    fetched = isolated_client.get(f"/api/kbs/{kb_id}", headers=admin)
+    fetched.raise_for_status()
+    assert fetched.json()["name"] == "Renamed Default KB"

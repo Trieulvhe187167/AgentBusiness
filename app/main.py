@@ -18,7 +18,18 @@ from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import AppStatus, EventSourceResponse
 
 from app.analytics import build_analytics_dashboard
-from app.auth import get_request_auth, require_admin
+from app.auth import (
+    get_request_auth,
+    require_admin,
+    require_analytics_role,
+    require_approver_role,
+    require_audit_role,
+    require_integration_role,
+    require_knowledge_role,
+    require_operations_role,
+    require_support_role,
+    require_system_role,
+)
 from app.background_jobs import (
     BackgroundJobDecisionInput,
     BackgroundJobItem,
@@ -89,6 +100,7 @@ from app.support_workflows import (
     classify_ticket,
     escalate_ticket,
     get_support_ticket,
+    get_support_ticket_by_code,
     get_ticket_context,
     handle_email_case,
     handle_ticket_case,
@@ -102,6 +114,7 @@ from app.support_workflows.schemas import (
     AddTicketNoteInput,
     AssignTicketInput,
     CaseClassification,
+    CreateSupportTicketInput,
     ListSupportTicketNotesOutput,
     ListSupportTicketsOutput,
     SlaMonitorResult,
@@ -110,6 +123,7 @@ from app.support_workflows.schemas import (
     UpdateTicketStatusInput,
     WorkflowResult,
 )
+from app.support_ticket_service import create_support_ticket
 from app.upload import router as upload_router
 from app.tools.drive_tools import (
     CreateGoogleDriveSourceInput,
@@ -426,7 +440,7 @@ async def current_user_profile(auth=Depends(get_request_auth)):
 async def kb_stats(
     kb_id: int | None = Query(default=None, ge=1),
     kb_key: str | None = Query(default=None),
-    _=Depends(require_admin),
+    _=Depends(require_knowledge_role),
 ):
     return await _build_stats_response(kb_id=kb_id, kb_key=kb_key)
 
@@ -435,7 +449,7 @@ async def kb_stats(
 async def kb_sources(
     kb_id: int | None = Query(default=None, ge=1),
     kb_key: str | None = Query(default=None),
-    _=Depends(require_admin),
+    _=Depends(require_knowledge_role),
 ):
     kb_scope = await _resolve_optional_kb_scope(kb_id=kb_id, kb_key=kb_key)
     if kb_scope:
@@ -482,7 +496,7 @@ async def kb_sources(
 async def api_sources_stats(
     kb_id: int | None = Query(default=None, ge=1),
     kb_key: str | None = Query(default=None),
-    _=Depends(require_admin),
+    _=Depends(require_knowledge_role),
 ):
     from app.vector_store import vector_store
 
@@ -493,7 +507,7 @@ async def api_sources_stats(
 
 
 @app.get("/api/documents", response_model=list[DocumentSummary])
-async def documents(_=Depends(require_admin)):
+async def documents(_=Depends(require_knowledge_role)):
     rows = await fetch_all("SELECT * FROM uploaded_files ORDER BY created_at DESC")
     docs = []
     for row in rows:
@@ -526,10 +540,126 @@ async def api_submit_chat_feedback(
     )
 
 
+def _require_internal_user(auth) -> None:
+    if not auth.user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+
+def _is_admin_auth(auth) -> bool:
+    return any(str(role).lower() == "admin" for role in auth.roles)
+
+
+def _assert_ticket_visible_to_user(ticket: dict, auth) -> None:
+    if _is_admin_auth(auth):
+        return
+    if ticket.get("created_by_user_id") != auth.user_id:
+        raise HTTPException(status_code=403, detail="Support ticket access denied")
+
+
+@app.get("/api/support-tickets", response_model=ListSupportTicketsOutput)
+async def list_my_support_tickets(
+    status: str | None = Query(default=None),
+    workflow_status: str | None = Query(default=None),
+    limit: int = Query(default=25, ge=1, le=100),
+    auth=Depends(get_request_auth),
+):
+    _require_internal_user(auth)
+    return list_support_tickets(
+        status=status,
+        workflow_status=workflow_status,
+        created_by_user_id=None if _is_admin_auth(auth) else auth.user_id,
+        limit=limit,
+    )
+
+
+@app.post("/api/support-tickets", response_model=SupportTicketItem)
+async def create_my_support_ticket(
+    payload: CreateSupportTicketInput,
+    request: Request,
+    auth=Depends(get_request_auth),
+):
+    _require_internal_user(auth)
+    result = create_support_ticket(
+        issue_type=payload.issue_type,
+        message=payload.message,
+        contact=payload.contact,
+        context=RequestContext(
+            request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+            kb_id=payload.kb_id,
+            kb_key=payload.kb_key,
+            auth=auth,
+        ),
+    )
+    return get_support_ticket_by_code(result["ticket_code"])
+
+
+@app.get("/api/support-tickets/{ticket_id}", response_model=SupportTicketItem)
+async def get_my_support_ticket(ticket_id: int, auth=Depends(get_request_auth)):
+    _require_internal_user(auth)
+    try:
+        ticket = get_support_ticket(ticket_id)
+    except ValueError as err:
+        raise HTTPException(status_code=404, detail="Support ticket not found") from err
+    _assert_ticket_visible_to_user(ticket, auth)
+    return ticket
+
+
+@app.get("/api/support-tickets/{ticket_id}/notes", response_model=ListSupportTicketNotesOutput)
+async def list_my_support_ticket_notes(ticket_id: int, auth=Depends(get_request_auth)):
+    _require_internal_user(auth)
+    try:
+        ticket = get_support_ticket(ticket_id)
+    except ValueError as err:
+        raise HTTPException(status_code=404, detail="Support ticket not found") from err
+    _assert_ticket_visible_to_user(ticket, auth)
+    return list_ticket_notes(ticket_id, visibility="public")
+
+
+@app.post("/api/support-tickets/{ticket_id}/notes", response_model=SupportTicketNoteItem)
+async def add_my_support_ticket_note(
+    ticket_id: int,
+    payload: AddTicketNoteInput,
+    request: Request,
+    auth=Depends(get_request_auth),
+):
+    _require_internal_user(auth)
+    try:
+        ticket = get_support_ticket(ticket_id)
+    except ValueError as err:
+        raise HTTPException(status_code=404, detail="Support ticket not found") from err
+    _assert_ticket_visible_to_user(ticket, auth)
+    if not _is_admin_auth(auth) and (ticket.get("workflow_status") or ticket.get("status")) == "closed":
+        raise HTTPException(status_code=409, detail="Support ticket is closed")
+    context = RequestContext(
+        request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+        auth=auth,
+    )
+    note = add_ticket_note(
+        ticket_id,
+        AddTicketNoteInput(
+            body=payload.body,
+            note_type="customer_reply",
+            visibility="public",
+            metadata={**payload.metadata, "source": "portal"},
+        ),
+        context=context,
+    )
+    if (ticket.get("workflow_status") or ticket.get("status")) in {"waiting_customer", "resolved", "closed"}:
+        update_ticket_status(
+            ticket_id,
+            UpdateTicketStatusInput(
+                status="open",
+                note="Employee replied in portal; case reopened for support review.",
+            ),
+            context=context,
+        )
+    return note
+
+
 @app.get("/api/admin/chat-logs", response_model=list[ChatLogItem])
 async def admin_chat_logs(
     limit: int = Query(default=settings.chat_log_limit_default, ge=1, le=500),
-    _=Depends(require_admin),
+    _=Depends(require_audit_role),
 ):
     rows = await fetch_all(
         """
@@ -578,13 +708,13 @@ async def admin_list_chat_feedback(
     rating: str | None = Query(default=None),
     kb_id: int | None = Query(default=None, ge=1),
     limit: int = Query(default=50, ge=1, le=500),
-    _=Depends(require_admin),
+    _=Depends(require_analytics_role),
 ):
     return list_chat_feedback(rating=rating, kb_id=kb_id, limit=limit)
 
 
 @app.get("/api/admin/feedback/summary", response_model=FeedbackSummaryOutput)
-async def admin_chat_feedback_summary(_=Depends(require_admin)):
+async def admin_chat_feedback_summary(_=Depends(require_analytics_role)):
     return feedback_summary()
 
 
@@ -592,7 +722,7 @@ async def admin_chat_feedback_summary(_=Depends(require_admin)):
 async def admin_analytics_dashboard(
     days: int = Query(default=7, ge=1, le=90),
     kb_id: int | None = Query(default=None, ge=1),
-    _=Depends(require_admin),
+    _=Depends(require_analytics_role),
 ):
     return await build_analytics_dashboard(days=days, kb_id=kb_id)
 
@@ -600,7 +730,7 @@ async def admin_analytics_dashboard(
 @app.get("/api/admin/tool-audit-logs", response_model=list[ToolAuditLogItem])
 async def admin_tool_audit_logs(
     limit: int = Query(default=settings.chat_log_limit_default, ge=1, le=500),
-    _=Depends(require_admin),
+    _=Depends(require_audit_role),
 ):
     rows = await fetch_all(
         """
@@ -642,7 +772,7 @@ async def admin_tool_audit_logs(
 @app.get("/api/admin/auth-audit-logs", response_model=list[AuthAuditLogItem])
 async def admin_auth_audit_logs(
     limit: int = Query(default=settings.chat_log_limit_default, ge=1, le=500),
-    _=Depends(require_admin),
+    _=Depends(require_audit_role),
 ):
     rows = await fetch_all(
         """
@@ -677,7 +807,7 @@ async def admin_auth_audit_logs(
 
 
 @app.get("/api/admin/tools")
-async def admin_tools_registry(_=Depends(require_admin)):
+async def admin_tools_registry(_=Depends(require_system_role)):
     from app.tools import tool_registry
 
     return [item.model_dump() for item in tool_registry.list_definitions()]
@@ -689,19 +819,19 @@ async def mcp_json_rpc_endpoint(request: Request):
 
 
 @app.get("/api/admin/mcp/status")
-async def admin_mcp_status(_=Depends(require_admin)):
+async def admin_mcp_status(_=Depends(require_integration_role)):
     return await build_mcp_status()
 
 
 @app.get("/api/admin/google-drive/sources", response_model=ListGoogleDriveSourcesOutput)
-async def admin_list_google_drive_sources(_=Depends(require_admin)):
+async def admin_list_google_drive_sources(_=Depends(require_integration_role)):
     from app.drive_sync import list_google_drive_sources
 
     return list_google_drive_sources()
 
 
 @app.post("/api/admin/google-drive/sources", response_model=CreateGoogleDriveSourceOutput)
-async def admin_create_google_drive_source(payload: CreateGoogleDriveSourceInput, auth=Depends(require_admin)):
+async def admin_create_google_drive_source(payload: CreateGoogleDriveSourceInput, auth=Depends(require_integration_role)):
     from app.drive_sync import create_google_drive_source
 
     return await create_google_drive_source(
@@ -724,7 +854,7 @@ async def admin_sync_google_drive_source(
     source_id: int,
     request: Request,
     force_full: bool = Query(default=False),
-    auth=Depends(require_admin),
+    auth=Depends(require_integration_role),
 ):
     if force_full:
         return draft_drive_full_sync_action(
@@ -747,7 +877,7 @@ async def admin_sync_google_drive_source(
 
 
 @app.get("/api/admin/google-drive/sources/{source_id}/status", response_model=GetGoogleDriveSyncStatusOutput)
-async def admin_get_google_drive_sync_status(source_id: int, _=Depends(require_admin)):
+async def admin_get_google_drive_sync_status(source_id: int, _=Depends(require_integration_role)):
     from app.drive_sync import get_google_drive_sync_status
 
     return get_google_drive_sync_status(source_id)
@@ -758,7 +888,7 @@ async def admin_delete_google_drive_source(
     source_id: int,
     request: Request,
     mode: str = Query(default="unlink"),
-    auth=Depends(require_admin),
+    auth=Depends(require_integration_role),
 ):
     return draft_drive_delete_action(
         source_id=source_id,
@@ -776,7 +906,7 @@ async def admin_list_support_email_messages(
     limit: int = Query(default=settings.email_fetch_limit, ge=1, le=100),
     unread_only: bool = Query(default=False),
     sync_first: bool = Query(default=False),
-    auth=Depends(require_admin),
+    auth=Depends(require_support_role),
 ):
     from app.integrations.support_email import list_support_emails
 
@@ -798,7 +928,7 @@ async def admin_sync_support_email_messages(
     request: Request,
     limit: int = Query(default=settings.email_fetch_limit, ge=1, le=100),
     unread_only: bool = Query(default=False),
-    auth=Depends(require_admin),
+    auth=Depends(require_support_role),
 ):
     return enqueue_background_job(
         job_type="support_email_sync",
@@ -814,13 +944,13 @@ async def admin_sync_support_email_messages(
 async def admin_list_sync_schedules(
     schedule_type: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=200),
-    _=Depends(require_admin),
+    _=Depends(require_operations_role),
 ):
     return list_sync_schedules(schedule_type=schedule_type, limit=limit)
 
 
 @app.post("/api/admin/sync-schedules", response_model=SyncScheduleItem)
-async def admin_upsert_sync_schedule(payload: UpsertSyncScheduleInput, auth=Depends(require_admin)):
+async def admin_upsert_sync_schedule(payload: UpsertSyncScheduleInput, auth=Depends(require_integration_role)):
     return upsert_sync_schedule(payload, auth=auth)
 
 
@@ -828,18 +958,18 @@ async def admin_upsert_sync_schedule(payload: UpsertSyncScheduleInput, auth=Depe
 async def admin_update_sync_schedule(
     schedule_id: int,
     payload: UpdateSyncScheduleInput,
-    _=Depends(require_admin),
+    _=Depends(require_integration_role),
 ):
     return update_sync_schedule(schedule_id, payload)
 
 
 @app.delete("/api/admin/sync-schedules/{schedule_id}", response_model=SyncScheduleItem)
-async def admin_delete_sync_schedule(schedule_id: int, _=Depends(require_admin)):
+async def admin_delete_sync_schedule(schedule_id: int, _=Depends(require_integration_role)):
     return delete_sync_schedule(schedule_id)
 
 
 @app.get("/api/admin/support-email/messages/{email_id}/thread", response_model=ReadEmailThreadOutput)
-async def admin_read_support_email_thread(email_id: int, _=Depends(require_admin)):
+async def admin_read_support_email_thread(email_id: int, _=Depends(require_support_role)):
     from app.integrations.support_email import read_support_email_thread
 
     return read_support_email_thread(email_id=email_id)
@@ -850,7 +980,7 @@ async def admin_create_ticket_from_email(
     email_id: int,
     payload: CreateTicketFromEmailRequest,
     request: Request,
-    auth=Depends(require_admin),
+    auth=Depends(require_support_role),
 ):
     from app.integrations.support_email import create_ticket_from_email
 
@@ -870,7 +1000,7 @@ async def admin_send_support_email_reply(
     email_id: int,
     payload: SendEmailReplyRequest,
     request: Request,
-    auth=Depends(require_admin),
+    auth=Depends(require_support_role),
 ):
     return draft_email_reply_action(
         email_id=email_id,
@@ -884,7 +1014,7 @@ async def admin_send_support_email_reply(
 
 
 @app.get("/api/admin/support-workflows/summary")
-async def admin_support_workflow_summary(_=Depends(require_admin)):
+async def admin_support_workflow_summary(_=Depends(require_support_role)):
     return workflow_summary()
 
 
@@ -892,7 +1022,7 @@ async def admin_support_workflow_summary(_=Depends(require_admin)):
 async def admin_monitor_support_sla(
     request: Request,
     limit: int = Query(default=50, ge=1, le=200),
-    auth=Depends(require_admin),
+    auth=Depends(require_support_role),
 ):
     return process_sla_breaches(
         context=RequestContext(
@@ -907,7 +1037,7 @@ async def admin_monitor_support_sla(
 async def admin_enqueue_support_sla_monitor(
     request: Request,
     limit: int = Query(default=50, ge=1, le=200),
-    auth=Depends(require_admin),
+    auth=Depends(require_support_role),
 ):
     return enqueue_background_job(
         job_type="support_sla_monitor",
@@ -926,7 +1056,7 @@ async def admin_list_support_tickets(
     priority: str | None = Query(default=None),
     assigned_user_id: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
-    _=Depends(require_admin),
+    _=Depends(require_support_role),
 ):
     return list_support_tickets(
         status=status,
@@ -938,12 +1068,12 @@ async def admin_list_support_tickets(
 
 
 @app.get("/api/admin/support-tickets/{ticket_id}", response_model=SupportTicketItem)
-async def admin_get_support_ticket(ticket_id: int, _=Depends(require_admin)):
+async def admin_get_support_ticket(ticket_id: int, _=Depends(require_support_role)):
     return get_support_ticket(ticket_id)
 
 
 @app.get("/api/admin/support-tickets/{ticket_id}/notes", response_model=ListSupportTicketNotesOutput)
-async def admin_list_support_ticket_notes(ticket_id: int, _=Depends(require_admin)):
+async def admin_list_support_ticket_notes(ticket_id: int, _=Depends(require_support_role)):
     return list_ticket_notes(ticket_id)
 
 
@@ -952,7 +1082,7 @@ async def admin_add_support_ticket_note(
     ticket_id: int,
     payload: AddTicketNoteInput,
     request: Request,
-    auth=Depends(require_admin),
+    auth=Depends(require_support_role),
 ):
     return add_ticket_note(
         ticket_id,
@@ -969,7 +1099,7 @@ async def admin_assign_support_ticket(
     ticket_id: int,
     payload: AssignTicketInput,
     request: Request,
-    auth=Depends(require_admin),
+    auth=Depends(require_support_role),
 ):
     return assign_ticket(
         ticket_id,
@@ -986,7 +1116,7 @@ async def admin_update_support_ticket_status(
     ticket_id: int,
     payload: UpdateTicketStatusInput,
     request: Request,
-    auth=Depends(require_admin),
+    auth=Depends(require_support_role),
 ):
     return update_ticket_status(
         ticket_id,
@@ -999,12 +1129,12 @@ async def admin_update_support_ticket_status(
 
 
 @app.post("/api/admin/support-workflows/tickets/{ticket_id}/classify", response_model=CaseClassification)
-async def admin_classify_support_ticket(ticket_id: int, _=Depends(require_admin)):
+async def admin_classify_support_ticket(ticket_id: int, _=Depends(require_support_role)):
     return classify_ticket(ticket_id)
 
 
 @app.post("/api/admin/support-workflows/tickets/{ticket_id}/handle", response_model=WorkflowResult)
-async def admin_handle_support_ticket_workflow(ticket_id: int, request: Request, auth=Depends(require_admin)):
+async def admin_handle_support_ticket_workflow(ticket_id: int, request: Request, auth=Depends(require_support_role)):
     return await handle_ticket_case(
         ticket_id,
         RequestContext(
@@ -1015,7 +1145,7 @@ async def admin_handle_support_ticket_workflow(ticket_id: int, request: Request,
 
 
 @app.post("/api/admin/support-workflows/tickets/{ticket_id}/enqueue", response_model=BackgroundJobItem)
-async def admin_enqueue_support_ticket_workflow(ticket_id: int, request: Request, auth=Depends(require_admin)):
+async def admin_enqueue_support_ticket_workflow(ticket_id: int, request: Request, auth=Depends(require_support_role)):
     return enqueue_background_job(
         job_type="support_ticket_workflow",
         payload={"ticket_id": ticket_id},
@@ -1027,7 +1157,7 @@ async def admin_enqueue_support_ticket_workflow(ticket_id: int, request: Request
 
 
 @app.post("/api/admin/support-workflows/emails/{email_id}/handle", response_model=WorkflowResult)
-async def admin_handle_support_email_workflow(email_id: int, request: Request, auth=Depends(require_admin)):
+async def admin_handle_support_email_workflow(email_id: int, request: Request, auth=Depends(require_support_role)):
     return await handle_email_case(
         email_id,
         RequestContext(
@@ -1038,7 +1168,7 @@ async def admin_handle_support_email_workflow(email_id: int, request: Request, a
 
 
 @app.post("/api/admin/support-workflows/emails/{email_id}/enqueue", response_model=BackgroundJobItem)
-async def admin_enqueue_support_email_workflow(email_id: int, request: Request, auth=Depends(require_admin)):
+async def admin_enqueue_support_email_workflow(email_id: int, request: Request, auth=Depends(require_support_role)):
     return enqueue_background_job(
         job_type="support_email_workflow",
         payload={"email_id": email_id},
@@ -1050,7 +1180,7 @@ async def admin_enqueue_support_email_workflow(email_id: int, request: Request, 
 
 
 @app.get("/api/admin/support-tickets/{ticket_id}/context")
-async def admin_get_support_ticket_context(ticket_id: int, _=Depends(require_admin)):
+async def admin_get_support_ticket_context(ticket_id: int, _=Depends(require_support_role)):
     return get_ticket_context(ticket_id)
 
 
@@ -1059,7 +1189,7 @@ async def admin_escalate_support_ticket(
     ticket_id: int,
     request: Request,
     payload: PendingActionDecisionInput | None = None,
-    auth=Depends(require_admin),
+    auth=Depends(require_support_role),
 ):
     return escalate_ticket(
         ticket_id,
@@ -1075,7 +1205,7 @@ async def admin_escalate_support_ticket(
 async def admin_list_pending_actions(
     status: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
-    _=Depends(require_admin),
+    _=Depends(require_operations_role),
 ):
     return list_pending_actions(status=status, limit=limit)
 
@@ -1084,13 +1214,13 @@ async def admin_list_pending_actions(
 async def admin_list_background_jobs(
     status: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
-    _=Depends(require_admin),
+    _=Depends(require_operations_role),
 ):
     return list_background_jobs(status=status, limit=limit)
 
 
 @app.get("/api/admin/background-jobs/{job_id}", response_model=BackgroundJobItem)
-async def admin_get_background_job(job_id: str, _=Depends(require_admin)):
+async def admin_get_background_job(job_id: str, _=Depends(require_operations_role)):
     return get_background_job(job_id)
 
 
@@ -1098,13 +1228,13 @@ async def admin_get_background_job(job_id: str, _=Depends(require_admin)):
 async def admin_cancel_background_job(
     job_id: str,
     payload: BackgroundJobDecisionInput | None = None,
-    _=Depends(require_admin),
+    _=Depends(require_operations_role),
 ):
     return cancel_background_job(job_id, reason=payload.reason if payload else None)
 
 
 @app.post("/api/admin/background-jobs/{job_id}/retry", response_model=BackgroundJobItem)
-async def admin_retry_background_job(job_id: str, _=Depends(require_admin)):
+async def admin_retry_background_job(job_id: str, _=Depends(require_operations_role)):
     return retry_background_job(job_id)
 
 
@@ -1112,7 +1242,7 @@ async def admin_retry_background_job(job_id: str, _=Depends(require_admin)):
 async def admin_create_pending_action(
     payload: CreatePendingActionInput,
     request: Request,
-    auth=Depends(require_admin),
+    auth=Depends(require_approver_role),
 ):
     return create_pending_action(
         action_type=payload.action_type,
@@ -1131,7 +1261,7 @@ async def admin_create_pending_action(
 async def admin_approve_pending_action(
     action_id: int,
     _payload: PendingActionDecisionInput | None = None,
-    auth=Depends(require_admin),
+    auth=Depends(require_approver_role),
 ):
     return approve_pending_action(action_id, auth=auth)
 
@@ -1140,7 +1270,7 @@ async def admin_approve_pending_action(
 async def admin_reject_pending_action(
     action_id: int,
     payload: PendingActionDecisionInput | None = None,
-    auth=Depends(require_admin),
+    auth=Depends(require_approver_role),
 ):
     return reject_pending_action(action_id, auth=auth, note=payload.note if payload else None)
 
@@ -1149,7 +1279,7 @@ async def admin_reject_pending_action(
 async def admin_execute_pending_action(
     action_id: int,
     request: Request,
-    auth=Depends(require_admin),
+    auth=Depends(require_approver_role),
 ):
     return enqueue_background_job(
         job_type="pending_action_execute",
@@ -1162,7 +1292,7 @@ async def admin_execute_pending_action(
 
 
 @app.post("/api/cache/clear")
-async def cache_clear(_=Depends(require_admin)):
+async def cache_clear(_=Depends(require_system_role)):
     from app.cache import clear_cache
 
     clear_cache()
@@ -1170,7 +1300,7 @@ async def cache_clear(_=Depends(require_admin)):
 
 
 @app.get("/api/cache/stats", response_model=CacheStats)
-async def cache_stats_endpoint(_=Depends(require_admin)):
+async def cache_stats_endpoint(_=Depends(require_system_role)):
     from app.cache import get_stats
 
     stats = get_stats()
@@ -1182,7 +1312,7 @@ async def system_info(
     request: Request,
     kb_id: int | None = Query(default=None, ge=1),
     kb_key: str | None = Query(default=None),
-    _=Depends(require_admin),
+    _=Depends(require_system_role),
 ):
     from app.cache import get_stats as get_cache_stats
     from app.llm_client import active_provider_name
@@ -1264,7 +1394,7 @@ async def debug_similarity(
     top_k: int = 10,
     kb_id: int | None = Query(default=None, ge=1),
     kb_key: str | None = Query(default=None),
-    _=Depends(require_admin),
+    _=Depends(require_knowledge_role),
 ):
     from app.rag import _resolve_kb_scope, decide_mode, retrieve
 
@@ -1302,7 +1432,7 @@ async def debug_retrieval(
     top_k: int = 10,
     kb_id: int | None = Query(default=None, ge=1),
     kb_key: str | None = Query(default=None),
-    _=Depends(require_admin),
+    _=Depends(require_knowledge_role),
 ):
     """
     Rich retrieval debug: returns top_k results with score, lang, category,
@@ -1367,12 +1497,21 @@ async def chat_page():
     return HTMLResponse("<h1>Chat UI not found</h1><p>Place chat.html in /static/</p>")
 
 
+@app.get("/portal", response_class=HTMLResponse)
+async def internal_portal_page():
+    html_path = static_dir / "internal.html"
+    if html_path.exists():
+        return HTMLResponse(html_path.read_text(encoding="utf-8"))
+    return HTMLResponse("<h1>Internal Portal not found</h1><p>Place internal.html in /static/</p>")
+
+
 @app.get("/")
 async def root():
     return {
         "message": "Local RAG Agent API",
         "admin": "/admin",
         "chat": "/chat",
+        "portal": "/portal",
         "health": "/health",
         "system": "/api/system",
         "docs": "/docs",
