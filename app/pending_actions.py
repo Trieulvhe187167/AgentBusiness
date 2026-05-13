@@ -154,7 +154,23 @@ def create_pending_action(
             now,
         ),
     )
-    return get_pending_action(int(action_id or 0)).model_dump()
+    item = get_pending_action(int(action_id or 0)).model_dump()
+    try:
+        from app.notifications import create_notification
+
+        create_notification(
+            event_type="pending_action.created",
+            severity="warning" if risk_level != "critical" else "critical",
+            title=f"Pending action needs review: {title}",
+            message=summary,
+            entity_type="pending_action",
+            entity_id=item["id"],
+            payload={"action_type": action_type, "risk_level": risk_level},
+            context=context,
+        )
+    except Exception:
+        pass
+    return item
 
 
 def approve_pending_action(action_id: int, *, auth: AuthContext) -> dict[str, Any]:

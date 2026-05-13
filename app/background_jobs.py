@@ -177,7 +177,8 @@ def cancel_background_job(job_id: str, *, reason: str | None = None) -> dict[str
         raise ValueError(f"Cannot cancel background job in status '{status}'")
 
     now = utcnow_iso()
-    if status in {"queued", "retrying"}:
+    immediate_cancel = status in {"queued", "retrying"}
+    if immediate_cancel:
         execute_sync(
             """
             UPDATE background_jobs
@@ -205,7 +206,10 @@ def cancel_background_job(job_id: str, *, reason: str | None = None) -> dict[str
             """,
             (now, reason, reason or "Cancellation requested by admin", now, job_id),
         )
-    return get_background_job(job_id)
+    updated = get_background_job(job_id)
+    if immediate_cancel:
+        _notify_background_job(job_id, "cancelled", reason or "Cancelled by admin", updated)
+    return updated
 
 
 def retry_background_job(job_id: str) -> dict[str, Any]:
@@ -406,6 +410,14 @@ async def background_worker_loop(
         while True:
             job = claim_next_background_job(worker_id=resolved_worker_id)
             if not job:
+                try:
+                    from app.notifications import deliver_due_webhooks_once
+
+                    delivered = await deliver_due_webhooks_once()
+                    if delivered:
+                        continue
+                except Exception:
+                    logger.exception("Webhook delivery polling failed")
                 await asyncio.sleep(poll_interval)
                 continue
             await _run_background_job(job, worker_id=resolved_worker_id)
@@ -474,6 +486,7 @@ async def _run_background_job(job: dict[str, Any], *, worker_id: str | None = No
             (str(err), now, now, now, job_id),
         )
         await _stop_heartbeat_task(heartbeat_task)
+        _notify_background_job(job_id, "cancelled", str(err), job)
         return
     except Exception as err:
         if is_background_job_cancel_requested(job_id):
@@ -493,6 +506,7 @@ async def _run_background_job(job: dict[str, Any], *, worker_id: str | None = No
                 (str(err), now, now, now, job_id),
             )
             await _stop_heartbeat_task(heartbeat_task)
+            _notify_background_job(job_id, "cancelled", str(err), job)
             return
 
         logger.exception("Background job %s failed", job_id)
@@ -529,6 +543,7 @@ async def _run_background_job(job: dict[str, Any], *, worker_id: str | None = No
             (str(err), now, now, job_id),
         )
         await _stop_heartbeat_task(heartbeat_task)
+        _notify_background_job(job_id, "failed", str(err), job)
         return
 
     now = utcnow_iso()
@@ -546,6 +561,24 @@ async def _run_background_job(job: dict[str, Any], *, worker_id: str | None = No
         (json.dumps(result or {}, ensure_ascii=False, sort_keys=True), now, now, job_id),
     )
     await _stop_heartbeat_task(heartbeat_task)
+
+
+def _notify_background_job(job_id: str, status: str, message: str, job: dict[str, Any]) -> None:
+    try:
+        from app.notifications import create_notification
+
+        create_notification(
+            event_type=f"background_job.{status}",
+            severity="critical" if status == "failed" else "warning",
+            title=f"Background job {status}: {job_id}",
+            message=message,
+            entity_type="background_job",
+            entity_id=job_id,
+            payload={"job_type": job.get("job_type"), "status": status},
+            context=_context_from_job(job),
+        )
+    except Exception:
+        logger.exception("Failed to create background job notification for %s", job_id)
 
 
 def _context_from_job(job: dict[str, Any]) -> RequestContext:

@@ -654,6 +654,139 @@ CREATE INDEX IF NOT EXISTS idx_chat_feedback_created_at
     ON chat_feedback(created_at DESC);
 """
 
+# ---------------------------------------------------------------------------
+# Phase 43 / notification center + webhook deliveries
+# ---------------------------------------------------------------------------
+_PHASE43_NOTIFICATIONS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type TEXT NOT NULL,
+    severity TEXT NOT NULL DEFAULT 'info',
+    status TEXT NOT NULL DEFAULT 'unread',
+    title TEXT NOT NULL,
+    message TEXT NOT NULL DEFAULT '',
+    entity_type TEXT,
+    entity_id TEXT,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    created_by_user_id TEXT,
+    read_by_user_id TEXT,
+    tenant_id TEXT,
+    org_id TEXT,
+    kb_id INTEGER,
+    kb_key TEXT,
+    created_at TEXT NOT NULL,
+    read_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_status_time
+    ON notifications(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_event_type
+    ON notifications(event_type, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_entity
+    ON notifications(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_scope
+    ON notifications(tenant_id, org_id, kb_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    notification_id INTEGER NOT NULL,
+    event_type TEXT NOT NULL,
+    endpoint_url TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    request_json TEXT NOT NULL DEFAULT '{}',
+    response_status INTEGER,
+    response_body TEXT,
+    error_message TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_attempt_at TEXT,
+    next_retry_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(notification_id) REFERENCES notifications(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status_due
+    ON webhook_deliveries(status, next_retry_at, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_notification
+    ON webhook_deliveries(notification_id);
+"""
+
+# ---------------------------------------------------------------------------
+# Phase 44 / Knowledge quality governance
+# ---------------------------------------------------------------------------
+_PHASE44_KNOWLEDGE_QUALITY_SCHEMA = """
+ALTER TABLE kb_files ADD COLUMN lifecycle_status TEXT NOT NULL DEFAULT 'draft';
+ALTER TABLE kb_files ADD COLUMN reviewed_by_user_id TEXT;
+ALTER TABLE kb_files ADD COLUMN reviewed_at TEXT;
+ALTER TABLE kb_files ADD COLUMN published_at TEXT;
+ALTER TABLE kb_files ADD COLUMN archived_at TEXT;
+ALTER TABLE kb_files ADD COLUMN quality_score REAL;
+ALTER TABLE kb_files ADD COLUMN stale_reason TEXT;
+ALTER TABLE kb_files ADD COLUMN stale_detected_at TEXT;
+CREATE INDEX IF NOT EXISTS idx_kb_files_lifecycle
+    ON kb_files(kb_id, lifecycle_status);
+CREATE INDEX IF NOT EXISTS idx_kb_files_stale
+    ON kb_files(kb_id, stale_detected_at);
+"""
+
+# ---------------------------------------------------------------------------
+# Phase 45 / MCP security hardening audit
+# ---------------------------------------------------------------------------
+_PHASE45_MCP_SECURITY_SCHEMA = """
+CREATE TABLE IF NOT EXISTS mcp_audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    request_id TEXT,
+    mcp_client_id TEXT,
+    mcp_session_id TEXT,
+    user_id TEXT,
+    roles_json TEXT,
+    channel TEXT,
+    tenant_id TEXT,
+    org_id TEXT,
+    method TEXT NOT NULL,
+    tool_name TEXT,
+    resource_uri TEXT,
+    required_scopes_json TEXT,
+    granted_scopes_json TEXT,
+    risk_level TEXT,
+    tool_scope TEXT,
+    decision TEXT NOT NULL,
+    reason TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_audit_logs_client_time
+    ON mcp_audit_logs(mcp_client_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_mcp_audit_logs_session_time
+    ON mcp_audit_logs(mcp_session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_mcp_audit_logs_tool_time
+    ON mcp_audit_logs(tool_name, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_mcp_audit_logs_decision_time
+    ON mcp_audit_logs(decision, created_at DESC);
+"""
+
+# ---------------------------------------------------------------------------
+# Phase 46 / Webhook event subscriptions
+# ---------------------------------------------------------------------------
+_PHASE46_WEBHOOK_SUBSCRIPTIONS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS webhook_subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    endpoint_url TEXT NOT NULL,
+    secret TEXT,
+    event_types_json TEXT NOT NULL DEFAULT '[]',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_by_user_id TEXT,
+    tenant_id TEXT,
+    org_id TEXT,
+    last_test_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_webhook_subscriptions_enabled
+    ON webhook_subscriptions(enabled, updated_at DESC);
+ALTER TABLE webhook_deliveries ADD COLUMN subscription_id INTEGER;
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_subscription
+    ON webhook_deliveries(subscription_id, created_at DESC);
+"""
+
 MIGRATIONS: list[tuple[str, str]] = [
     ("001_core_schema", _CORE_SCHEMA),
     ("002_knowledge_bases", _KB_SCHEMA),
@@ -678,6 +811,10 @@ MIGRATIONS: list[tuple[str, str]] = [
     ("021_phase35_support_workflows", _PHASE35_SUPPORT_WORKFLOWS_SCHEMA),
     ("022_phase36_support_operations", _PHASE36_SUPPORT_OPERATIONS_SCHEMA),
     ("023_phase38_chat_feedback", _PHASE38_CHAT_FEEDBACK_SCHEMA),
+    ("024_phase43_notifications", _PHASE43_NOTIFICATIONS_SCHEMA),
+    ("025_phase44_knowledge_quality", _PHASE44_KNOWLEDGE_QUALITY_SCHEMA),
+    ("026_phase45_mcp_security", _PHASE45_MCP_SECURITY_SCHEMA),
+    ("027_phase46_webhook_subscriptions", _PHASE46_WEBHOOK_SUBSCRIPTIONS_SCHEMA),
 ]
 
 

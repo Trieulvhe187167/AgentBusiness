@@ -7,7 +7,7 @@ from __future__ import annotations
 import aiosqlite
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.auth import require_admin
+from app.auth import get_request_auth, require_admin
 from app.kb_service import (
     KB_SELECT,
     attach_file_to_kb,
@@ -19,6 +19,16 @@ from app.kb_service import (
     new_kb_version,
     open_db,
     row_to_kb_summary,
+)
+from app.kb_quality import (
+    KbFileDiffOutput,
+    KbFileLifecycleUpdate,
+    KbQualityReport,
+    KbReviewQueueOutput,
+    build_kb_file_diff,
+    build_kb_quality_report,
+    build_kb_review_queue,
+    update_kb_file_lifecycle,
 )
 from app.models import (
     KBFileSummary,
@@ -42,6 +52,14 @@ SELECT
     kf.chunk_count,
     kf.ingest_signature,
     kf.last_job_id,
+    kf.lifecycle_status,
+    kf.reviewed_by_user_id,
+    kf.reviewed_at,
+    kf.published_at,
+    kf.archived_at,
+    kf.quality_score,
+    kf.stale_reason,
+    kf.stale_detected_at,
     kf.attached_at,
     kf.last_ingest_at,
     uf.filename,
@@ -79,6 +97,14 @@ def _row_to_kb_file_summary(row: dict) -> KBFileSummary:
         chunk_count=int(row.get("chunk_count") or 0),
         ingest_signature=row.get("ingest_signature"),
         last_job_id=row.get("last_job_id"),
+        lifecycle_status=row.get("lifecycle_status") or "draft",
+        reviewed_by_user_id=row.get("reviewed_by_user_id"),
+        reviewed_at=row.get("reviewed_at"),
+        published_at=row.get("published_at"),
+        archived_at=row.get("archived_at"),
+        quality_score=row.get("quality_score"),
+        stale_reason=row.get("stale_reason"),
+        stale_detected_at=row.get("stale_detected_at"),
         attached_at=row["attached_at"],
         last_ingest_at=row.get("last_ingest_at"),
         created_at=row["created_at"],
@@ -240,6 +266,22 @@ async def get_knowledge_base_source_stats(kb_id: int):
     return vector_store.get_source_stats({"kb_id": int(kb_id)})
 
 
+@router.get("/{kb_id}/quality", response_model=KbQualityReport)
+async def get_knowledge_base_quality(kb_id: int):
+    try:
+        return build_kb_quality_report(kb_id)
+    except ValueError as err:
+        raise HTTPException(404, "Knowledge Base not found") from err
+
+
+@router.get("/{kb_id}/review-queue", response_model=KbReviewQueueOutput)
+async def get_knowledge_base_review_queue(kb_id: int, issue_type: str | None = None):
+    try:
+        return build_kb_review_queue(kb_id, issue_type=issue_type)
+    except ValueError as err:
+        raise HTTPException(404, "Knowledge Base not found") from err
+
+
 @router.get("/{kb_id}", response_model=KnowledgeBaseSummary)
 async def get_knowledge_base(kb_id: int):
     db = await open_db()
@@ -367,6 +409,27 @@ async def list_kb_files(kb_id: int):
         return [_row_to_kb_file_summary(dict(row)) for row in rows]
     finally:
         await db.close()
+
+
+@router.patch("/{kb_id}/files/{file_id}/lifecycle")
+async def update_kb_file_lifecycle_endpoint(
+    kb_id: int,
+    file_id: int,
+    payload: KbFileLifecycleUpdate,
+    auth=Depends(get_request_auth),
+):
+    try:
+        return update_kb_file_lifecycle(kb_id, file_id, payload.lifecycle_status, auth=auth)
+    except ValueError as err:
+        raise HTTPException(404, str(err)) from err
+
+
+@router.get("/{kb_id}/files/{file_id}/diff", response_model=KbFileDiffOutput)
+async def get_kb_file_diff(kb_id: int, file_id: int):
+    try:
+        return build_kb_file_diff(kb_id, file_id)
+    except ValueError as err:
+        raise HTTPException(404, str(err)) from err
 
 
 @router.post("/{kb_id}/files/{file_id}", response_model=KBFileSummary)

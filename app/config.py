@@ -17,6 +17,7 @@ class Settings(BaseSettings):
         env_prefix="RAG_",
         env_file=".env",
         env_file_encoding="utf-8",
+        extra="ignore",
     )
 
     # ------------------------------------------------------------------
@@ -137,6 +138,9 @@ class Settings(BaseSettings):
     mcp_require_auth: bool = True
     mcp_validate_origin: bool = True
     mcp_allowed_origins: str = ""
+    mcp_require_tool_scopes: bool = True
+    mcp_high_risk_tool_allowlist: str = ""
+    mcp_manifest_signing_secret: str = ""
     mcp_exposed_tools: str = (
         "search_kb,"
         "list_kbs,"
@@ -198,6 +202,7 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     auth_mode: str = "dev"  # dev|jwt|gateway
     allow_header_auth_in_dev: bool = True
+    auth_header_debug_enabled: bool = True
     jwt_issuer: str = ""
     jwt_audience: str = ""
     jwt_jwks_url: str = ""
@@ -300,6 +305,15 @@ class Settings(BaseSettings):
     scheduled_sync_enabled: bool = True
     scheduled_sync_poll_interval_seconds: float = 10.0
 
+    # ------------------------------------------------------------------
+    # Notification Center + outbound webhooks
+    # ------------------------------------------------------------------
+    notification_webhook_enabled: bool = False
+    notification_webhook_url: str = ""
+    notification_webhook_secret: str = ""
+    notification_webhook_timeout_seconds: int = 10
+    notification_webhook_max_attempts: int = 3
+
     # Logging
     log_level: str = "INFO"
 
@@ -388,6 +402,10 @@ class Settings(BaseSettings):
     @property
     def mcp_exposed_tool_names(self) -> set[str]:
         return set(self._parse_csv_setting(self.mcp_exposed_tools))
+
+    @property
+    def mcp_high_risk_tool_names(self) -> set[str]:
+        return set(self._parse_csv_setting(self.mcp_high_risk_tool_allowlist))
 
     @property
     def mcp_allowed_origin_values(self) -> set[str]:

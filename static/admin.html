@@ -77,13 +77,23 @@
         .case-kv div { border:1px solid var(--line); border-radius:10px; padding:8px; background:#fff; }
         .case-kv small { display:block; color:var(--dim); font-size:11px; margin-bottom:2px; }
         .case-list { margin:0; padding-left:18px; }
+        .trace-timeline { display:flex; flex-direction:column; gap:10px; max-height:420px; overflow:auto; padding-right:4px; }
+        .trace-event { border:1px solid var(--line); border-radius:12px; background:#fffdfa; padding:10px; display:grid; gap:6px; }
+        .trace-event-head { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+        .trace-event-title { font-weight:800; }
+        .trace-event-meta { display:flex; gap:6px; flex-wrap:wrap; color:var(--dim); font-size:11px; }
+        .trace-event details { color:var(--dim); }
+        .trace-event pre { white-space:pre-wrap; word-break:break-word; background:#f7f1e8; border-radius:10px; padding:8px; max-height:180px; overflow:auto; }
         .case-list li { margin:4px 0; }
         .case-raw summary { cursor:pointer; font-weight:800; color:var(--brand); }
         .knowledge-shell { display:grid; grid-template-columns:minmax(360px, 5fr) minmax(340px, 4fr); gap:14px; align-items:start; }
         .knowledge-panel { display:flex; flex-direction:column; gap:10px; }
         .knowledge-strip { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
         .operations-shell { display:grid; grid-template-columns:minmax(380px, 5fr) minmax(340px, 4fr); gap:14px; align-items:start; }
+        .operations-shell > .span-12 { grid-column:1 / -1; }
         .operations-panel { display:flex; flex-direction:column; gap:10px; }
+        .webhook-form { display:grid; grid-template-columns:minmax(180px, 1.1fr) minmax(320px, 2.2fr) minmax(180px, 1fr) minmax(260px, 1.5fr); gap:10px; align-items:start; margin-bottom:10px; }
+        .webhook-form .field-stack { min-width:0; }
         .analytics-hero { display:grid; grid-template-columns:minmax(280px, 1.2fr) repeat(2,minmax(220px, 1fr)); gap:10px; margin-bottom:12px; }
         .analytics-card { border:1px solid var(--line); border-radius:14px; background:#fff; padding:12px; }
         .analytics-card h3 { margin:0 0 6px; font-size:13px; color:var(--dim); text-transform:uppercase; letter-spacing:.04em; }
@@ -100,7 +110,9 @@
         .scroll { max-height:360px; overflow:auto; position:relative; }
         .status { display:inline-flex; align-items:center; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; }
         .status.uploaded,.status.queued,.status.running,.status.retrying,.status.cancelling,.status.ingesting,.status.attached,.status.clarify { background:#fff2d9; color:var(--warn); }
-        .status.ingested,.status.done,.status.active,.status.answer,.status.success { background:#ddf4e7; color:var(--ok); }
+        .status.ingested,.status.done,.status.active,.status.answer,.status.success,.status.published { background:#ddf4e7; color:var(--ok); }
+        .status.reviewed { background:#e8f1ff; color:#22577a; }
+        .status.draft { background:#fff2d9; color:var(--warn); }
         .status.failed,.status.cancelled,.status.error,.status.fallback,.status.archived { background:#fbe1dc; color:var(--bad); }
         .mono { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px; }
         .toast { position:fixed; right:18px; bottom:18px; z-index:99; border-radius:10px; padding:10px 14px; color:#fff; font-weight:700; font-size:13px; }
@@ -112,9 +124,9 @@
         .modal-backdrop.active { display:flex; }
         .modal-card { width:min(520px,100%); background:var(--panel); border:1px solid var(--line); border-radius:18px; box-shadow:0 24px 70px rgba(0,0,0,.18); padding:16px; }
         .modal-card h2 { margin:0; font-size:17px; }
-        .modal-card p { margin:8px 0 12px; color:var(--dim); font-size:13px; line-height:1.5; }
+        .modal-card p { margin:8px 0 12px; color:var(--dim); font-size:13px; line-height:1.5; white-space:pre-wrap; }
         .modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:12px; }
-        @media (max-width:1100px) { .span-8,.span-7,.span-6,.span-5,.span-4 { grid-column:span 12; } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } .support-shell,.knowledge-shell,.operations-shell,.analytics-hero { grid-template-columns:1fr; } .knowledge-strip,.analytics-insights,.case-kv { grid-template-columns:1fr; } }
+        @media (max-width:1100px) { .span-8,.span-7,.span-6,.span-5,.span-4 { grid-column:span 12; } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } .support-shell,.knowledge-shell,.operations-shell,.analytics-hero,.webhook-form { grid-template-columns:1fr; } .knowledge-strip,.analytics-insights,.case-kv { grid-template-columns:1fr; } }
     </style>
 </head>
 <body>
@@ -230,6 +242,8 @@
                     <div class="stat"><div class="value" id="kwFiles">-</div><div class="label">KB Files</div></div>
                     <div class="stat"><div class="value" id="kwLibrary">-</div><div class="label">Library Sources</div></div>
                     <div class="stat"><div class="value" id="kwDrive">-</div><div class="label">Drive Sources</div></div>
+                    <div class="stat"><div class="value" id="kwQualityScore">-</div><div class="label">Quality Score</div></div>
+                    <div class="stat"><div class="value" id="kwStaleDocs">-</div><div class="label">Stale Docs</div></div>
                 </div>
                 <div class="grid" style="margin-top:12px;">
                     <div class="span-6">
@@ -292,8 +306,45 @@
                         </div>
                         <div class="scroll">
                             <table class="table" id="knowledgeWorkspaceKbFilesTable">
-                                <thead><tr><th>ID</th><th>Name</th><th>KB Status</th><th>Source Status</th><th>Chunks</th><th>Actions</th></tr></thead>
-                                <tbody><tr><td colspan="6">No files loaded.</td></tr></tbody>
+                                <thead><tr><th>ID</th><th>Name</th><th>KB Status</th><th>Lifecycle</th><th>Source Status</th><th>Chunks</th><th>Actions</th></tr></thead>
+                                <tbody><tr><td colspan="7">No files loaded.</td></tr></tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <section class="card">
+                        <div class="section-head">
+                            <h2>Knowledge Review Queue</h2>
+                            <p>Prioritized queue for draft, stale, Drive changed, and low-quality documents.</p>
+                        </div>
+                        <div class="toolbar" style="margin-bottom:8px;">
+                            <select id="knowledgeReviewQueueFilter" title="Filter review queue by issue type.">
+                                <option value="">All review issues</option>
+                                <option value="drive_changed">Drive changed</option>
+                                <option value="low_quality">Low quality</option>
+                                <option value="stale">Stale</option>
+                                <option value="draft">Draft</option>
+                            </select>
+                            <button class="btn-muted" id="btnKnowledgeReviewQueueRefresh" title="Reload Knowledge Review Queue.">Refresh Queue</button>
+                            <span class="note" id="knowledgeReviewQueueSummary">No review queue loaded.</span>
+                        </div>
+                        <div class="scroll">
+                            <table class="table" id="knowledgeReviewQueueTable">
+                                <thead><tr><th>Priority</th><th>Document</th><th>Issue</th><th>Quality</th><th>Suggested Action</th><th>Actions</th></tr></thead>
+                                <tbody><tr><td colspan="6">No review queue loaded.</td></tr></tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <section class="card">
+                        <div class="section-head">
+                            <h2>Knowledge Quality Workflow</h2>
+                            <p>Govern document lifecycle, stale Drive changes, and quality signals from feedback/fallbacks.</p>
+                        </div>
+                        <div class="scroll">
+                            <table class="table" id="knowledgeQualityTable">
+                                <thead><tr><th>Document</th><th>Lifecycle</th><th>Quality</th><th>Signals</th><th>Stale / Diff</th><th>Actions</th></tr></thead>
+                                <tbody><tr><td colspan="6">No quality report loaded.</td></tr></tbody>
                             </table>
                         </div>
                     </section>
@@ -368,6 +419,7 @@
                         </div>
                     </section>
                 </div>
+
             </div>
         </div>
 
@@ -765,8 +817,8 @@
                     <div class="stat"><div class="value" id="opPendingReview">-</div><div class="label">Needs Review</div></div>
                     <div class="stat"><div class="value" id="opActiveJobs">-</div><div class="label">Active Jobs</div></div>
                     <div class="stat"><div class="value" id="opFailedJobs">-</div><div class="label">Failed Jobs</div></div>
-                    <div class="stat"><div class="value" id="opSchedulesEnabled">-</div><div class="label">Enabled Schedules</div></div>
-                    <div class="stat"><div class="value" id="opDownFeedback">-</div><div class="label">Down Feedback</div></div>
+                    <div class="stat"><div class="value" id="opUnreadNotifications">-</div><div class="label">Unread Notifications</div></div>
+                    <div class="stat"><div class="value" id="opFailedWebhooks">-</div><div class="label">Failed Webhooks</div></div>
                     <div class="stat"><div class="value" id="opAuthDenies">-</div><div class="label">Auth Denies</div></div>
                 </div>
             </section>
@@ -797,6 +849,30 @@
                             </table>
                         </div>
                     </section>
+
+                    <section class="card">
+                        <div class="section-head">
+                            <h2>Notification Center</h2>
+                            <p>Operational alerts for approvals, failed jobs, SLA breaches, and employee replies.</p>
+                        </div>
+                        <div class="toolbar" style="margin-bottom:8px;">
+                            <select id="operationsNotificationStatus" title="Filter notifications by read status.">
+                                <option value="">All notifications</option>
+                                <option value="unread">Unread</option>
+                                <option value="read">Read</option>
+                            </select>
+                            <button class="btn-muted" id="btnOperationsRefreshNotifications" title="Reload notification center.">Refresh</button>
+                            <button class="btn-ok" id="btnOperationsMarkAllNotificationsRead" title="Mark all notifications as read.">Mark All Read</button>
+                            <button class="btn-muted" id="btnOperationsTestNotification" title="Create a test notification and webhook delivery.">Test</button>
+                        </div>
+                        <div class="scroll" style="max-height:300px;">
+                            <table class="table" id="operationsNotificationsTable">
+                                <thead><tr><th>Time</th><th>Event</th><th>Severity</th><th>Message</th><th>Actions</th></tr></thead>
+                                <tbody><tr><td colspan="5">No notifications loaded.</td></tr></tbody>
+                            </table>
+                        </div>
+                    </section>
+
                 </div>
 
                 <div class="operations-panel">
@@ -838,6 +914,70 @@
                         </div>
                     </section>
                 </div>
+
+                <section class="card span-12">
+                    <div class="section-head">
+                        <h2>Webhook Subscriptions</h2>
+                        <p>Manage outbound endpoints, event filters, secrets, enable/disable, and test delivery.</p>
+                    </div>
+                    <div class="webhook-form">
+                        <div class="field-stack">
+                            <label for="webhookSubName">Subscription Name</label>
+                            <input id="webhookSubName" placeholder="Ops Slack relay">
+                            <small>Tên dễ nhận biết trong dashboard.</small>
+                        </div>
+                        <div class="field-stack">
+                            <label for="webhookSubUrl">Endpoint URL</label>
+                            <input id="webhookSubUrl" placeholder="https://app.example.com/webhook">
+                            <small>URL app ngoài sẽ nhận notification event.</small>
+                        </div>
+                        <div class="field-stack">
+                            <label for="webhookSubSecret">Signing Secret</label>
+                            <input id="webhookSubSecret" placeholder="Optional secret">
+                            <small>Dùng ký header X-AgentBusiness-Signature.</small>
+                        </div>
+                        <div class="field-stack">
+                            <label for="webhookSubEvents">Event Types</label>
+                            <input id="webhookSubEvents" placeholder="support.*, notification.webhook_test">
+                            <small>Phân tách bằng dấu phẩy. Để trống nghĩa là nhận tất cả.</small>
+                        </div>
+                    </div>
+                    <div class="btn-row" style="margin-bottom:8px;">
+                        <button class="btn-main" id="btnSaveWebhookSubscription">Create Subscription</button>
+                        <button class="btn-muted" id="btnClearWebhookSubscription">Clear</button>
+                        <button class="btn-muted" id="btnRefreshWebhookSubscriptions">Refresh</button>
+                        <span class="note" id="webhookSubscriptionSummary">No webhook subscriptions loaded.</span>
+                    </div>
+                    <div class="scroll" style="max-height:300px;">
+                        <table class="table" id="operationsWebhookSubscriptionsTable">
+                            <thead><tr><th>ID</th><th>Name</th><th>Endpoint</th><th>Events</th><th>Status</th><th>Actions</th></tr></thead>
+                            <tbody><tr><td colspan="6">No webhook subscriptions loaded.</td></tr></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="card span-12">
+                    <div class="section-head">
+                        <h2>Webhook Deliveries</h2>
+                        <p>Outbound notification webhooks with retry status.</p>
+                    </div>
+                    <div class="toolbar" style="margin-bottom:8px;">
+                        <select id="operationsWebhookStatus" title="Filter webhook deliveries.">
+                            <option value="">All deliveries</option>
+                            <option value="pending">Pending</option>
+                            <option value="sent">Sent</option>
+                            <option value="failed">Failed</option>
+                        </select>
+                        <button class="btn-muted" id="btnOperationsRefreshWebhooks" title="Reload webhook deliveries.">Refresh</button>
+                        <button class="btn-main" id="btnOperationsRunWebhooks" title="Run due webhook deliveries now.">Run Due</button>
+                    </div>
+                    <div class="scroll" style="max-height:300px;">
+                        <table class="table" id="operationsWebhookDeliveriesTable">
+                            <thead><tr><th>ID</th><th>Event</th><th>Status</th><th>Attempts</th><th>Result</th><th>Actions</th></tr></thead>
+                            <tbody><tr><td colspan="6">No webhook delivery loaded.</td></tr></tbody>
+                        </table>
+                    </div>
+                </section>
             </div>
         </div>
 
@@ -941,6 +1081,13 @@
                                     <textarea id="workspaceCaseContextBody" readonly hidden aria-hidden="true" placeholder="Raw agent context JSON fallback."></textarea>
                                 </div>
                                 <div class="support-detail-card">
+                                    <h3>Agent Trace Timeline</h3>
+                                    <div class="note" id="workspaceCaseTimelineSummary">Select a case to inspect request, workflow, tools, approvals, replies, and jobs.</div>
+                                    <div id="workspaceCaseTimeline" class="trace-timeline">
+                                        <div class="empty-state"><strong>No trace loaded.</strong><small>Select Context on a case to build the production trace.</small></div>
+                                    </div>
+                                </div>
+                                <div class="support-detail-card">
                                     <h3>Operate Case</h3>
                                     <div class="row" style="margin-bottom:8px;">
                                         <input id="workspaceAssignTeam" type="text" placeholder="Assigned team, e.g. support" title="Team that should own the case.">
@@ -958,7 +1105,10 @@
                                 <div class="support-detail-card">
                                     <h3>Reply To Employee</h3>
                                     <textarea id="workspacePublicReplyBody" placeholder="Public reply visible to the employee in Portal..." style="min-height:100px;"></textarea>
+                                    <div class="note" id="workspaceDraftReplyMeta">AI draft not generated yet.</div>
+                                    <div id="workspaceDraftCitations" class="case-context" style="margin-top:8px;"></div>
                                     <div class="btn-row" style="margin-top:8px;">
+                                        <button class="btn-muted" id="btnWorkspaceGenerateDraft" title="Generate an AI draft reply from ticket context, notes, email thread, and KB citations.">Generate Draft</button>
                                         <button class="btn-main" id="btnWorkspacePublicReply" title="Send a public portal reply and move the case to waiting_customer.">Reply</button>
                                         <button class="btn-ok" id="btnWorkspacePublicReplyResolve" title="Send a public portal reply and mark the case resolved.">Reply & Resolve</button>
                                         <button class="btn-danger" id="btnWorkspaceCloseCase" title="Close selected case. Employee portal replies are blocked after close.">Close Ticket</button>
@@ -1179,6 +1329,7 @@
                         <div class="stat"><div class="value" id="mcpResources">-</div><div class="label">Resources</div></div>
                         <div class="stat"><div class="value" id="mcpAuth">-</div><div class="label">Auth Required</div></div>
                         <div class="stat"><div class="value" id="mcpOrigin">-</div><div class="label">Origin Check</div></div>
+                        <div class="stat"><div class="value" id="mcpScopes">-</div><div class="label">Tool Scopes</div></div>
                         <div class="stat"><div class="value" id="mcpProtocol">-</div><div class="label">Protocol</div></div>
                     </div>
                     <div class="row" style="margin-bottom:10px;">
@@ -1190,12 +1341,12 @@
                 <section class="card span-6">
                     <div class="section-head">
                         <h2>Exposed MCP Tools</h2>
-                        <p>Only tools in the allowlist are visible and callable through MCP.</p>
+                        <p>Only tools allowed by role, risk policy, and X-MCP-Scopes are visible and callable through MCP.</p>
                     </div>
                     <div class="scroll">
                         <table class="table" id="mcpToolsTable">
-                            <thead><tr><th>Name</th><th>Scope</th><th>Risk</th><th>Idempotent</th></tr></thead>
-                            <tbody><tr><td colspan="4">No MCP tool status loaded.</td></tr></tbody>
+                            <thead><tr><th>Name</th><th>Scope</th><th>Risk</th><th>Required Scopes</th><th>Status</th></tr></thead>
+                            <tbody><tr><td colspan="5">No MCP tool status loaded.</td></tr></tbody>
                         </table>
                     </div>
                 </section>
@@ -1234,6 +1385,8 @@
         let libraryFiles = [];
         let driveSources = [];
         let sourceStats = [];
+        let kbQualityReport = null;
+        let kbReviewQueue = null;
         let supportEmails = [];
         let supportCases = [];
         let backgroundJobs = [];
@@ -1241,6 +1394,11 @@
         let chatLogs = [];
         let feedbackItems = [];
         let authAuditLogs = [];
+        let notifications = [];
+        let notificationUnreadCount = 0;
+        let webhookSubscriptions = [];
+        let editingWebhookSubscriptionId = null;
+        let webhookDeliveries = [];
         let selectedSupportEmailId = null;
         let selectedSupportCaseId = null;
         let pendingActions = [];
@@ -1481,7 +1639,7 @@
             }
         }
 
-        function showAdminModal({ title, message, input = false, defaultValue = '', confirmLabel = 'Continue', danger = false }) {
+        function showAdminModal({ title, message, input = false, defaultValue = '', confirmLabel = 'Continue', danger = false, hideCancel = false }) {
             return new Promise((resolve) => {
                 const modal = document.getElementById('adminModal');
                 const inputEl = document.getElementById('adminModalInput');
@@ -1492,6 +1650,7 @@
                 inputEl.hidden = !input;
                 inputEl.value = defaultValue || '';
                 confirmBtn.textContent = confirmLabel;
+                cancelBtn.hidden = hideCancel;
                 confirmBtn.className = danger ? 'btn-danger' : 'btn-main';
                 modal.classList.add('active');
                 if (input) setTimeout(() => inputEl.focus(), 0);
@@ -1500,6 +1659,7 @@
                     modal.classList.remove('active');
                     confirmBtn.removeEventListener('click', onConfirm);
                     cancelBtn.removeEventListener('click', onCancel);
+                    cancelBtn.hidden = false;
                     modal.removeEventListener('click', onBackdrop);
                     inputEl.removeEventListener('keydown', onKeydown);
                     resolve(value);
@@ -1521,6 +1681,10 @@
 
         function modalPrompt(title, message, defaultValue = '') {
             return showAdminModal({ title, message, input: true, defaultValue, confirmLabel: 'Save' });
+        }
+
+        function modalAlert(title, message) {
+            return showAdminModal({ title, message, confirmLabel: 'Close', hideCancel: true });
         }
 
         async function fetchJson(url, options) {
@@ -1581,17 +1745,67 @@
         }
 
         function kbFileRowsHtml(items) {
-            if (!items.length) return '<tr><td colspan="6">No files attached to this KB.</td></tr>';
+            if (!items.length) return '<tr><td colspan="7">No files attached to this KB.</td></tr>';
             return items.map((file) => `
                 <tr>
                     <td>${file.file_id}</td>
                     <td>${escapeHtml(file.original_name)}</td>
                     <td><span class="status ${file.kb_status}">${file.kb_status}</span></td>
+                    <td><span class="status ${escapeHtml(file.lifecycle_status || 'draft')}">${escapeHtml(file.lifecycle_status || 'draft')}</span>${file.stale_reason ? '<br><small class="note">stale</small>' : ''}</td>
                     <td><span class="status ${file.upload_status}">${file.upload_status}</span></td>
                     <td>${file.chunk_count ?? 0}</td>
                     <td>
                         <button class="btn-main" data-kb-ingest="${file.file_id}">${file.kb_status === 'ingested' ? 'Reindex' : 'Ingest'}</button>
                         <button class="btn-danger" data-detach="${file.file_id}">Detach</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function qualityScoreClass(score) {
+            const value = Number(score || 0);
+            if (value >= 80) return 'done';
+            if (value >= 55) return 'queued';
+            return 'failed';
+        }
+
+        function knowledgeQualityRowsHtml(report) {
+            const items = report?.items || [];
+            if (!items.length) return '<tr><td colspan="6">No quality report available.</td></tr>';
+            return items.map((item) => `
+                <tr>
+                    <td><strong>${escapeHtml(item.original_name)}</strong><br><small class="note">ID ${item.file_id} / ${escapeHtml(item.kb_status)}</small></td>
+                    <td><span class="status ${escapeHtml(item.lifecycle_status)}">${escapeHtml(item.lifecycle_status)}</span><br><small class="note">${item.reviewed_at ? `reviewed ${escapeHtml(item.reviewed_at)}` : 'not reviewed'}</small></td>
+                    <td><span class="status ${qualityScoreClass(item.quality_score)}">${item.quality_score}</span></td>
+                    <td><small>${item.citation_count} citation(s), ${item.feedback_up} up, ${item.feedback_down} down, ${item.fallback_count} fallback</small></td>
+                    <td>${item.stale ? `<span class="status failed">stale</span><br><small class="note">${escapeHtml(item.stale_reason || '-')}</small>` : '<span class="status done">fresh</span>'}${item.drive_sync_status ? `<br><small class="note">Drive: ${escapeHtml(item.drive_sync_status)}</small>` : ''}</td>
+                    <td>
+                        <button class="btn-muted" data-kb-lifecycle="${item.file_id}" data-lifecycle-status="draft">Draft</button>
+                        <button class="btn-ok" data-kb-lifecycle="${item.file_id}" data-lifecycle-status="reviewed">Review</button>
+                        <button class="btn-main" data-kb-lifecycle="${item.file_id}" data-lifecycle-status="published">Publish</button>
+                        <button class="btn-danger" data-kb-lifecycle="${item.file_id}" data-lifecycle-status="archived">Archive</button>
+                        <button class="btn-muted" data-kb-diff="${item.file_id}">Diff</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function knowledgeReviewQueueRowsHtml(queue) {
+            const items = queue?.items || [];
+            if (!items.length) return '<tr><td colspan="6">No review items for this filter.</td></tr>';
+            return items.map((item) => `
+                <tr>
+                    <td><span class="status ${item.priority === 'P1' ? 'failed' : item.priority === 'P2' ? 'queued' : 'done'}">${escapeHtml(item.priority)}</span></td>
+                    <td><strong>${escapeHtml(item.original_name)}</strong><br><small class="note">ID ${item.file_id} / ${escapeHtml(item.lifecycle_status)} / ${escapeHtml(item.kb_status)}</small></td>
+                    <td><span class="status ${item.issue_type === 'low_quality' || item.issue_type === 'drive_changed' ? 'failed' : 'queued'}">${escapeHtml(item.issue_type)}</span><br><small class="note">${escapeHtml(item.reason)}</small></td>
+                    <td><span class="status ${qualityScoreClass(item.quality_score)}">${item.quality_score}</span><br><small class="note">${item.feedback_down} down, ${item.fallback_count} fallback</small></td>
+                    <td><small>${escapeHtml(item.suggested_action)}</small></td>
+                    <td>
+                        <button class="btn-muted" data-kb-diff="${item.file_id}">Diff</button>
+                        <button class="btn-main" data-kb-ingest="${item.file_id}">Reingest</button>
+                        <button class="btn-ok" data-kb-lifecycle="${item.file_id}" data-lifecycle-status="reviewed">Review</button>
+                        <button class="btn-main" data-kb-lifecycle="${item.file_id}" data-lifecycle-status="published">Publish</button>
+                        <button class="btn-danger" data-kb-lifecycle="${item.file_id}" data-lifecycle-status="archived">Archive</button>
                     </td>
                 </tr>
             `).join('');
@@ -1647,12 +1861,63 @@
             if (workspace) workspace.textContent = text;
         }
 
+        function notificationRowsHtml(items) {
+            if (!items.length) return emptyRow(5, 'No notifications found.', 'Operational alerts will appear here.');
+            return items.map((item) => `
+                <tr>
+                    <td>${escapeHtml(item.created_at || '-')}</td>
+                    <td><strong>${escapeHtml(item.title)}</strong><br><small class="note">${escapeHtml(item.event_type)}${item.entity_type ? ` | ${escapeHtml(item.entity_type)}:${escapeHtml(item.entity_id || '-')}` : ''}</small></td>
+                    <td><span class="status ${escapeHtml(item.severity)}">${escapeHtml(item.severity)}</span><br><small>${escapeHtml(item.status)}</small></td>
+                    <td>${escapeHtml(item.message || '-')}</td>
+                    <td>${item.status === 'unread' ? `<button class="btn-ok" data-notification-read="${item.id}">Mark Read</button>` : '<button class="btn-muted" disabled>Read</button>'}</td>
+                </tr>
+            `).join('');
+        }
+
+        function webhookDeliveryRowsHtml(items) {
+            if (!items.length) return emptyRow(6, 'No webhook deliveries found.', 'Enable webhook notifications to create outbound deliveries.');
+            return items.map((item) => `
+                <tr>
+                    <td>${item.id}<br><small class="note">N-${item.notification_id}${item.subscription_id ? ` / S-${item.subscription_id}` : ''}</small></td>
+                    <td>${escapeHtml(item.event_type)}</td>
+                    <td><span class="status ${escapeHtml(item.status)}">${escapeHtml(item.status)}</span></td>
+                    <td>${item.attempts || 0}</td>
+                    <td>${item.response_status || '-'}<br><small class="note">${escapeHtml(item.error_message || item.response_body || '-')}</small></td>
+                    <td>${item.status !== 'sent' ? `<button class="btn-main" data-webhook-retry="${item.id}">Retry</button>` : '<button class="btn-muted" disabled>Sent</button>'}</td>
+                </tr>
+            `).join('');
+        }
+
+        function webhookSubscriptionRowsHtml(items) {
+            if (!items.length) return emptyRow(6, 'No webhook subscriptions found.', 'Create one endpoint to receive selected notification events.');
+            return items.map((item) => {
+                const events = item.event_types?.length ? item.event_types.join(', ') : '*';
+                return `
+                    <tr>
+                        <td>${item.id}</td>
+                        <td><strong>${escapeHtml(item.name)}</strong><br><small class="note">${item.has_secret ? 'signed' : 'unsigned'}${item.last_test_at ? ` / tested ${escapeHtml(item.last_test_at)}` : ''}</small></td>
+                        <td class="mono">${escapeHtml(item.endpoint_url)}</td>
+                        <td><small>${escapeHtml(events)}</small></td>
+                        <td><span class="status ${item.enabled ? 'done' : 'archived'}">${item.enabled ? 'enabled' : 'disabled'}</span></td>
+                        <td>
+                            <button class="btn-muted" data-webhook-sub-edit="${item.id}">Edit</button>
+                            <button class="${item.enabled ? 'btn-danger' : 'btn-ok'}" data-webhook-sub-toggle="${item.id}">${item.enabled ? 'Disable' : 'Enable'}</button>
+                            <button class="btn-main" data-webhook-sub-test="${item.id}">Test</button>
+                            <button class="btn-danger" data-webhook-sub-delete="${item.id}">Delete</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
         function renderKnowledgeWorkspace() {
             const selectedDriveSources = driveSourcesForSelectedKb();
             setTableBody('knowledgeWorkspaceKbFilesTable', kbFileRowsHtml(kbFiles));
             setTableBody('knowledgeWorkspaceLibraryTable', libraryRowsHtml(libraryFiles));
             setTableBody('knowledgeWorkspaceSourcesTable', sourceStatsRowsHtml(sourceStats));
             setTableBody('knowledgeWorkspaceDriveSourcesTable', selectedKbId() ? driveSourceRowsHtml(selectedDriveSources, 'knowledge') : '<tr><td colspan="6">No Knowledge Base selected.</td></tr>');
+            setTableBody('knowledgeReviewQueueTable', selectedKbId() ? knowledgeReviewQueueRowsHtml(kbReviewQueue) : '<tr><td colspan="6">No Knowledge Base selected.</td></tr>');
+            setTableBody('knowledgeQualityTable', selectedKbId() ? knowledgeQualityRowsHtml(kbQualityReport) : '<tr><td colspan="6">No Knowledge Base selected.</td></tr>');
 
             const summary = document.getElementById('knowledgeWorkspaceSummary');
             if (summary) {
@@ -1663,9 +1928,19 @@
             const files = document.getElementById('kwFiles');
             const library = document.getElementById('kwLibrary');
             const drive = document.getElementById('kwDrive');
+            const quality = document.getElementById('kwQualityScore');
+            const stale = document.getElementById('kwStaleDocs');
             if (files) files.textContent = String(kbFiles.length);
             if (library) library.textContent = String(libraryFiles.length);
             if (drive) drive.textContent = String(selectedDriveSources.length);
+            if (quality) quality.textContent = kbQualityReport ? String(kbQualityReport.average_quality_score) : '-';
+            if (stale) stale.textContent = kbQualityReport ? String(kbQualityReport.stale_count || 0) : '-';
+            const queueSummary = document.getElementById('knowledgeReviewQueueSummary');
+            if (queueSummary) {
+                queueSummary.textContent = kbReviewQueue
+                    ? `${kbReviewQueue.total} item(s): ${kbReviewQueue.drive_changed_count} Drive changed, ${kbReviewQueue.low_quality_count} low quality, ${kbReviewQueue.stale_count} stale, ${kbReviewQueue.draft_count} draft.`
+                    : 'No review queue loaded.';
+            }
         }
 
         function updateKbHeader() {
@@ -1735,25 +2010,28 @@
             document.getElementById('mcpResources').textContent = `${resources.count ?? 0}/${resources.template_count ?? 0}`;
             document.getElementById('mcpAuth').textContent = security.require_auth ? 'Yes' : 'No';
             document.getElementById('mcpOrigin').textContent = security.validate_origin ? 'On' : 'Off';
+            document.getElementById('mcpScopes').textContent = security.require_tool_scopes ? 'On' : 'Off';
             document.getElementById('mcpProtocol').textContent = mcpStatus.protocol_version || '-';
             document.getElementById('mcpEndpoint').value = endpoint;
             document.getElementById('mcpConfigDump').textContent = JSON.stringify({
                 endpoint,
                 security,
                 hidden_tools: tools.hidden || [],
+                blocked_by_policy: tools.blocked_by_policy || [],
                 resource_templates: resources.templates || [],
                 capabilities: mcpStatus.capabilities || {},
             }, null, 2);
 
-            const toolRows = tools.exposed || [];
+            const toolRows = [...(tools.exposed || []), ...(tools.blocked_by_policy || [])];
             document.querySelector('#mcpToolsTable tbody').innerHTML = toolRows.length ? toolRows.map((tool) => `
                 <tr>
                     <td><strong>${tool.name}</strong><br><small class="note">${escapeHtml(tool.description || '').slice(0, 120)}</small></td>
                     <td>${tool.scope || '-'}</td>
                     <td><span class="status ${tool.risk_level === 'low' ? 'done' : 'queued'}">${tool.risk_level || '-'}</span></td>
-                    <td>${tool.idempotent ? 'Yes' : 'No'}</td>
+                    <td><small class="mono">${escapeHtml((tool.required_scopes || []).join(', '))}</small></td>
+                    <td><span class="status ${tool.exposed ? 'done' : 'failed'}">${tool.exposed ? 'exposed' : escapeHtml(tool.reason || 'blocked')}</span></td>
                 </tr>
-            `).join('') : '<tr><td colspan="4">No tools exposed through MCP.</td></tr>';
+            `).join('') : '<tr><td colspan="5">No tools exposed through MCP.</td></tr>';
 
             const resourceRows = resources.items || [];
             document.querySelector('#mcpResourcesTable tbody').innerHTML = resourceRows.length ? resourceRows.map((resource) => `
@@ -1768,13 +2046,38 @@
         async function refreshKbFiles() {
             if (!selectedKbId()) {
                 kbFiles = [];
-                setTableBody('kbFilesTable', emptyRow(6, 'No Knowledge Base selected.', 'Choose a KB before loading attached files.'));
+                kbQualityReport = null;
+                setTableBody('kbFilesTable', emptyRow(7, 'No Knowledge Base selected.', 'Choose a KB before loading attached files.'));
                 renderKnowledgeWorkspace();
                 return;
             }
-            setTableBody('kbFilesTable', loadingRow(6, 'Loading KB files...'));
+            setTableBody('kbFilesTable', loadingRow(7, 'Loading KB files...'));
             kbFiles = await fetchJson(`/api/kbs/${selectedKbId()}/files`);
             setTableBody('kbFilesTable', kbFileRowsHtml(kbFiles));
+            renderKnowledgeWorkspace();
+        }
+
+        async function refreshKnowledgeQuality(showLoading = true) {
+            if (!selectedKbId()) {
+                kbQualityReport = null;
+                renderKnowledgeWorkspace();
+                return;
+            }
+            if (showLoading) setTableBody('knowledgeQualityTable', loadingRow(6, 'Loading knowledge quality report...'));
+            kbQualityReport = await fetchJson(`/api/kbs/${selectedKbId()}/quality`);
+            renderKnowledgeWorkspace();
+        }
+
+        async function refreshKnowledgeReviewQueue(showLoading = true) {
+            if (!selectedKbId()) {
+                kbReviewQueue = null;
+                renderKnowledgeWorkspace();
+                return;
+            }
+            const issueType = document.getElementById('knowledgeReviewQueueFilter')?.value || '';
+            const query = issueType ? `?issue_type=${encodeURIComponent(issueType)}` : '';
+            if (showLoading) setTableBody('knowledgeReviewQueueTable', loadingRow(6, 'Loading Knowledge Review Queue...'));
+            kbReviewQueue = await fetchJson(`/api/kbs/${selectedKbId()}/review-queue${query}`);
             renderKnowledgeWorkspace();
         }
 
@@ -2183,6 +2486,55 @@
             `;
         }
 
+        function renderCaseTimeline(timeline) {
+            const events = Array.isArray(timeline?.events) ? timeline.events : [];
+            if (!events.length) {
+                return '<div class="empty-state"><strong>No trace events found.</strong><small>Run Handle or add notes/actions to create a richer trace.</small></div>';
+            }
+            return events.map((event) => {
+                const details = event.details && Object.keys(event.details).length
+                    ? `<details><summary>Details</summary><pre class="mono">${escapeHtml(JSON.stringify(event.details, null, 2))}</pre></details>`
+                    : '';
+                const severityClass = event.severity === 'critical' ? 'failed' : (event.severity === 'warning' ? 'queued' : 'done');
+                return `
+                    <article class="trace-event">
+                        <div class="trace-event-head">
+                            <span class="trace-event-title">${escapeHtml(event.title || event.stage || 'Trace event')}</span>
+                            <span class="status ${severityClass}">${escapeHtml(event.stage || '-')}</span>
+                        </div>
+                        <div class="trace-event-meta">
+                            <span>${escapeHtml(event.timestamp || '-')}</span>
+                            <span>status: ${escapeHtml(event.status || '-')}</span>
+                            <span>actor: ${escapeHtml(event.actor || '-')}</span>
+                            <span>source: ${escapeHtml(event.source_table || '-')}${event.source_id ? `#${escapeHtml(event.source_id)}` : ''}</span>
+                        </div>
+                        ${event.summary ? `<p>${escapeHtml(event.summary)}</p>` : ''}
+                        ${details}
+                    </article>
+                `;
+            }).join('');
+        }
+
+        function renderDraftCitations(citations) {
+            if (!Array.isArray(citations) || !citations.length) {
+                return '<p class="note">No KB citations found for this draft.</p>';
+            }
+            return `
+                <section class="case-context-section">
+                    <h4>Draft Citations</h4>
+                    <ul class="case-list">
+                        ${citations.map((item, index) => `
+                            <li>
+                                <strong>[${index + 1}] ${escapeHtml(item.filename || 'KB source')}</strong>
+                                <br><small class="note">${escapeHtml(item.sheet_name || item.file_type || '-')}${item.row_range ? ` | row ${escapeHtml(item.row_range)}` : ''}${item.page_num ? ` | page ${escapeHtml(item.page_num)}` : ''} | score: ${escapeHtml(item.score ?? '-')}</small>
+                                <br>${escapeHtml(item.content_preview || '')}
+                            </li>
+                        `).join('')}
+                    </ul>
+                </section>
+            `;
+        }
+
         function pendingActionRowsHtml(items) {
             if (!items.length) return '<tr><td colspan="5">No pending actions found.</td></tr>';
             return items.map((item) => {
@@ -2319,6 +2671,9 @@
         }
 
         function renderOperationsWorkspace() {
+            setTableBody('operationsNotificationsTable', notificationRowsHtml(notifications));
+            setTableBody('operationsWebhookSubscriptionsTable', webhookSubscriptionRowsHtml(webhookSubscriptions));
+            setTableBody('operationsWebhookDeliveriesTable', webhookDeliveryRowsHtml(webhookDeliveries));
             setTableBody('operationsPendingActionsTable', pendingActionRowsHtml(pendingActions));
             setTableBody('operationsSyncSchedulesTable', syncScheduleRowsHtml(syncSchedules));
             setTableBody('operationsBackgroundJobsTable', backgroundJobRowsHtml(backgroundJobs));
@@ -2329,16 +2684,173 @@
             const needsReview = pendingActions.filter((item) => ['draft', 'approved'].includes(item.status)).length;
             const activeJobCount = backgroundJobs.filter((job) => ['queued', 'retrying', 'running', 'cancelling'].includes(job.status)).length;
             const failedJobCount = backgroundJobs.filter((job) => job.status === 'failed').length;
-            const enabledSchedules = syncSchedules.filter((item) => item.enabled).length;
-            const downFeedback = feedbackItems.filter((item) => item.rating === 'down').length;
+            const failedWebhooks = webhookDeliveries.filter((item) => item.status === 'failed').length;
             const authDenies = authAuditLogs.filter((item) => item.decision && item.decision !== 'allow').length;
             document.getElementById('opPendingReview').textContent = String(needsReview);
             document.getElementById('opActiveJobs').textContent = String(activeJobCount);
             document.getElementById('opFailedJobs').textContent = String(failedJobCount);
-            document.getElementById('opSchedulesEnabled').textContent = String(enabledSchedules);
-            document.getElementById('opDownFeedback').textContent = String(downFeedback);
+            document.getElementById('opUnreadNotifications').textContent = String(notificationUnreadCount);
+            document.getElementById('opFailedWebhooks').textContent = String(failedWebhooks);
             document.getElementById('opAuthDenies').textContent = String(authDenies);
-            document.getElementById('operationsSummary').textContent = `${needsReview} approval(s) need review, ${activeJobCount} active job(s), ${failedJobCount} failed job(s).`;
+            document.getElementById('operationsSummary').textContent = `${notificationUnreadCount} unread notification(s), ${needsReview} approval(s), ${activeJobCount} active job(s), ${failedJobCount} failed job(s).`;
+            const subSummary = document.getElementById('webhookSubscriptionSummary');
+            if (subSummary) {
+                const enabled = webhookSubscriptions.filter((item) => item.enabled).length;
+                subSummary.textContent = `${webhookSubscriptions.length} subscription(s), ${enabled} enabled.`;
+            }
+        }
+
+        async function refreshNotifications(showLoading = true) {
+            const status = document.getElementById('operationsNotificationStatus')?.value || '';
+            const query = status ? `?status=${encodeURIComponent(status)}&limit=50` : '?limit=50';
+            if (showLoading) setTableBody('operationsNotificationsTable', loadingRow(5, 'Loading notifications...'));
+            const data = await fetchJson(`/api/admin/notifications${query}`);
+            notifications = data.items || [];
+            notificationUnreadCount = data.unread_count || 0;
+            renderOperationsWorkspace();
+        }
+
+        async function refreshWebhookDeliveries(showLoading = true) {
+            const status = document.getElementById('operationsWebhookStatus')?.value || '';
+            const query = status ? `?status=${encodeURIComponent(status)}&limit=50` : '?limit=50';
+            if (showLoading) setTableBody('operationsWebhookDeliveriesTable', loadingRow(6, 'Loading webhook deliveries...'));
+            const data = await fetchJson(`/api/admin/webhook-deliveries${query}`);
+            webhookDeliveries = data.items || [];
+            renderOperationsWorkspace();
+        }
+
+        async function refreshWebhookSubscriptions(showLoading = true) {
+            if (showLoading) setTableBody('operationsWebhookSubscriptionsTable', loadingRow(6, 'Loading webhook subscriptions...'));
+            const data = await fetchJson('/api/admin/webhook-subscriptions?include_disabled=true&limit=100');
+            webhookSubscriptions = data.items || [];
+            renderOperationsWorkspace();
+        }
+
+        function webhookSubscriptionFormPayload() {
+            return {
+                name: document.getElementById('webhookSubName').value.trim(),
+                endpoint_url: document.getElementById('webhookSubUrl').value.trim(),
+                secret: document.getElementById('webhookSubSecret').value.trim() || null,
+                event_types: parseCommaList(document.getElementById('webhookSubEvents').value),
+                enabled: true,
+            };
+        }
+
+        function clearWebhookSubscriptionForm() {
+            editingWebhookSubscriptionId = null;
+            document.getElementById('webhookSubName').value = '';
+            document.getElementById('webhookSubUrl').value = '';
+            document.getElementById('webhookSubSecret').value = '';
+            document.getElementById('webhookSubEvents').value = '';
+            document.getElementById('btnSaveWebhookSubscription').textContent = 'Create Subscription';
+        }
+
+        async function saveWebhookSubscription() {
+            const payload = webhookSubscriptionFormPayload();
+            if (!payload.name || !payload.endpoint_url) return toast('Webhook name and URL are required.', false);
+            const method = editingWebhookSubscriptionId ? 'PUT' : 'POST';
+            const url = editingWebhookSubscriptionId
+                ? `/api/admin/webhook-subscriptions/${editingWebhookSubscriptionId}`
+                : '/api/admin/webhook-subscriptions';
+            await fetchJson(url, {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            toast(editingWebhookSubscriptionId ? 'Webhook subscription updated' : 'Webhook subscription created');
+            clearWebhookSubscriptionForm();
+            await refreshWebhookSubscriptions(false);
+        }
+
+        function editWebhookSubscription(subscriptionId) {
+            const item = webhookSubscriptions.find((entry) => Number(entry.id) === Number(subscriptionId));
+            if (!item) return;
+            editingWebhookSubscriptionId = Number(subscriptionId);
+            document.getElementById('webhookSubName').value = item.name || '';
+            document.getElementById('webhookSubUrl').value = item.endpoint_url || '';
+            document.getElementById('webhookSubSecret').value = '';
+            document.getElementById('webhookSubEvents').value = (item.event_types || []).join(', ');
+            document.getElementById('btnSaveWebhookSubscription').textContent = `Update #${subscriptionId}`;
+        }
+
+        async function toggleWebhookSubscription(subscriptionId) {
+            const item = webhookSubscriptions.find((entry) => Number(entry.id) === Number(subscriptionId));
+            if (!item) return;
+            await fetchJson(`/api/admin/webhook-subscriptions/${subscriptionId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: item.name,
+                    endpoint_url: item.endpoint_url,
+                    secret: null,
+                    event_types: item.event_types || [],
+                    enabled: !item.enabled,
+                }),
+            });
+            toast(`Webhook subscription ${!item.enabled ? 'enabled' : 'disabled'}`);
+            await refreshWebhookSubscriptions(false);
+        }
+
+        async function deleteWebhookSubscription(subscriptionId) {
+            if (!await modalConfirm('Delete webhook subscription', `Delete webhook subscription ${subscriptionId}?`, { danger: true, confirmLabel: 'Delete' })) return;
+            await fetchJson(`/api/admin/webhook-subscriptions/${subscriptionId}`, { method: 'DELETE' });
+            toast(`Deleted webhook subscription ${subscriptionId}`);
+            await refreshWebhookSubscriptions(false);
+        }
+
+        async function testWebhookSubscription(subscriptionId) {
+            const result = await fetchJson(`/api/admin/webhook-subscriptions/${subscriptionId}/test`, { method: 'POST' });
+            toast(`Created ${result.deliveries?.length || 0} webhook test delivery item(s)`);
+            await allAllowed([
+                ['operations', () => refreshWebhookSubscriptions(false)],
+                ['operations', () => refreshWebhookDeliveries(false)],
+                ['operations', () => refreshNotifications(false)],
+            ]);
+        }
+
+        async function markNotificationRead(notificationId) {
+            await fetchJson(`/api/admin/notifications/${notificationId}/read`, { method: 'POST' });
+            toast(`Marked notification ${notificationId} read`);
+            await refreshNotifications(false);
+        }
+
+        async function markAllNotificationsRead() {
+            await fetchJson('/api/admin/notifications/read-all', { method: 'POST' });
+            toast('All notifications marked read');
+            await refreshNotifications(false);
+        }
+
+        async function createTestNotification() {
+            const item = await fetchJson('/api/admin/notifications', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    event_type: 'notification.test',
+                    severity: 'info',
+                    title: 'Test notification',
+                    message: 'Notification Center test event from Admin UI.',
+                    entity_type: 'system',
+                    entity_id: 'admin-ui',
+                    payload: { source: 'admin_ui' },
+                }),
+            });
+            toast(`Created notification ${item.id}`);
+            await allAllowed([
+                ['operations', () => refreshNotifications(false)],
+                ['operations', () => refreshWebhookDeliveries(false)],
+            ]);
+        }
+
+        async function runWebhookDeliveries() {
+            const result = await fetchJson('/api/admin/webhook-deliveries/run', { method: 'POST' });
+            toast(`Webhook deliveries attempted: ${result.delivered}`);
+            await refreshWebhookDeliveries(false);
+        }
+
+        async function retryWebhookDelivery(deliveryId) {
+            const item = await fetchJson(`/api/admin/webhook-deliveries/${deliveryId}/retry`, { method: 'POST' });
+            toast(`Webhook delivery ${item.id}: ${item.status}`);
+            await refreshWebhookDeliveries(false);
         }
 
         async function refreshSupportEmails(allowSync = true, showLoading = true) {
@@ -2461,9 +2973,10 @@
 
         async function viewSupportCase(caseId) {
             selectedSupportCaseId = Number(caseId);
-            const [ctx, notes] = await Promise.all([
+            const [ctx, notes, timeline] = await Promise.all([
                 fetchJson(`/api/admin/support-tickets/${caseId}/context`),
                 fetchJson(`/api/admin/support-tickets/${caseId}/notes`),
+                fetchJson(`/api/admin/support-tickets/${caseId}/timeline`),
             ]);
             const ticket = ctx.ticket || {};
             document.getElementById('supportCaseDetailSummary').textContent = `${ticket.ticket_code || caseId}: ${ticket.workflow_status || ticket.status || '-'} / ${ticket.intent || '-'}`;
@@ -2478,6 +2991,8 @@
             const workspaceBody = document.getElementById('workspaceCaseContextBody');
             const workspaceMeta = document.getElementById('workspaceCaseMeta');
             const workspaceContextView = document.getElementById('workspaceCaseContextView');
+            const workspaceTimeline = document.getElementById('workspaceCaseTimeline');
+            const workspaceTimelineSummary = document.getElementById('workspaceCaseTimelineSummary');
             if (workspaceSummary && workspaceBody && workspaceMeta) {
                 workspaceSummary.textContent = `${ticket.ticket_code || caseId}: ${ticket.workflow_status || ticket.status || '-'} / ${ticket.intent || '-'}`;
                 const rawContext = {
@@ -2499,6 +3014,14 @@
                 ].filter(Boolean).join('');
                 document.getElementById('workspaceAssignTeam').value = ticket.assigned_team || '';
                 document.getElementById('workspaceAssignUser').value = ticket.assigned_user_id || '';
+                const draftMeta = document.getElementById('workspaceDraftReplyMeta');
+                const draftCitations = document.getElementById('workspaceDraftCitations');
+                if (draftMeta) draftMeta.textContent = 'AI draft not generated yet.';
+                if (draftCitations) draftCitations.innerHTML = '';
+            }
+            if (workspaceTimeline && workspaceTimelineSummary) {
+                workspaceTimelineSummary.textContent = `${timeline.total || 0} trace event(s) for ${timeline.ticket_code || ticket.ticket_code || caseId}.`;
+                workspaceTimeline.innerHTML = renderCaseTimeline(timeline);
             }
             renderSupportWorkspaceActions();
         }
@@ -2569,6 +3092,31 @@
             await refreshSupportCases();
         }
 
+        async function generateSupportDraftReply() {
+            if (!selectedSupportCaseId) return toast('Select a support case first.', false);
+            const button = document.getElementById('btnWorkspaceGenerateDraft');
+            setButtonLoading(button, true, 'Generating...');
+            try {
+                const result = await fetchJson(`/api/admin/support-tickets/${selectedSupportCaseId}/draft-reply`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tone: 'professional' }),
+                });
+                const replyBody = document.getElementById('workspacePublicReplyBody');
+                if (replyBody) replyBody.value = result.draft_reply || '';
+                const meta = document.getElementById('workspaceDraftReplyMeta');
+                if (meta) {
+                    const source = result.used_llm ? `LLM: ${result.provider || '-'}` : 'Fallback draft';
+                    meta.textContent = `${source}. ${result.citations?.length || 0} citation(s). Review/edit before sending.`;
+                }
+                const citations = document.getElementById('workspaceDraftCitations');
+                if (citations) citations.innerHTML = renderDraftCitations(result.citations || []);
+                toast('AI draft generated. Review before sending.');
+            } finally {
+                setButtonLoading(button, false);
+            }
+        }
+
         async function sendPublicSupportReply(resolve = false) {
             if (!selectedSupportCaseId) return toast('Select a support case first.', false);
             const replyBody = document.getElementById('workspacePublicReplyBody')?.value.trim() || '';
@@ -2628,6 +3176,14 @@
                 if (document.getElementById('workspacePublicReplyBody')) document.getElementById('workspacePublicReplyBody').value = '';
                 const workspaceContextView = document.getElementById('workspaceCaseContextView');
                 if (workspaceContextView) workspaceContextView.innerHTML = '<div class="empty-state"><strong>No case selected.</strong><small>Select Context on a case to view the readable workflow context.</small></div>';
+                const workspaceTimeline = document.getElementById('workspaceCaseTimeline');
+                const workspaceTimelineSummary = document.getElementById('workspaceCaseTimelineSummary');
+                if (workspaceTimeline) workspaceTimeline.innerHTML = '<div class="empty-state"><strong>No trace loaded.</strong><small>Select Context on a case to build the production trace.</small></div>';
+                if (workspaceTimelineSummary) workspaceTimelineSummary.textContent = 'Select a case to inspect request, workflow, tools, approvals, replies, and jobs.';
+                const draftMeta = document.getElementById('workspaceDraftReplyMeta');
+                const draftCitations = document.getElementById('workspaceDraftCitations');
+                if (draftMeta) draftMeta.textContent = 'AI draft not generated yet.';
+                if (draftCitations) draftCitations.innerHTML = '';
                 document.getElementById('workspaceCaseNoteBody').value = '';
                 document.getElementById('workspaceAssignTeam').value = '';
                 document.getElementById('workspaceAssignUser').value = '';
@@ -2853,6 +3409,8 @@
                 ['system', refreshStatsAndSystem],
                 ['mcp', refreshMcpStatus],
                 ['knowledge', refreshKbFiles],
+                ['knowledge', refreshKnowledgeQuality],
+                ['knowledge', refreshKnowledgeReviewQueue],
                 ['knowledge', refreshSources],
                 ['drive', refreshDriveSources],
                 ['support', () => refreshSupportEmails(false)],
@@ -2860,6 +3418,9 @@
                 ['operations', refreshSyncSchedules],
                 ['operations', refreshPendingActions],
                 ['operations', refreshBackgroundJobs],
+                ['operations', refreshNotifications],
+                ['operations', refreshWebhookSubscriptions],
+                ['operations', refreshWebhookDeliveries],
                 ['audit', refreshLogs],
                 ['audit', refreshAuthAudit],
                 ['analytics', refreshFeedback],
@@ -3131,6 +3692,37 @@
             await refreshAll(selectedKbId());
         }
 
+        async function updateKbFileLifecycle(fileId, lifecycleStatus) {
+            await fetchJson(`/api/kbs/${selectedKbId()}/files/${fileId}/lifecycle`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ lifecycle_status: lifecycleStatus }),
+            });
+            toast(`Document ${fileId} moved to ${lifecycleStatus}`);
+            await allAllowed([
+                ['knowledge', refreshKbFiles],
+                ['knowledge', () => refreshKnowledgeQuality(false)],
+                ['knowledge', () => refreshKnowledgeReviewQueue(false)],
+            ]);
+        }
+
+        async function showKbFileDiff(fileId) {
+            const diff = await fetchJson(`/api/kbs/${selectedKbId()}/files/${fileId}/diff`);
+            const body = [
+                `Document: ${diff.original_name}`,
+                `Drive source: ${diff.has_drive_source ? 'yes' : 'no'}`,
+                `Changed: ${diff.changed ? 'yes' : 'no'}`,
+                `Reason: ${diff.reason || '-'}`,
+                '',
+                'Local:',
+                JSON.stringify(diff.local || {}, null, 2),
+                '',
+                'Remote:',
+                JSON.stringify(diff.remote || {}, null, 2),
+            ].join('\n');
+            await modalAlert('KB File Diff', body);
+        }
+
         async function deleteFile(fileId) {
             if (!await modalConfirm('Delete source file', 'Delete this source file? It will fail if still attached to multiple KBs.', { danger: true, confirmLabel: 'Delete file' })) return;
             await fetchJson(`/api/files/${fileId}`, { method:'DELETE' });
@@ -3164,6 +3756,8 @@
         document.getElementById('btnRefreshDriveSources').addEventListener('click', () => refreshDriveSources().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnKnowledgeRefresh').addEventListener('click', () => allAllowed([
             ['knowledge', refreshKbFiles],
+            ['knowledge', refreshKnowledgeQuality],
+            ['knowledge', refreshKnowledgeReviewQueue],
             ['knowledge', refreshLibrary],
             ['knowledge', refreshSources],
             ['drive', refreshDriveSources],
@@ -3171,6 +3765,8 @@
         document.getElementById('btnKnowledgeIngest').addEventListener('click', () => ingestKb().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnKnowledgeReindex').addEventListener('click', () => reindexKb().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnKnowledgeDriveRefresh').addEventListener('click', () => refreshDriveSources().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('knowledgeReviewQueueFilter').addEventListener('change', () => refreshKnowledgeReviewQueue().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnKnowledgeReviewQueueRefresh').addEventListener('click', () => refreshKnowledgeReviewQueue().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnClearCache').addEventListener('click', () => clearCache().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnKwClearCache').addEventListener('click', () => clearCache().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnIngestKb').addEventListener('click', () => ingestKb().catch((e) => toast(explainAuthError(e), false)));
@@ -3210,6 +3806,7 @@
         document.getElementById('btnWorkspaceAddNote').addEventListener('click', () => addSupportCaseNote().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnWorkspaceEscalate').addEventListener('click', () => selectedSupportCaseId ? escalateSupportCase(selectedSupportCaseId).catch((e) => toast(explainAuthError(e), false)) : toast('Select a support case first.', false));
         document.getElementById('btnWorkspaceClear').addEventListener('click', clearSupportCaseSelection);
+        document.getElementById('btnWorkspaceGenerateDraft').addEventListener('click', () => generateSupportDraftReply().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnWorkspacePublicReply').addEventListener('click', () => sendPublicSupportReply(false).catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnWorkspacePublicReplyResolve').addEventListener('click', () => sendPublicSupportReply(true).catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnWorkspaceCloseCase').addEventListener('click', () => closeSupportCase().catch((e) => toast(explainAuthError(e), false)));
@@ -3217,10 +3814,23 @@
             ['operations', refreshPendingActions],
             ['operations', refreshBackgroundJobs],
             ['operations', refreshSyncSchedules],
+            ['operations', refreshNotifications],
+            ['operations', refreshWebhookSubscriptions],
+            ['operations', refreshWebhookDeliveries],
             ['audit', refreshLogs],
             ['analytics', refreshFeedback],
             ['audit', refreshAuthAudit],
         ]).catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('operationsNotificationStatus').addEventListener('change', () => refreshNotifications().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('operationsWebhookStatus').addEventListener('change', () => refreshWebhookDeliveries().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnOperationsRefreshNotifications').addEventListener('click', () => refreshNotifications().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnOperationsMarkAllNotificationsRead').addEventListener('click', () => markAllNotificationsRead().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnOperationsTestNotification').addEventListener('click', () => createTestNotification().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnSaveWebhookSubscription').addEventListener('click', () => saveWebhookSubscription().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnClearWebhookSubscription').addEventListener('click', clearWebhookSubscriptionForm);
+        document.getElementById('btnRefreshWebhookSubscriptions').addEventListener('click', () => refreshWebhookSubscriptions().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnOperationsRefreshWebhooks').addEventListener('click', () => refreshWebhookDeliveries().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnOperationsRunWebhooks').addEventListener('click', () => runWebhookDeliveries().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('operationsPendingActionStatus').addEventListener('change', () => refreshPendingActions().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('operationsBackgroundJobStatus').addEventListener('change', () => refreshBackgroundJobs().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnRefreshMcp').addEventListener('click', () => refreshMcpStatus().catch((e) => toast(explainAuthError(e), false)));
@@ -3271,6 +3881,30 @@
             if (ingestBtn) return ingestOne(Number(ingestBtn.dataset.kbIngest)).catch((e) => toast(explainAuthError(e), false));
             const detachBtn = event.target.closest('[data-detach]');
             if (detachBtn) return detachFile(Number(detachBtn.dataset.detach)).catch((e) => toast(explainAuthError(e), false));
+        });
+        document.querySelector('#knowledgeQualityTable tbody').addEventListener('click', (event) => {
+            const lifecycleBtn = event.target.closest('[data-kb-lifecycle]');
+            if (lifecycleBtn) {
+                return updateKbFileLifecycle(
+                    Number(lifecycleBtn.dataset.kbLifecycle),
+                    lifecycleBtn.dataset.lifecycleStatus,
+                ).catch((e) => toast(explainAuthError(e), false));
+            }
+            const diffBtn = event.target.closest('[data-kb-diff]');
+            if (diffBtn) return showKbFileDiff(Number(diffBtn.dataset.kbDiff)).catch((e) => toast(explainAuthError(e), false));
+        });
+        document.querySelector('#knowledgeReviewQueueTable tbody').addEventListener('click', (event) => {
+            const lifecycleBtn = event.target.closest('[data-kb-lifecycle]');
+            if (lifecycleBtn) {
+                return updateKbFileLifecycle(
+                    Number(lifecycleBtn.dataset.kbLifecycle),
+                    lifecycleBtn.dataset.lifecycleStatus,
+                ).catch((e) => toast(explainAuthError(e), false));
+            }
+            const ingestBtn = event.target.closest('[data-kb-ingest]');
+            if (ingestBtn) return ingestOne(Number(ingestBtn.dataset.kbIngest)).catch((e) => toast(explainAuthError(e), false));
+            const diffBtn = event.target.closest('[data-kb-diff]');
+            if (diffBtn) return showKbFileDiff(Number(diffBtn.dataset.kbDiff)).catch((e) => toast(explainAuthError(e), false));
         });
         document.querySelector('#knowledgeWorkspaceLibraryTable tbody').addEventListener('click', (event) => {
             const attachBtn = event.target.closest('[data-attach]');
@@ -3373,6 +4007,24 @@
             const retryBtn = event.target.closest('[data-job-retry]');
             if (retryBtn) return retryBackgroundJob(retryBtn.dataset.jobRetry).catch((e) => toast(explainAuthError(e), false));
         });
+        document.querySelector('#operationsNotificationsTable tbody').addEventListener('click', (event) => {
+            const readBtn = event.target.closest('[data-notification-read]');
+            if (readBtn) return markNotificationRead(Number(readBtn.dataset.notificationRead)).catch((e) => toast(explainAuthError(e), false));
+        });
+        document.querySelector('#operationsWebhookSubscriptionsTable tbody').addEventListener('click', (event) => {
+            const editBtn = event.target.closest('[data-webhook-sub-edit]');
+            if (editBtn) return editWebhookSubscription(Number(editBtn.dataset.webhookSubEdit));
+            const toggleBtn = event.target.closest('[data-webhook-sub-toggle]');
+            if (toggleBtn) return toggleWebhookSubscription(Number(toggleBtn.dataset.webhookSubToggle)).catch((e) => toast(explainAuthError(e), false));
+            const testBtn = event.target.closest('[data-webhook-sub-test]');
+            if (testBtn) return testWebhookSubscription(Number(testBtn.dataset.webhookSubTest)).catch((e) => toast(explainAuthError(e), false));
+            const deleteBtn = event.target.closest('[data-webhook-sub-delete]');
+            if (deleteBtn) return deleteWebhookSubscription(Number(deleteBtn.dataset.webhookSubDelete)).catch((e) => toast(explainAuthError(e), false));
+        });
+        document.querySelector('#operationsWebhookDeliveriesTable tbody').addEventListener('click', (event) => {
+            const retryBtn = event.target.closest('[data-webhook-retry]');
+            if (retryBtn) return retryWebhookDelivery(Number(retryBtn.dataset.webhookRetry)).catch((e) => toast(explainAuthError(e), false));
+        });
 
         const uploadZone = document.getElementById('uploadZone');
         const fileInput = document.getElementById('fileInput');
@@ -3448,6 +4100,12 @@
         setInterval(() => {
             if (isActiveView('view-operations-workspace')) refreshIfAllowed('operations', () => refreshBackgroundJobs(false)).catch(() => {});
         }, 10000);
+        setInterval(() => {
+            if (isActiveView('view-operations-workspace')) refreshIfAllowed('operations', () => refreshNotifications(false)).catch(() => {});
+        }, 15000);
+        setInterval(() => {
+            if (isActiveView('view-operations-workspace')) refreshIfAllowed('operations', () => refreshWebhookDeliveries(false)).catch(() => {});
+        }, 30000);
     </script>
 </body>
 </html>

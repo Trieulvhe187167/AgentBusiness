@@ -41,6 +41,7 @@ from app.background_jobs import (
     list_background_jobs,
     retry_background_job,
 )
+from app.case_timeline import CaseTimelineOutput, build_case_timeline
 from app.config import settings
 from app.database import fetch_all, fetch_one, init_db
 from app.feedback import feedback_summary, list_chat_feedback, submit_chat_feedback
@@ -68,6 +69,28 @@ from app.models import (
     ToolAuditLogItem,
 )
 from app.mcp_server import build_mcp_status, handle_mcp_request
+from app.notifications import (
+    CreateNotificationInput,
+    ListNotificationsOutput,
+    ListWebhookDeliveriesOutput,
+    ListWebhookSubscriptionsOutput,
+    NotificationItem,
+    UpsertWebhookSubscriptionInput,
+    WebhookDeliveryItem,
+    WebhookSubscriptionItem,
+    create_webhook_subscription,
+    create_notification,
+    delete_webhook_subscription,
+    deliver_due_webhooks_once,
+    list_notifications,
+    list_webhook_deliveries,
+    list_webhook_subscriptions,
+    mark_all_notifications_read,
+    mark_notification_read,
+    retry_webhook_delivery,
+    test_webhook_subscription,
+    update_webhook_subscription,
+)
 from app.pending_actions import (
     CreatePendingActionInput,
     ListPendingActionsOutput,
@@ -124,6 +147,7 @@ from app.support_workflows.schemas import (
     WorkflowResult,
 )
 from app.support_ticket_service import create_support_ticket
+from app.support_drafts import SupportDraftReplyInput, SupportDraftReplyOutput, generate_support_draft_reply
 from app.upload import router as upload_router
 from app.tools.drive_tools import (
     CreateGoogleDriveSourceInput,
@@ -427,7 +451,11 @@ async def current_user_profile(auth=Depends(get_request_auth)):
     return CurrentUserProfile(
         authenticated=bool(auth.user_id or auth.roles),
         auth_mode=settings.normalized_auth_mode,
-        debug_auth_inputs_enabled=settings.normalized_auth_mode == "dev" and settings.allow_header_auth_in_dev,
+        debug_auth_inputs_enabled=(
+            settings.normalized_auth_mode == "dev"
+            and settings.allow_header_auth_in_dev
+            and settings.auth_header_debug_enabled
+        ),
         user_id=auth.user_id,
         roles=auth.roles,
         channel=auth.channel,
@@ -644,6 +672,19 @@ async def add_my_support_ticket_note(
         ),
         context=context,
     )
+    try:
+        create_notification(
+            event_type="support.employee_replied",
+            severity="warning",
+            title=f"Employee replied: {ticket.get('ticket_code') or ticket_id}",
+            message=payload.body[:500],
+            entity_type="support_ticket",
+            entity_id=ticket_id,
+            payload={"ticket_code": ticket.get("ticket_code")},
+            context=context,
+        )
+    except Exception:
+        logger.exception("Failed to create employee reply notification")
     if (ticket.get("workflow_status") or ticket.get("status")) in {"waiting_customer", "resolved", "closed"}:
         update_ticket_status(
             ticket_id,
@@ -654,6 +695,115 @@ async def add_my_support_ticket_note(
             context=context,
         )
     return note
+
+
+@app.get("/api/admin/notifications", response_model=ListNotificationsOutput)
+async def admin_list_notifications(
+    status: str | None = Query(default=None),
+    severity: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    _=Depends(require_operations_role),
+):
+    return list_notifications(status=status, severity=severity, limit=limit)
+
+
+@app.post("/api/admin/notifications", response_model=NotificationItem)
+async def admin_create_notification(
+    payload: CreateNotificationInput,
+    request: Request,
+    auth=Depends(require_operations_role),
+):
+    return create_notification(
+        event_type=payload.event_type,
+        severity=payload.severity,
+        title=payload.title,
+        message=payload.message,
+        entity_type=payload.entity_type,
+        entity_id=payload.entity_id,
+        payload=payload.payload,
+        context=RequestContext(
+            request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+            auth=auth,
+        ),
+    )
+
+
+@app.post("/api/admin/notifications/{notification_id}/read", response_model=NotificationItem)
+async def admin_mark_notification_read(notification_id: int, auth=Depends(require_operations_role)):
+    try:
+        return mark_notification_read(notification_id, auth=auth)
+    except ValueError as err:
+        raise HTTPException(status_code=404, detail=str(err)) from err
+
+
+@app.post("/api/admin/notifications/read-all", response_model=ListNotificationsOutput)
+async def admin_mark_all_notifications_read(auth=Depends(require_operations_role)):
+    return mark_all_notifications_read(auth=auth)
+
+
+@app.get("/api/admin/webhook-subscriptions", response_model=ListWebhookSubscriptionsOutput)
+async def admin_list_webhook_subscriptions(
+    include_disabled: bool = Query(default=True),
+    limit: int = Query(default=100, ge=1, le=200),
+    _=Depends(require_operations_role),
+):
+    return list_webhook_subscriptions(include_disabled=include_disabled, limit=limit)
+
+
+@app.post("/api/admin/webhook-subscriptions", response_model=WebhookSubscriptionItem)
+async def admin_create_webhook_subscription(payload: UpsertWebhookSubscriptionInput, auth=Depends(require_operations_role)):
+    return create_webhook_subscription(payload, auth=auth)
+
+
+@app.put("/api/admin/webhook-subscriptions/{subscription_id}", response_model=WebhookSubscriptionItem)
+async def admin_update_webhook_subscription(
+    subscription_id: int,
+    payload: UpsertWebhookSubscriptionInput,
+    _=Depends(require_operations_role),
+):
+    try:
+        return update_webhook_subscription(subscription_id, payload)
+    except ValueError as err:
+        raise HTTPException(status_code=404, detail=str(err)) from err
+
+
+@app.delete("/api/admin/webhook-subscriptions/{subscription_id}")
+async def admin_delete_webhook_subscription(subscription_id: int, _=Depends(require_operations_role)):
+    try:
+        return delete_webhook_subscription(subscription_id)
+    except ValueError as err:
+        raise HTTPException(status_code=404, detail=str(err)) from err
+
+
+@app.post("/api/admin/webhook-subscriptions/{subscription_id}/test")
+async def admin_test_webhook_subscription(subscription_id: int, auth=Depends(require_operations_role)):
+    try:
+        return test_webhook_subscription(subscription_id, auth=auth)
+    except ValueError as err:
+        raise HTTPException(status_code=404, detail=str(err)) from err
+
+
+@app.get("/api/admin/webhook-deliveries", response_model=ListWebhookDeliveriesOutput)
+async def admin_list_webhook_deliveries(
+    status: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    _=Depends(require_operations_role),
+):
+    return list_webhook_deliveries(status=status, limit=limit)
+
+
+@app.post("/api/admin/webhook-deliveries/run")
+async def admin_run_webhook_deliveries(_=Depends(require_operations_role)):
+    delivered = await deliver_due_webhooks_once(limit=25)
+    return {"delivered": delivered}
+
+
+@app.post("/api/admin/webhook-deliveries/{delivery_id}/retry", response_model=WebhookDeliveryItem)
+async def admin_retry_webhook_delivery(delivery_id: int, _=Depends(require_operations_role)):
+    try:
+        return await retry_webhook_delivery(delivery_id)
+    except ValueError as err:
+        raise HTTPException(status_code=404, detail=str(err)) from err
 
 
 @app.get("/api/admin/chat-logs", response_model=list[ChatLogItem])
@@ -1182,6 +1332,34 @@ async def admin_enqueue_support_email_workflow(email_id: int, request: Request, 
 @app.get("/api/admin/support-tickets/{ticket_id}/context")
 async def admin_get_support_ticket_context(ticket_id: int, _=Depends(require_support_role)):
     return get_ticket_context(ticket_id)
+
+
+@app.get("/api/admin/support-tickets/{ticket_id}/timeline", response_model=CaseTimelineOutput)
+async def admin_get_support_ticket_timeline(ticket_id: int, _=Depends(require_support_role)):
+    try:
+        return build_case_timeline(ticket_id)
+    except ValueError as err:
+        raise HTTPException(status_code=404, detail="Support ticket not found") from err
+
+
+@app.post("/api/admin/support-tickets/{ticket_id}/draft-reply", response_model=SupportDraftReplyOutput)
+async def admin_generate_support_ticket_draft_reply(
+    ticket_id: int,
+    payload: SupportDraftReplyInput,
+    request: Request,
+    auth=Depends(require_support_role),
+):
+    try:
+        return generate_support_draft_reply(
+            ticket_id,
+            payload,
+            context=RequestContext(
+                request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+                auth=auth,
+            ),
+        )
+    except ValueError as err:
+        raise HTTPException(status_code=404, detail="Support ticket not found") from err
 
 
 @app.post("/api/admin/support-tickets/{ticket_id}/escalate")

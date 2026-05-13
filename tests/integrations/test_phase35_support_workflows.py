@@ -130,6 +130,59 @@ def test_support_operations_list_assign_note_and_status(tmp_path, monkeypatch):
     assert notes_response.json()["total"] == 3
 
 
+def test_support_case_timeline_combines_workflow_notes_actions_and_jobs(tmp_path, monkeypatch):
+    configure_test_env(tmp_path, monkeypatch)
+    ticket_id = _create_ticket("I want a refund for order DH99999 because delivery failed.", issue_type="refund")
+
+    with TestClient(main.app) as client:
+        handle = client.post(f"/api/admin/support-workflows/tickets/{ticket_id}/handle", headers=admin_headers())
+        note = client.post(
+            f"/api/admin/support-tickets/{ticket_id}/notes",
+            json={"body": "Review refund policy before replying.", "note_type": "internal", "visibility": "internal"},
+            headers=admin_headers(),
+        )
+        enqueue = client.post(f"/api/admin/support-workflows/tickets/{ticket_id}/enqueue", headers=admin_headers())
+        timeline = client.get(f"/api/admin/support-tickets/{ticket_id}/timeline", headers=admin_headers())
+
+    assert handle.status_code == 200, handle.text
+    assert note.status_code == 200, note.text
+    assert enqueue.status_code == 200, enqueue.text
+    assert timeline.status_code == 200, timeline.text
+    payload = timeline.json()
+    stages = {item["stage"] for item in payload["events"]}
+    assert payload["ticket_id"] == ticket_id
+    assert "user_request" in stages
+    assert "classification" in stages
+    assert "action_plan" in stages
+    assert "pending_action" in stages
+    assert "support_note" in stages
+    assert "background_job" in stages
+
+
+def test_support_case_ai_draft_reply_fills_reviewable_draft(tmp_path, monkeypatch):
+    configure_test_env(tmp_path, monkeypatch)
+    ticket_id = _create_ticket(
+        "Tôi muốn hỏi về học phí 3 học kỳ đầu của chương trình FPT University.",
+        issue_type="question",
+    )
+
+    with TestClient(main.app) as client:
+        response = client.post(
+            f"/api/admin/support-tickets/{ticket_id}/draft-reply",
+            json={"tone": "professional"},
+            headers=admin_headers(),
+        )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["ticket_id"] == ticket_id
+    assert payload["ticket_code"].startswith("TCK-")
+    assert payload["draft_reply"]
+    assert payload["used_llm"] is False
+    assert "retrieval_query" in payload
+    assert "citations" in payload
+
+
 def test_support_sla_monitor_escalates_overdue_ticket(tmp_path, monkeypatch):
     configure_test_env(tmp_path, monkeypatch)
     ticket_id = _create_ticket("This complaint needs attention.", issue_type="other")

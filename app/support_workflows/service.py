@@ -736,6 +736,21 @@ def process_sla_breaches(*, context: RequestContext, limit: int = 50) -> dict[st
             ),
             context=context,
         )
+        try:
+            from app.notifications import create_notification
+
+            create_notification(
+                event_type="support.sla_breached",
+                severity="critical",
+                title=f"SLA breached: {row.get('ticket_code') or ticket_id}",
+                message=reason,
+                entity_type="support_ticket",
+                entity_id=ticket_id,
+                payload={"ticket_code": row.get("ticket_code"), "sla_due_at": row.get("sla_due_at")},
+                context=context,
+            )
+        except Exception:
+            pass
         escalated_ids.append(ticket_id)
 
     return SlaMonitorResult(scanned=len(rows), breached=len(escalated_ids), escalated_ticket_ids=escalated_ids).model_dump()

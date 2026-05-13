@@ -18,7 +18,15 @@ from app.background_jobs import list_background_jobs
 from app.config import settings
 from app.database import fetch_all, fetch_one
 from app.kb_service import KB_SELECT, open_db, row_to_kb_summary
-from app.models import RequestContext
+from app.mcp_security import (
+    McpClientContext,
+    decide_tool_exposure,
+    log_mcp_audit,
+    mcp_client_context,
+    sign_tool_manifest,
+    tool_required_scopes,
+)
+from app.models import AuthContext, RequestContext
 from app.tools import tool_registry
 from app.tools.registry import ToolAuthorizationError, ToolExecutionError, ToolValidationError
 from app.vector_store import vector_store
@@ -51,14 +59,17 @@ def _error(request_id: Any, code: int, message: str, data: Any | None = None) ->
 
 def _tool_to_mcp(definition) -> dict[str, Any]:
     payload = definition.model_dump()
+    auth_policy = payload["auth_policy"]
     return {
         "name": payload["name"],
         "description": payload["description"],
         "inputSchema": payload["input_schema"],
         "annotations": {
             "idempotentHint": payload["idempotent"],
-            "riskLevel": payload["auth_policy"].get("risk_level"),
-            "scope": payload["auth_policy"].get("scope"),
+            "riskLevel": auth_policy.get("risk_level"),
+            "scope": auth_policy.get("scope"),
+            "requiredScopes": sorted(tool_required_scopes(payload["name"], auth_policy)),
+            "requiredRoles": auth_policy.get("required_roles") or [],
         },
     }
 
@@ -98,6 +109,45 @@ def _exposed_tool_definitions():
     return [item for item in tool_registry.list_definitions() if _is_exposed_tool(item.name)]
 
 
+def _visible_tool_definitions(request: Request):
+    auth = get_request_auth(request)
+    client = mcp_client_context(request)
+    visible = []
+    for item in _exposed_tool_definitions():
+        decision = decide_tool_exposure(item, auth=auth, client=client)
+        if decision.allowed:
+            visible.append(item)
+    return visible
+
+
+def _tool_security_report(definitions, *, auth=None, client=None) -> list[dict[str, Any]]:
+    rows = []
+    for item in definitions:
+        policy = item.auth_policy
+        required_scopes = tool_required_scopes(item.name, policy)
+        if client is not None and auth is not None:
+            decision = decide_tool_exposure(item, auth=auth, client=client)
+            allowed = decision.allowed
+            reason = decision.reason
+        else:
+            allowed = True
+            reason = "configured"
+        rows.append(
+            {
+                "name": item.name,
+                "description": item.description,
+                "idempotent": item.idempotent,
+                "risk_level": policy.get("risk_level"),
+                "scope": policy.get("scope"),
+                "required_roles": policy.get("required_roles") or [],
+                "required_scopes": sorted(required_scopes),
+                "exposed": allowed,
+                "reason": reason,
+            }
+        )
+    return rows
+
+
 def _validate_mcp_origin(request: Request) -> None:
     if not settings.mcp_validate_origin:
         return
@@ -118,10 +168,31 @@ def _validate_mcp_auth(request: Request) -> None:
         raise HTTPException(status_code=401, detail="MCP authentication required")
 
 
-def _require_resource_admin(request: Request) -> None:
+def _require_resource_admin(request: Request, *, method: str, request_id: Any, resource_uri: str | None = None) -> None:
     auth = get_request_auth(request)
+    client = mcp_client_context(request)
     if not can_manage_kb(auth):
+        log_mcp_audit(
+            request_id=str(request_id) if request_id is not None else None,
+            auth=auth,
+            client=client,
+            method=method,
+            resource_uri=resource_uri,
+            required_scopes={"resource:*"},
+            decision="deny",
+            reason="admin_role_required_for_resources",
+        )
         raise ToolAuthorizationError("Admin role required for MCP resources")
+    log_mcp_audit(
+        request_id=str(request_id) if request_id is not None else None,
+        auth=auth,
+        client=client,
+        method=method,
+        resource_uri=resource_uri,
+        required_scopes={"resource:*"},
+        decision="allow",
+        reason="resource_access",
+    )
 
 
 def _request_context(request: Request, params: dict[str, Any] | None = None) -> RequestContext:
@@ -298,6 +369,12 @@ def _list_resource_templates() -> list[dict[str, Any]]:
 async def build_mcp_status() -> dict[str, Any]:
     definitions = tool_registry.list_definitions()
     exposed = _exposed_tool_definitions()
+    status_auth = AuthContext(user_id="admin-status", roles=["admin"], channel="admin")
+    status_client = McpClientContext(client_id="admin-status", session_id=None, scopes={"mcp:*"})
+    security_rows = _tool_security_report(exposed, auth=status_auth, client=status_client)
+    effective_exposed = [item for item in security_rows if item["exposed"]]
+    blocked_by_policy = [item for item in security_rows if not item["exposed"]]
+    manifest_tools = [_tool_to_mcp(item) for item in exposed if any(row["name"] == item.name and row["exposed"] for row in security_rows)]
     resources = await _list_resources()
     resource_templates = _list_resource_templates()
     return {
@@ -312,20 +389,18 @@ async def build_mcp_status() -> dict[str, Any]:
             "require_auth": settings.mcp_require_auth,
             "validate_origin": settings.mcp_validate_origin,
             "allowed_origins": sorted(settings.mcp_allowed_origin_values),
+            "require_tool_scopes": settings.mcp_require_tool_scopes,
+            "scope_header": "X-MCP-Scopes",
+            "client_id_header": "X-MCP-Client-Id",
+            "high_risk_allowed_tools": sorted(settings.mcp_high_risk_tool_names),
+            "manifest_signature": sign_tool_manifest(manifest_tools),
         },
         "tools": {
             "registered_count": len(definitions),
-            "exposed_count": len(exposed),
-            "exposed": [
-                {
-                    "name": item.name,
-                    "description": item.description,
-                    "idempotent": item.idempotent,
-                    "risk_level": item.auth_policy.get("risk_level"),
-                    "scope": item.auth_policy.get("scope"),
-                }
-                for item in exposed
-            ],
+            "configured_count": len(exposed),
+            "exposed_count": len(effective_exposed),
+            "exposed": effective_exposed,
+            "blocked_by_policy": blocked_by_policy,
             "hidden": sorted(item.name for item in definitions if not _is_exposed_tool(item.name)),
         },
         "resources": {
@@ -393,7 +468,13 @@ async def _handle_method(message: dict[str, Any], request: Request) -> dict[str,
             return None if is_notification else _success(request_id, {})
 
         if method == "tools/list":
-            result = {"tools": [_tool_to_mcp(item) for item in _exposed_tool_definitions()]}
+            tools = [_tool_to_mcp(item) for item in _visible_tool_definitions(request)]
+            result = {"tools": tools, "manifest": sign_tool_manifest(tools)}
+            return None if is_notification else _success(request_id, result)
+
+        if method == "tools/manifest":
+            tools = [_tool_to_mcp(item) for item in _visible_tool_definitions(request)]
+            result = {"tools": tools, "manifest": sign_tool_manifest(tools)}
             return None if is_notification else _success(request_id, result)
 
         if method == "tools/call":
@@ -405,11 +486,41 @@ async def _handle_method(message: dict[str, Any], request: Request) -> dict[str,
                 return None if is_notification else _error(request_id, TOOL_ERROR, "Tool is not exposed through MCP", name)
             if not isinstance(arguments, dict):
                 return None if is_notification else _error(request_id, INVALID_PARAMS, "params.arguments must be an object")
+            definition = tool_registry.get(name).summary()
+            auth = get_request_auth(request)
+            client = mcp_client_context(request)
+            decision = decide_tool_exposure(definition, auth=auth, client=client)
+            if not decision.allowed:
+                log_mcp_audit(
+                    request_id=str(request_id) if request_id is not None else None,
+                    auth=auth,
+                    client=client,
+                    method=method,
+                    tool_name=name,
+                    required_scopes=decision.required_scopes,
+                    risk_level=definition.auth_policy.get("risk_level"),
+                    tool_scope=definition.auth_policy.get("scope"),
+                    decision="deny",
+                    reason=decision.reason,
+                )
+                return None if is_notification else _error(request_id, TOOL_ERROR, "Tool blocked by MCP security policy", decision.reason)
 
             execution = await tool_registry.execute(
                 name,
                 arguments,
                 request_context=_request_context(request, params),
+            )
+            log_mcp_audit(
+                request_id=str(request_id) if request_id is not None else None,
+                auth=auth,
+                client=client,
+                method=method,
+                tool_name=name,
+                required_scopes=decision.required_scopes,
+                risk_level=definition.auth_policy.get("risk_level"),
+                tool_scope=definition.auth_policy.get("scope"),
+                decision="allow",
+                reason="tool_executed",
             )
             output_text = json.dumps(execution.output, ensure_ascii=False)
             result = {
@@ -420,21 +531,22 @@ async def _handle_method(message: dict[str, Any], request: Request) -> dict[str,
             return None if is_notification else _success(request_id, result)
 
         if method == "resources/list":
-            _require_resource_admin(request)
+            _require_resource_admin(request, method=method, request_id=request_id)
             result = {"resources": await _list_resources()}
             return None if is_notification else _success(request_id, result)
 
         if method == "resources/templates/list":
-            _require_resource_admin(request)
+            _require_resource_admin(request, method=method, request_id=request_id)
             result = {"resourceTemplates": _list_resource_templates()}
             return None if is_notification else _success(request_id, result)
 
         if method == "resources/read":
-            _require_resource_admin(request)
             uri = params.get("uri")
             if not isinstance(uri, str) or not uri.strip():
                 return None if is_notification else _error(request_id, INVALID_PARAMS, "resources/read requires params.uri")
-            result = {"contents": [await _read_resource(uri.strip())]}
+            uri = uri.strip()
+            _require_resource_admin(request, method=method, request_id=request_id, resource_uri=uri)
+            result = {"contents": [await _read_resource(uri)]}
             return None if is_notification else _success(request_id, result)
 
         return None if is_notification else _error(request_id, METHOD_NOT_FOUND, f"Unknown method: {method}")

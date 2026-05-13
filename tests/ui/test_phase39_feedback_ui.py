@@ -107,6 +107,21 @@ def test_knowledge_workspace_is_wired():
     assert "knowledgeWorkspaceLibraryTable" in html
     assert "knowledgeWorkspaceDriveSourcesTable" in html
     assert "knowledgeWorkspaceSourcesTable" in html
+    assert "Knowledge Quality Workflow" in html
+    assert "Knowledge Review Queue" in html
+    assert "knowledgeReviewQueueTable" in html
+    assert "knowledgeReviewQueueFilter" in html
+    assert "function refreshKnowledgeReviewQueue" in html
+    assert "/api/kbs/${selectedKbId()}/review-queue" in html
+    assert "knowledgeQualityTable" in html
+    assert "kwQualityScore" in html
+    assert "kwStaleDocs" in html
+    assert "function refreshKnowledgeQuality" in html
+    assert "/api/kbs/${selectedKbId()}/quality" in html
+    assert "function updateKbFileLifecycle" in html
+    assert "function showKbFileDiff" in html
+    assert "data-kb-lifecycle" in html
+    assert "data-kb-diff" in html
     assert "renderKnowledgeWorkspace" in html
     assert "'view-knowledge-workspace'" in html
 
@@ -135,11 +150,40 @@ def test_operations_workspace_is_wired():
     assert "operationsPendingActionsTable" in html
     assert "operationsBackgroundJobsTable" in html
     assert "operationsSyncSchedulesTable" in html
+    assert "Notification Center" in html
+    assert "operationsNotificationsTable" in html
+    assert "operationsWebhookDeliveriesTable" in html
+    assert "Webhook Subscriptions" in html
+    assert "operationsWebhookSubscriptionsTable" in html
+    assert "btnSaveWebhookSubscription" in html
+    assert "function refreshWebhookSubscriptions" in html
+    assert "function saveWebhookSubscription" in html
+    assert "function testWebhookSubscription" in html
+    assert "function refreshNotifications" in html
+    assert "function refreshWebhookDeliveries" in html
+    assert "function markNotificationRead" in html
+    assert "function retryWebhookDelivery" in html
+    assert "Agent Trace Timeline" in html
+    assert "/api/admin/support-tickets/${caseId}/timeline" in html
+    assert "function renderCaseTimeline" in html
+    assert "Generate Draft" in html
+    assert "/api/admin/support-tickets/${selectedSupportCaseId}/draft-reply" in html
+    assert "function generateSupportDraftReply" in html
     assert "operationsChatLogsTable" in html
     assert "operationsFeedbackTable" in html
     assert "operationsAuthAuditTable" in html
     assert "renderOperationsWorkspace" in html
     assert "'view-operations-workspace'" in html
+
+
+def test_mcp_security_hardening_ui_is_wired():
+    html = (ROOT / "static" / "admin.html").read_text(encoding="utf-8")
+
+    assert "mcpScopes" in html
+    assert "Tool Scopes" in html
+    assert "blocked_by_policy" in html
+    assert "required_scopes" in html
+    assert "X-MCP-Scopes" in html
 
 
 def test_internal_user_portal_is_wired():

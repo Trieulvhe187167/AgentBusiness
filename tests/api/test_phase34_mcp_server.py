@@ -3,14 +3,28 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from app.config import settings
+from app.database import fetch_one_sync
 from tests.conftest import admin_headers, auth_headers, isolated_client
 
 
-def _rpc(client: TestClient, method: str, params: dict | None = None, *, request_id: int = 1):
+def _rpc(
+    client: TestClient,
+    method: str,
+    params: dict | None = None,
+    *,
+    request_id: int = 1,
+    headers: dict | None = None,
+):
     return client.post(
         "/mcp",
         json={"jsonrpc": "2.0", "id": request_id, "method": method, "params": params or {}},
-        headers=admin_headers(),
+        headers={
+            **admin_headers(),
+            "X-MCP-Client-Id": "pytest-mcp-client",
+            "Mcp-Session-Id": "mcp-session-1",
+            "X-MCP-Scopes": "mcp:*",
+            **(headers or {}),
+        },
     )
 
 
@@ -40,30 +54,48 @@ def test_mcp_initialize_and_ping(isolated_client: TestClient):
 def test_mcp_tools_list_maps_internal_registry(isolated_client: TestClient):
     response = _rpc(isolated_client, "tools/list")
     assert response.status_code == 200, response.text
-    tools = response.json()["result"]["tools"]
+    result = response.json()["result"]
+    tools = result["tools"]
     names = {item["name"] for item in tools}
     assert "search_kb" in names
-    assert "list_kbs" in names
+    assert "list_customer_tickets" in names
+    assert "list_kbs" not in names
     assert "delete_google_drive_source" not in names
     assert "send_email_reply" not in names
+    assert result["manifest"]["algorithm"] == "HMAC-SHA256"
+    assert result["manifest"]["signature"]
 
-    list_kbs = next(item for item in tools if item["name"] == "list_kbs")
-    assert list_kbs["inputSchema"]["type"] == "object"
-    assert list_kbs["annotations"]["scope"] == "admin"
+    search_kb = next(item for item in tools if item["name"] == "search_kb")
+    assert search_kb["inputSchema"]["type"] == "object"
+    assert search_kb["annotations"]["scope"] == "kb"
+    assert "scope:kb" in search_kb["annotations"]["requiredScopes"]
 
 
 def test_mcp_tools_call_executes_registry_tool(isolated_client: TestClient):
     response = _rpc(
         isolated_client,
         "tools/call",
-        {"name": "list_kbs", "arguments": {}, "context": {"session_id": "mcp-test"}},
+        {"name": "list_customer_tickets", "arguments": {}, "context": {"session_id": "mcp-test"}},
     )
     assert response.status_code == 200, response.text
     result = response.json()["result"]
     assert result["isError"] is False
     assert result["content"][0]["type"] == "text"
-    assert result["structuredContent"]["total"] >= 1
-    assert result["structuredContent"]["items"][0]["key"] == "default"
+    assert result["structuredContent"]["total"] >= 0
+
+    audit = fetch_one_sync(
+        """
+        SELECT mcp_client_id, mcp_session_id, tool_name, decision, granted_scopes_json
+        FROM mcp_audit_logs
+        WHERE tool_name = 'list_customer_tickets'
+        ORDER BY id DESC
+        LIMIT 1
+        """
+    )
+    assert audit
+    assert audit["mcp_client_id"] == "pytest-mcp-client"
+    assert audit["mcp_session_id"] == "mcp-session-1"
+    assert audit["decision"] == "allow"
 
 
 def test_mcp_notification_returns_accepted(isolated_client: TestClient):
@@ -100,6 +132,32 @@ def test_mcp_blocks_non_exposed_tool_call(isolated_client: TestClient):
     payload = response.json()
     assert payload["error"]["code"] == -32000
     assert payload["error"]["message"] == "Tool is not exposed through MCP"
+
+
+def test_mcp_denies_high_risk_tools_by_default(isolated_client: TestClient):
+    response = _rpc(
+        isolated_client,
+        "tools/call",
+        {"name": "list_kbs", "arguments": {}},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["error"]["code"] == -32000
+    assert payload["error"]["message"] == "Tool blocked by MCP security policy"
+    assert payload["error"]["data"] == "high_risk_denied_by_default"
+
+
+def test_mcp_requires_tool_scopes(isolated_client: TestClient):
+    response = _rpc(
+        isolated_client,
+        "tools/call",
+        {"name": "search_kb", "arguments": {"query": "shipping"}},
+        headers={"X-MCP-Scopes": "scope:support"},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["error"]["code"] == -32000
+    assert payload["error"]["data"] == "scope_not_granted"
 
 
 def test_mcp_origin_validation(isolated_client: TestClient, monkeypatch):
@@ -191,7 +249,10 @@ def test_admin_mcp_status_endpoint(isolated_client: TestClient):
     assert payload["endpoint_path"] == "/mcp"
     assert payload["capabilities"] == {"tools": True, "resources": True, "resource_templates": True}
     assert payload["tools"]["registered_count"] >= payload["tools"]["exposed_count"] >= 1
+    assert payload["security"]["require_tool_scopes"] is True
+    assert payload["security"]["manifest_signature"]["signature"]
     assert any(item["name"] == "search_kb" for item in payload["tools"]["exposed"])
+    assert any(item["name"] == "list_kbs" for item in payload["tools"]["blocked_by_policy"])
     assert any(item["uri"] == "kb://list" for item in payload["resources"]["items"])
     assert any(item["uriTemplate"] == "kb://{kb_id}/stats" for item in payload["resources"]["templates"])
 

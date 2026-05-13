@@ -172,6 +172,14 @@ class KBFileSummary(BaseModel):
     chunk_count: int = 0
     ingest_signature: str | None = None
     last_job_id: str | None = None
+    lifecycle_status: str = "draft"
+    reviewed_by_user_id: str | None = None
+    reviewed_at: str | None = None
+    published_at: str | None = None
+    archived_at: str | None = None
+    quality_score: float | None = None
+    stale_reason: str | None = None
+    stale_detected_at: str | None = None
     attached_at: str
     last_ingest_at: str | None = None
     created_at: str
