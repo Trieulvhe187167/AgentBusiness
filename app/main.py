@@ -44,17 +44,20 @@ from app.background_jobs import (
 from app.case_timeline import CaseTimelineOutput, build_case_timeline
 from app.config import settings
 from app.database import fetch_all, fetch_one, init_db
+from app.evaluations import create_agent_eval_run, get_agent_eval_run, list_agent_eval_runs
 from app.feedback import feedback_summary, list_chat_feedback, submit_chat_feedback
 from app.ingest import router as ingest_router
 from app.kb import router as kb_router
 from app.kb_service import list_accessible_kbs, open_db, resolve_kb_scope
 from app.models import (
     AnalyticsDashboardOutput,
+    AgentEvalRunDetail,
     AuthAuditLogItem,
     CacheStats,
     ChatFeedbackItem,
     ChatLogItem,
     ChatRequest,
+    CreateAgentEvalRunInput,
     CurrentUserProfile,
     DocumentSummary,
     FeedbackSummaryOutput,
@@ -62,6 +65,7 @@ from app.models import (
     KnowledgeBaseSummary,
     KBSource,
     KBStats,
+    ListAgentEvalRunsOutput,
     ListChatFeedbackOutput,
     RequestContext,
     SubmitChatFeedbackInput,
@@ -91,6 +95,7 @@ from app.notifications import (
     test_webhook_subscription,
     update_webhook_subscription,
 )
+from app.observability import configure_tracing, shutdown_tracing, trace_span, tracing_status
 from app.pending_actions import (
     CreatePendingActionInput,
     ListPendingActionsOutput,
@@ -149,6 +154,16 @@ from app.support_workflows.schemas import (
 from app.support_ticket_service import create_support_ticket
 from app.support_drafts import SupportDraftReplyInput, SupportDraftReplyOutput, generate_support_draft_reply
 from app.upload import router as upload_router
+from app.workflow_engine import (
+    ListWorkflowRunsOutput,
+    WorkflowDecisionInput,
+    WorkflowRunDetail,
+    cancel_workflow_run,
+    get_workflow_run,
+    list_workflow_runs,
+    resume_workflow_run,
+    retry_workflow_run,
+)
 from app.tools.drive_tools import (
     CreateGoogleDriveSourceInput,
     CreateGoogleDriveSourceOutput,
@@ -212,6 +227,7 @@ async def lifespan(app: FastAPI):
 
     settings.ensure_dirs()
     settings.validate_runtime_settings()
+    configure_tracing()
     await init_db()
 
     # ── Vector store (needs embedding dim first via hashing estimate) ──────────
@@ -270,6 +286,7 @@ async def lifespan(app: FastAPI):
                 await worker_task
             except asyncio.CancelledError:
                 pass
+        shutdown_tracing()
         logger.info("Shutting down")
 
 
@@ -286,25 +303,44 @@ async def add_request_id(request: Request, call_next):
     request_id = _safe_request_id(request.headers.get("X-Request-ID"))
     start = datetime.now(timezone.utc)
     request.state.request_id = request_id
-    rate_limit_decision = rate_limiter.check(request)
-    if rate_limit_decision is not None and not rate_limit_decision.allowed:
+    with trace_span(
+        "http.request",
+        {
+            "http.request.method": request.method,
+            "url.path": request.url.path,
+            "url.scheme": request.url.scheme,
+            "server.address": request.url.hostname,
+            "app.request_id": request_id,
+        },
+        carrier=dict(request.headers),
+    ) as span:
+        rate_limit_decision = rate_limiter.check(request)
+        if rate_limit_decision is not None:
+            span.set_attribute("app.rate_limit.policy", rate_limit_decision.policy)
+            span.set_attribute("app.rate_limit.remaining", rate_limit_decision.remaining)
+        if rate_limit_decision is not None and not rate_limit_decision.allowed:
+            elapsed = (datetime.now(timezone.utc) - start).total_seconds()
+            response = JSONResponse(
+                status_code=429,
+                content=rate_limit_error_payload(rate_limit_decision),
+                headers=rate_limit_headers(rate_limit_decision),
+            )
+            response.headers["X-Request-ID"] = request_id
+            response.headers["X-Response-Time"] = f"{elapsed:.3f}s"
+            span.set_attribute("http.response.status_code", 429)
+            span.set_attribute("app.response_time_ms", int(elapsed * 1000))
+            span.set_attribute("app.rate_limit.blocked", True)
+            return response
+
+        response = await call_next(request)
         elapsed = (datetime.now(timezone.utc) - start).total_seconds()
-        response = JSONResponse(
-            status_code=429,
-            content=rate_limit_error_payload(rate_limit_decision),
-            headers=rate_limit_headers(rate_limit_decision),
-        )
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Response-Time"] = f"{elapsed:.3f}s"
+        for header, value in rate_limit_headers(rate_limit_decision).items():
+            response.headers[header] = value
+        span.set_attribute("http.response.status_code", response.status_code)
+        span.set_attribute("app.response_time_ms", int(elapsed * 1000))
         return response
-
-    response = await call_next(request)
-    elapsed = (datetime.now(timezone.utc) - start).total_seconds()
-    response.headers["X-Request-ID"] = request_id
-    response.headers["X-Response-Time"] = f"{elapsed:.3f}s"
-    for header, value in rate_limit_headers(rate_limit_decision).items():
-        response.headers[header] = value
-    return response
 
 
 app.include_router(upload_router)
@@ -877,6 +913,31 @@ async def admin_analytics_dashboard(
     return await build_analytics_dashboard(days=days, kb_id=kb_id)
 
 
+@app.post("/api/admin/evaluations/runs", response_model=AgentEvalRunDetail)
+async def admin_create_agent_eval_run(
+    payload: CreateAgentEvalRunInput,
+    auth=Depends(require_analytics_role),
+):
+    return create_agent_eval_run(payload, auth=auth)
+
+
+@app.get("/api/admin/evaluations/runs", response_model=ListAgentEvalRunsOutput)
+async def admin_list_agent_eval_runs(
+    limit: int = Query(default=20, ge=1, le=100),
+    _=Depends(require_analytics_role),
+):
+    return list_agent_eval_runs(limit=limit)
+
+
+@app.get("/api/admin/evaluations/runs/{run_id}", response_model=AgentEvalRunDetail)
+async def admin_get_agent_eval_run(
+    run_id: int,
+    limit: int = Query(default=100, ge=1, le=500),
+    _=Depends(require_analytics_role),
+):
+    return get_agent_eval_run(run_id, limit=limit)
+
+
 @app.get("/api/admin/tool-audit-logs", response_model=list[ToolAuditLogItem])
 async def admin_tool_audit_logs(
     limit: int = Query(default=settings.chat_log_limit_default, ge=1, le=500),
@@ -1416,6 +1477,65 @@ async def admin_retry_background_job(job_id: str, _=Depends(require_operations_r
     return retry_background_job(job_id)
 
 
+@app.get("/api/admin/workflows/runs", response_model=ListWorkflowRunsOutput)
+async def admin_list_workflow_runs(
+    status: str | None = Query(default=None),
+    entity_type: str | None = Query(default=None),
+    entity_id: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    _=Depends(require_operations_role),
+):
+    return list_workflow_runs(status=status, entity_type=entity_type, entity_id=entity_id, limit=limit)
+
+
+@app.get("/api/admin/workflows/runs/{run_id}", response_model=WorkflowRunDetail)
+async def admin_get_workflow_run(run_id: int, _=Depends(require_operations_role)):
+    try:
+        return get_workflow_run(run_id)
+    except ValueError as err:
+        raise HTTPException(status_code=404, detail=str(err)) from err
+
+
+@app.post("/api/admin/workflows/runs/{run_id}/cancel", response_model=WorkflowRunDetail)
+async def admin_cancel_workflow_run(
+    run_id: int,
+    payload: WorkflowDecisionInput | None = None,
+    auth=Depends(require_operations_role),
+):
+    try:
+        return cancel_workflow_run(run_id, reason=payload.reason if payload else None, auth=auth)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+
+
+@app.post("/api/admin/workflows/runs/{run_id}/retry", response_model=WorkflowRunDetail)
+async def admin_retry_workflow_run(run_id: int, request: Request, auth=Depends(require_operations_role)):
+    try:
+        return await retry_workflow_run(
+            run_id,
+            context=RequestContext(
+                request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+                auth=auth,
+            ),
+        )
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+
+
+@app.post("/api/admin/workflows/runs/{run_id}/resume", response_model=WorkflowRunDetail)
+async def admin_resume_workflow_run(run_id: int, request: Request, auth=Depends(require_operations_role)):
+    try:
+        return await resume_workflow_run(
+            run_id,
+            context=RequestContext(
+                request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+                auth=auth,
+            ),
+        )
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+
+
 @app.post("/api/admin/pending-actions", response_model=PendingActionItem)
 async def admin_create_pending_action(
     payload: CreatePendingActionInput,
@@ -1532,6 +1652,7 @@ async def system_info(
             "tool_parser": settings.agent_tool_parser or None,
             "target_model": settings.effective_chat_model or None,
         },
+        "observability": tracing_status(),
         "embedding_model": settings.embedding_model,
         "embedding_source": settings.effective_embedding_source,
         "embedding_backend": "hashing" if hashing else "sentence-transformers",

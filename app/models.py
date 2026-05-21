@@ -482,6 +482,80 @@ class AnalyticsDashboardOutput(BaseModel):
     pending_status: list[AnalyticsBreakdownItem] = Field(default_factory=list)
 
 
+class CreateAgentEvalRunInput(BaseModel):
+    name: str | None = Field(default=None, max_length=160)
+    days: int = Field(default=7, ge=1, le=90)
+    kb_id: int | None = Field(default=None, ge=1)
+    limit: int = Field(default=50, ge=1, le=500)
+    min_pass_score: int = Field(default=75, ge=0, le=100)
+    min_warn_score: int = Field(default=50, ge=0, le=100)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _normalize_eval_name(cls, value):
+        return _normalize_optional_text(value)
+
+    @model_validator(mode="after")
+    def _validate_thresholds(self):
+        if self.min_warn_score > self.min_pass_score:
+            raise ValueError("min_warn_score must be <= min_pass_score")
+        return self
+
+
+class AgentEvalCheck(BaseModel):
+    name: str
+    status: str
+    impact: int = 0
+    message: str
+
+
+class AgentEvalResultItem(BaseModel):
+    id: int
+    run_id: int
+    chat_log_id: int
+    request_id: str | None = None
+    kb_id: int | None = None
+    kb_key: str | None = None
+    mode: str | None = None
+    top_score: float | None = None
+    feedback_rating: str | None = None
+    verdict: str
+    score: float
+    checks: list[AgentEvalCheck] = Field(default_factory=list)
+    reason: str | None = None
+    user_message: str
+    answer_text: str
+    created_at: str
+
+
+class AgentEvalRunItem(BaseModel):
+    id: int
+    name: str
+    status: str
+    source: str = "chat_logs"
+    kb_id: int | None = None
+    kb_key: str | None = None
+    period_days: int
+    sample_size: int
+    pass_count: int
+    warn_count: int
+    fail_count: int
+    avg_score: float | None = None
+    created_by_user_id: str | None = None
+    created_at: str
+    completed_at: str | None = None
+
+
+class AgentEvalRunDetail(AgentEvalRunItem):
+    config: dict[str, Any] = Field(default_factory=dict)
+    results: list[AgentEvalResultItem] = Field(default_factory=list)
+
+
+class ListAgentEvalRunsOutput(BaseModel):
+    total: int
+    items: list[AgentEvalRunItem]
+
+
 class ToolAuditLogItem(BaseModel):
     id: int
     tool_call_id: str
@@ -533,6 +607,7 @@ class CurrentUserProfile(BaseModel):
 class SystemRuntime(BaseModel):
     scope: dict[str, str | int | bool | None]
     agent_runtime: dict[str, str | bool | None]
+    observability: dict[str, str | bool | None]
     vector_backend: str
     llm_provider_active: str
     llm_provider_config: str

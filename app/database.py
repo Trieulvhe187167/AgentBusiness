@@ -787,6 +787,147 @@ CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_subscription
     ON webhook_deliveries(subscription_id, created_at DESC);
 """
 
+# ---------------------------------------------------------------------------
+# Phase 47 / Agent evaluation center
+# ---------------------------------------------------------------------------
+_PHASE47_AGENT_EVALUATIONS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS agent_eval_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'completed',
+    source TEXT NOT NULL DEFAULT 'chat_logs',
+    kb_id INTEGER,
+    kb_key TEXT,
+    period_days INTEGER NOT NULL DEFAULT 7,
+    sample_size INTEGER NOT NULL DEFAULT 0,
+    pass_count INTEGER NOT NULL DEFAULT 0,
+    warn_count INTEGER NOT NULL DEFAULT 0,
+    fail_count INTEGER NOT NULL DEFAULT 0,
+    avg_score REAL,
+    config_json TEXT NOT NULL DEFAULT '{}',
+    created_by_user_id TEXT,
+    tenant_id TEXT,
+    org_id TEXT,
+    created_at TEXT NOT NULL,
+    completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_agent_eval_runs_created_at
+    ON agent_eval_runs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_eval_runs_kb_time
+    ON agent_eval_runs(kb_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS agent_eval_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    chat_log_id INTEGER NOT NULL,
+    request_id TEXT,
+    kb_id INTEGER,
+    kb_key TEXT,
+    mode TEXT,
+    top_score REAL,
+    feedback_rating TEXT,
+    verdict TEXT NOT NULL CHECK (verdict IN ('pass', 'warn', 'fail')),
+    score REAL NOT NULL,
+    checks_json TEXT NOT NULL DEFAULT '[]',
+    reason TEXT,
+    user_message TEXT NOT NULL DEFAULT '',
+    answer_text TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(run_id) REFERENCES agent_eval_runs(id) ON DELETE CASCADE,
+    FOREIGN KEY(chat_log_id) REFERENCES chat_logs(id) ON DELETE CASCADE,
+    UNIQUE(run_id, chat_log_id)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_eval_results_run_verdict
+    ON agent_eval_results(run_id, verdict, score ASC);
+CREATE INDEX IF NOT EXISTS idx_agent_eval_results_chat_log
+    ON agent_eval_results(chat_log_id);
+CREATE INDEX IF NOT EXISTS idx_agent_eval_results_kb
+    ON agent_eval_results(kb_id, created_at DESC);
+"""
+
+# ---------------------------------------------------------------------------
+# Phase 48 / MCP security V2 sessions
+# ---------------------------------------------------------------------------
+_PHASE48_MCP_SECURITY_V2_SCHEMA = """
+CREATE TABLE IF NOT EXISTS mcp_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mcp_client_id TEXT NOT NULL,
+    mcp_session_id TEXT NOT NULL,
+    user_id TEXT,
+    roles_json TEXT,
+    channel TEXT,
+    tenant_id TEXT,
+    org_id TEXT,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    last_method TEXT,
+    last_decision TEXT,
+    last_reason TEXT,
+    request_count INTEGER NOT NULL DEFAULT 0,
+    tool_call_count INTEGER NOT NULL DEFAULT 0,
+    allowed_count INTEGER NOT NULL DEFAULT 0,
+    denied_count INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(mcp_client_id, mcp_session_id)
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_sessions_last_seen
+    ON mcp_sessions(last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_mcp_sessions_client
+    ON mcp_sessions(mcp_client_id, last_seen_at DESC);
+"""
+
+# ---------------------------------------------------------------------------
+# Phase 49 / Durable workflow engine
+# ---------------------------------------------------------------------------
+_PHASE49_DURABLE_WORKFLOWS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS workflow_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    workflow_type TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'running',
+    current_step TEXT,
+    input_json TEXT NOT NULL DEFAULT '{}',
+    state_json TEXT NOT NULL DEFAULT '{}',
+    result_json TEXT,
+    error_message TEXT,
+    blocked_reason TEXT,
+    created_by_user_id TEXT,
+    roles_json TEXT,
+    tenant_id TEXT,
+    org_id TEXT,
+    kb_id INTEGER,
+    kb_key TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_status_time
+    ON workflow_runs(status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_entity
+    ON workflow_runs(entity_type, entity_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_type_time
+    ON workflow_runs(workflow_type, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS workflow_steps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    step_key TEXT NOT NULL,
+    step_type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    input_json TEXT NOT NULL DEFAULT '{}',
+    output_json TEXT,
+    error_message TEXT,
+    attempts INTEGER NOT NULL DEFAULT 1,
+    started_at TEXT,
+    completed_at TEXT,
+    FOREIGN KEY(run_id) REFERENCES workflow_runs(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_workflow_steps_run
+    ON workflow_steps(run_id, id ASC);
+CREATE INDEX IF NOT EXISTS idx_workflow_steps_status
+    ON workflow_steps(status, completed_at DESC);
+"""
+
 MIGRATIONS: list[tuple[str, str]] = [
     ("001_core_schema", _CORE_SCHEMA),
     ("002_knowledge_bases", _KB_SCHEMA),
@@ -815,6 +956,9 @@ MIGRATIONS: list[tuple[str, str]] = [
     ("025_phase44_knowledge_quality", _PHASE44_KNOWLEDGE_QUALITY_SCHEMA),
     ("026_phase45_mcp_security", _PHASE45_MCP_SECURITY_SCHEMA),
     ("027_phase46_webhook_subscriptions", _PHASE46_WEBHOOK_SUBSCRIPTIONS_SCHEMA),
+    ("028_phase47_agent_evaluations", _PHASE47_AGENT_EVALUATIONS_SCHEMA),
+    ("029_phase48_mcp_security_v2", _PHASE48_MCP_SECURITY_V2_SCHEMA),
+    ("030_phase49_durable_workflows", _PHASE49_DURABLE_WORKFLOWS_SCHEMA),
 ]
 
 

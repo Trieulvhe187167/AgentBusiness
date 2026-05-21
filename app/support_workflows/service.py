@@ -28,6 +28,7 @@ from app.support_workflows.schemas import (
     UpdateTicketStatusInput,
     WorkflowResult,
 )
+from app.workflow_engine import WorkflowRecorder
 
 
 def _json_dumps(payload: Any) -> str:
@@ -561,65 +562,142 @@ def _update_ticket_workflow(
     )
 
 
-async def handle_ticket_case(ticket_id: int, context: RequestContext) -> WorkflowResult:
-    ticket = _ticket_by_id(ticket_id)
-    classification = classify_text(_ticket_text(ticket), issue_type=ticket.get("issue_type"))
-    priority = assign_priority(classification)
-    case_context = await _build_context(ticket, classification, context)
-    plan = _build_action_plan(ticket, classification, priority, case_context)
-
-    pending_actions: list[dict[str, Any]] = []
-    escalation = None
-    resolution_summary = None
-    lifecycle = "planned"
-
-    if plan.requires_approval:
-        pending_actions.append(_create_review_pending_action(ticket, classification, priority, case_context, context))
-        lifecycle = "waiting_approval"
-        escalation = _build_escalation(
-            ticket,
-            classification,
-            priority,
-            case_context,
-            suggested_next_action="Review approval package and decide the customer-impacting action.",
-        )
-    elif plan.should_escalate:
-        lifecycle = "escalated"
-        escalation = _build_escalation(
-            ticket,
-            classification,
-            priority,
-            case_context,
-            suggested_next_action="Human support should review the case context and respond.",
-        )
-    else:
-        lifecycle = "resolved"
-        resolution_summary = _draft_reply(ticket, classification, case_context)
-
-    _update_ticket_workflow(
-        ticket_id,
-        lifecycle_status=lifecycle,
-        classification=classification,
-        priority=priority,
-        case_context=case_context,
-        action_plan=plan,
-        escalation=escalation,
-        resolution_summary=resolution_summary,
+async def handle_ticket_case(
+    ticket_id: int,
+    context: RequestContext,
+    *,
+    workflow_run_id: int | None = None,
+) -> WorkflowResult:
+    recorder = WorkflowRecorder.start(
+        workflow_type="support_ticket_case",
+        entity_type="support_ticket",
+        entity_id=ticket_id,
+        input_payload={"ticket_id": ticket_id},
+        context=context,
+        run_id=workflow_run_id,
     )
-    updated_ticket = _ticket_by_id(ticket_id)
-    case_context.ticket = updated_ticket
-    return WorkflowResult(
-        ticket_id=ticket_id,
-        ticket_code=ticket["ticket_code"],
-        lifecycle_status=lifecycle,  # type: ignore[arg-type]
-        classification=classification,
-        priority=priority,
-        context=case_context,
-        action_plan=plan,
-        pending_actions=pending_actions,
-        escalation=escalation,
-        resolution_summary=resolution_summary,
-    )
+    try:
+        ticket = recorder.step(
+            "load_ticket",
+            "read",
+            lambda: _ticket_by_id(ticket_id),
+            input_payload={"ticket_id": ticket_id},
+        )
+        classification = recorder.step(
+            "classify_case",
+            "classifier",
+            lambda: classify_text(_ticket_text(ticket), issue_type=ticket.get("issue_type")),
+            input_payload={"issue_type": ticket.get("issue_type")},
+        )
+        priority = recorder.step(
+            "assign_priority",
+            "rule",
+            lambda: assign_priority(classification),
+            input_payload={"intent": classification.intent, "risk_level": classification.risk_level},
+        )
+        case_context = await recorder.async_step(
+            "enrich_context",
+            "context_builder",
+            lambda: _build_context(ticket, classification, context),
+            input_payload={"ticket_id": ticket_id, "intent": classification.intent},
+        )
+        plan = recorder.step(
+            "build_action_plan",
+            "planner",
+            lambda: _build_action_plan(ticket, classification, priority, case_context),
+            input_payload={"ticket_id": ticket_id, "priority": priority.priority},
+        )
+
+        pending_actions: list[dict[str, Any]] = []
+        escalation = None
+        resolution_summary = None
+        lifecycle = "planned"
+
+        if plan.requires_approval:
+            pending_actions = recorder.step(
+                "create_pending_approval",
+                "approval",
+                lambda: [_create_review_pending_action(ticket, classification, priority, case_context, context)],
+                input_payload={"ticket_id": ticket_id, "risk_level": classification.risk_level},
+            )
+            lifecycle = "waiting_approval"
+            escalation = recorder.step(
+                "build_escalation_package",
+                "handoff",
+                lambda: _build_escalation(
+                    ticket,
+                    classification,
+                    priority,
+                    case_context,
+                    suggested_next_action="Review approval package and decide the customer-impacting action.",
+                ),
+                input_payload={"reason": "approval_required"},
+            )
+        elif plan.should_escalate:
+            lifecycle = "escalated"
+            escalation = recorder.step(
+                "build_escalation_package",
+                "handoff",
+                lambda: _build_escalation(
+                    ticket,
+                    classification,
+                    priority,
+                    case_context,
+                    suggested_next_action="Human support should review the case context and respond.",
+                ),
+                input_payload={"reason": "plan_should_escalate"},
+            )
+        else:
+            lifecycle = "resolved"
+            resolution_summary = recorder.step(
+                "draft_resolution",
+                "response",
+                lambda: _draft_reply(ticket, classification, case_context),
+                input_payload={"ticket_id": ticket_id, "intent": classification.intent},
+            )
+
+        recorder.step(
+            "update_ticket_workflow",
+            "write",
+            lambda: _update_ticket_workflow(
+                ticket_id,
+                lifecycle_status=lifecycle,
+                classification=classification,
+                priority=priority,
+                case_context=case_context,
+                action_plan=plan,
+                escalation=escalation,
+                resolution_summary=resolution_summary,
+            )
+            or {"workflow_status": lifecycle},
+            input_payload={"ticket_id": ticket_id, "workflow_status": lifecycle},
+        )
+        updated_ticket = _ticket_by_id(ticket_id)
+        case_context.ticket = updated_ticket
+        result = WorkflowResult(
+            ticket_id=ticket_id,
+            ticket_code=ticket["ticket_code"],
+            lifecycle_status=lifecycle,  # type: ignore[arg-type]
+            classification=classification,
+            priority=priority,
+            context=case_context,
+            action_plan=plan,
+            pending_actions=pending_actions,
+            escalation=escalation,
+            resolution_summary=resolution_summary,
+        )
+        if lifecycle == "waiting_approval":
+            recorder.pause(
+                current_step="waiting_approval",
+                reason="Waiting for support_case_review pending action approval/execution.",
+                state={"ticket_id": ticket_id, "pending_action_ids": [item.get("id") for item in pending_actions]},
+            )
+        else:
+            recorder.complete(result=result.model_dump(), state={"ticket_id": ticket_id, "workflow_status": lifecycle})
+        return result
+    except Exception as err:
+        recorder.fail(err, state={"ticket_id": ticket_id})
+        raise
 
 
 async def handle_email_case(email_id: int, context: RequestContext) -> WorkflowResult:

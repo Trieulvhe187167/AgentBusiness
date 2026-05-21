@@ -22,6 +22,10 @@ aiosqlite==0.20.0
 # Configuration
 pydantic-settings==2.7.1
 
+# Optional production tracing. Disabled unless RAG_OTEL_ENABLED=true.
+opentelemetry-sdk>=1.28.0
+opentelemetry-exporter-otlp-proto-http>=1.28.0
+
 # Embeddings
 # Install torch separately if your environment does not already provide it.
 sentence-transformers==3.3.1

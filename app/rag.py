@@ -27,6 +27,7 @@ from app.kb_service import ensure_kb_access, normalize_kb_key
 from app.lang import detect_language
 from app.llm_client import active_provider_name, generate_stream, is_llm_ready
 from app.models import Citation, RequestContext
+from app.observability import trace_span
 from app.query_expander import expand_query
 from app.reranker import rerank
 from app.vector_store import vector_store
@@ -591,32 +592,48 @@ def retrieve(
     Results are merged, deduplicated, filtered by min_similarity, and reranked.
     """
     k = top_k or settings.top_k
-    kb_scope = _resolve_kb_scope(kb_id=kb_id, kb_key=kb_key, auth_context=auth_context)
-    where = {
-        "kb_id": kb_scope["id"],
-        "access_level": kb_scope["access_level"],
-    }
-    if kb_scope.get("tenant_id"):
-        where["tenant_id"] = kb_scope["tenant_id"]
-    if kb_scope.get("org_id"):
-        where["org_id"] = kb_scope["org_id"]
-    cache_scope = _build_retrieval_scope(kb_scope, k, where=where)
-    variants = expand_query(query)
+    with trace_span(
+        "rag.retrieve",
+        {
+            "rag.top_k": k,
+            "rag.kb_id": kb_id,
+            "rag.kb_key": kb_key,
+        },
+    ) as span:
+        kb_scope = _resolve_kb_scope(kb_id=kb_id, kb_key=kb_key, auth_context=auth_context)
+        span.set_attribute("rag.kb_id", kb_scope["id"])
+        span.set_attribute("rag.kb_key", kb_scope["key"])
+        where = {
+            "kb_id": kb_scope["id"],
+            "access_level": kb_scope["access_level"],
+        }
+        if kb_scope.get("tenant_id"):
+            where["tenant_id"] = kb_scope["tenant_id"]
+        if kb_scope.get("org_id"):
+            where["org_id"] = kb_scope["org_id"]
+        cache_scope = _build_retrieval_scope(kb_scope, k, where=where)
+        variants = expand_query(query)
+        span.set_attribute("rag.query_variant_count", len(variants))
 
-    all_raw: list[dict[str, Any]] = []
-    for variant in variants:
-        all_raw.extend(_retrieve_single(variant, k, where=where, cache_scope=cache_scope))
+        all_raw: list[dict[str, Any]] = []
+        for variant in variants:
+            all_raw.extend(_retrieve_single(variant, k, where=where, cache_scope=cache_scope))
 
-    floor = settings.min_similarity_threshold
-    if using_hashing_fallback():
-        floor = min(floor, settings.hashing_min_similarity_threshold)
+        floor = settings.min_similarity_threshold
+        if using_hashing_fallback():
+            floor = min(floor, settings.hashing_min_similarity_threshold)
 
-    filtered = [item for item in all_raw if float(item.get("similarity", 0.0)) >= floor]
-    deduped = _deduplicate(filtered)
+        filtered = [item for item in all_raw if float(item.get("similarity", 0.0)) >= floor]
+        deduped = _deduplicate(filtered)
 
-    # BM25 rerank
-    reranked = rerank(query, deduped)
-    return reranked[:k]
+        # BM25 rerank
+        reranked = rerank(query, deduped)
+        results = reranked[:k]
+        span.set_attribute("rag.raw_result_count", len(all_raw))
+        span.set_attribute("rag.filtered_result_count", len(filtered))
+        span.set_attribute("rag.result_count", len(results))
+        span.set_attribute("rag.top_score", float(results[0].get("similarity", 0.0)) if results else 0.0)
+        return results
 
 
 def _apply_lang_boost(results: list[dict[str, Any]], user_lang: str) -> list[dict[str, Any]]:

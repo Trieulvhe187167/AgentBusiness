@@ -36,6 +36,11 @@ def test_admin_analytics_dashboard_wires_backend_endpoint():
     assert "analyticsInsights" in html
     assert "function analyticsHealth" in html
     assert "function renderAnalyticsInsights" in html
+    assert "Agent Evaluation Center" in html
+    assert "/api/admin/evaluations/runs" in html
+    assert "agentEvalRunsTable" in html
+    assert "agentEvalResultsTable" in html
+    assert "function runAgentEvaluation" in html
 
 
 def test_admin_dev_identity_is_collapsible_and_debug_gated():
@@ -149,6 +154,13 @@ def test_operations_workspace_is_wired():
     assert "Operations Workspace" in html
     assert "operationsPendingActionsTable" in html
     assert "operationsBackgroundJobsTable" in html
+    assert "Durable Workflows" in html
+    assert "operationsWorkflowRunsTable" in html
+    assert "operationsWorkflowStatus" in html
+    assert "function refreshWorkflowRuns" in html
+    assert "function viewWorkflowRun" in html
+    assert "data-workflow-retry" in html
+    assert "data-workflow-resume" in html
     assert "operationsSyncSchedulesTable" in html
     assert "Notification Center" in html
     assert "operationsNotificationsTable" in html
@@ -184,6 +196,10 @@ def test_mcp_security_hardening_ui_is_wired():
     assert "blocked_by_policy" in html
     assert "required_scopes" in html
     assert "X-MCP-Scopes" in html
+    assert "MCP Sessions" in html
+    assert "mcpSessionsTable" in html
+    assert "require_client_token" in html
+    assert "tool_quota_rules" in html
 
 
 def test_internal_user_portal_is_wired():

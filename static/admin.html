@@ -109,8 +109,8 @@
         .table th { position:sticky; top:0; z-index:3; background:linear-gradient(180deg, var(--panel) 0%, #fffaf1 100%); box-shadow:0 1px 0 var(--line), 0 8px 14px rgba(24,35,37,.06); font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--dim); }
         .scroll { max-height:360px; overflow:auto; position:relative; }
         .status { display:inline-flex; align-items:center; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; }
-        .status.uploaded,.status.queued,.status.running,.status.retrying,.status.cancelling,.status.ingesting,.status.attached,.status.clarify { background:#fff2d9; color:var(--warn); }
-        .status.ingested,.status.done,.status.active,.status.answer,.status.success,.status.published { background:#ddf4e7; color:var(--ok); }
+        .status.uploaded,.status.queued,.status.running,.status.retrying,.status.cancelling,.status.ingesting,.status.attached,.status.clarify,.status.paused { background:#fff2d9; color:var(--warn); }
+        .status.ingested,.status.done,.status.active,.status.answer,.status.success,.status.published,.status.completed { background:#ddf4e7; color:var(--ok); }
         .status.reviewed { background:#e8f1ff; color:#22577a; }
         .status.draft { background:#fff2d9; color:var(--warn); }
         .status.failed,.status.cancelled,.status.error,.status.fallback,.status.archived { background:#fbe1dc; color:var(--bad); }
@@ -699,6 +699,55 @@
                         </table>
                     </div>
                 </section>
+                <section class="card span-12">
+                    <div class="section-head">
+                        <h2>Agent Evaluation Center</h2>
+                        <p>Run repeatable quality checks against recent chat answers using fallback, citation, retrieval, and feedback signals.</p>
+                    </div>
+                    <div class="toolbar" style="margin-bottom:10px;">
+                        <input id="evalRunName" placeholder="Run name, e.g. Weekly answer quality" title="Optional evaluation run name.">
+                        <select id="evalDays" title="Select evaluation lookback window.">
+                            <option value="7">Last 7 days</option>
+                            <option value="14">Last 14 days</option>
+                            <option value="30">Last 30 days</option>
+                            <option value="90">Last 90 days</option>
+                        </select>
+                        <select id="evalScope" title="Evaluate all KBs or only the selected Knowledge Base.">
+                            <option value="global">All KBs</option>
+                            <option value="selected">Selected KB only</option>
+                        </select>
+                        <input id="evalLimit" type="number" min="1" max="500" value="50" title="Maximum chat logs to evaluate.">
+                        <button class="btn-main" id="btnRunAgentEval" title="Create a new evaluation run from recent chat logs.">Run Evaluation</button>
+                        <button class="btn-muted" id="btnRefreshAgentEvals" title="Reload evaluation runs.">Refresh Runs</button>
+                        <span class="note" id="agentEvalSummary">No evaluation run loaded.</span>
+                    </div>
+                    <div class="stats">
+                        <div class="stat"><div class="value" id="evalAvgScore">-</div><div class="label">Avg Score</div></div>
+                        <div class="stat"><div class="value" id="evalPassCount">-</div><div class="label">Pass</div></div>
+                        <div class="stat"><div class="value" id="evalWarnCount">-</div><div class="label">Warn</div></div>
+                        <div class="stat"><div class="value" id="evalFailCount">-</div><div class="label">Fail</div></div>
+                    </div>
+                    <div class="grid" style="margin-top:10px;">
+                        <section class="span-4">
+                            <h3 style="margin:0 0 8px;">Recent Runs</h3>
+                            <div class="scroll" style="max-height:360px;">
+                                <table class="table" id="agentEvalRunsTable">
+                                    <thead><tr><th>Run</th><th>Score</th><th>Actions</th></tr></thead>
+                                    <tbody><tr><td colspan="3">No evaluation runs loaded.</td></tr></tbody>
+                                </table>
+                            </div>
+                        </section>
+                        <section class="span-8">
+                            <h3 style="margin:0 0 8px;">Fail / Warn Cases</h3>
+                            <div class="scroll" style="max-height:360px;">
+                                <table class="table" id="agentEvalResultsTable">
+                                    <thead><tr><th>Verdict</th><th>Score</th><th>Question / Answer</th><th>Reason</th></tr></thead>
+                                    <tbody><tr><td colspan="4">Select or run an evaluation.</td></tr></tbody>
+                                </table>
+                            </div>
+                        </section>
+                    </div>
+                </section>
                 <section class="card span-4">
                     <div class="section-head"><h2>Chat Modes</h2><p>How the agent routed recent chat answers.</p></div>
                     <div class="scroll"><table class="table" id="analyticsChatModesTable"><thead><tr><th>Mode</th><th>Count</th></tr></thead><tbody><tr><td colspan="2">-</td></tr></tbody></table></div>
@@ -810,6 +859,14 @@
                         <option value="failed">Failed</option>
                         <option value="cancelled">Cancelled</option>
                     </select>
+                    <select id="operationsWorkflowStatus" title="Filter durable workflow runs in the operations workspace.">
+                        <option value="">All workflow statuses</option>
+                        <option value="running">Running</option>
+                        <option value="paused">Paused</option>
+                        <option value="completed">Completed</option>
+                        <option value="failed">Failed</option>
+                        <option value="cancelled">Cancelled</option>
+                    </select>
                     <button class="btn-main" id="btnOperationsRefresh" title="Reload approvals, jobs, schedules, logs, and feedback.">Refresh Operations</button>
                     <span class="note" id="operationsSummary">No operations data loaded.</span>
                 </div>
@@ -846,6 +903,23 @@
                             <table class="table" id="operationsBackgroundJobsTable">
                                 <thead><tr><th>Job ID</th><th>Type</th><th>Status</th><th>Progress</th><th>Result</th><th>Actions</th></tr></thead>
                                 <tbody><tr><td colspan="6">No background job loaded.</td></tr></tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <section class="card">
+                        <div class="section-head">
+                            <h2>Durable Workflows</h2>
+                            <p>Inspect checkpointed workflow runs, step history, paused approvals, and retry/cancel controls.</p>
+                        </div>
+                        <div class="toolbar" style="margin-bottom:8px;">
+                            <button class="btn-muted" id="btnOperationsRefreshWorkflows" title="Reload durable workflow runs.">Refresh</button>
+                            <span class="note" id="workflowRunSummary">No workflow run loaded.</span>
+                        </div>
+                        <div class="scroll">
+                            <table class="table" id="operationsWorkflowRunsTable">
+                                <thead><tr><th>Run</th><th>Entity</th><th>Status</th><th>Current Step</th><th>Actions</th></tr></thead>
+                                <tbody><tr><td colspan="5">No workflow run loaded.</td></tr></tbody>
                             </table>
                         </div>
                     </section>
@@ -1362,6 +1436,18 @@
                         </table>
                     </div>
                 </section>
+                <section class="card span-12">
+                    <div class="section-head">
+                        <h2>MCP Sessions</h2>
+                        <p>Recent MCP client/session activity with request, tool, allow, and deny counters.</p>
+                    </div>
+                    <div class="scroll">
+                        <table class="table" id="mcpSessionsTable">
+                            <thead><tr><th>Client / Session</th><th>User</th><th>Last Activity</th><th>Counters</th><th>Decision</th></tr></thead>
+                            <tbody><tr><td colspan="5">No MCP session status loaded.</td></tr></tbody>
+                        </table>
+                    </div>
+                </section>
             </div>
         </div>
     </div>
@@ -1390,9 +1476,12 @@
         let supportEmails = [];
         let supportCases = [];
         let backgroundJobs = [];
+        let workflowRuns = [];
         let syncSchedules = [];
         let chatLogs = [];
         let feedbackItems = [];
+        let agentEvalRuns = [];
+        let selectedAgentEvalRun = null;
         let authAuditLogs = [];
         let notifications = [];
         let notificationUnreadCount = 0;
@@ -2016,9 +2105,12 @@
             document.getElementById('mcpConfigDump').textContent = JSON.stringify({
                 endpoint,
                 security,
+                require_client_token: Boolean(security.require_client_token),
+                tool_quota_rules: security.tool_quota_rules || [],
                 hidden_tools: tools.hidden || [],
                 blocked_by_policy: tools.blocked_by_policy || [],
                 resource_templates: resources.templates || [],
+                recent_sessions: mcpStatus.sessions?.recent || [],
                 capabilities: mcpStatus.capabilities || {},
             }, null, 2);
 
@@ -2041,6 +2133,17 @@
                     <td><small class="note">${resource.description || '-'}</small></td>
                 </tr>
             `).join('') : '<tr><td colspan="3">No MCP resources exposed.</td></tr>';
+
+            const sessionRows = mcpStatus.sessions?.recent || [];
+            document.querySelector('#mcpSessionsTable tbody').innerHTML = sessionRows.length ? sessionRows.map((session) => `
+                <tr>
+                    <td><strong>${escapeHtml(session.client_id || '-')}</strong><br><small class="mono">${escapeHtml(session.session_id || '-')}</small></td>
+                    <td>${escapeHtml(session.user_id || '-')}<br><small class="note">${escapeHtml((session.roles || []).join(', ') || '-')}</small></td>
+                    <td>${escapeHtml(session.last_seen_at || '-')}<br><small class="note">${escapeHtml(session.last_method || '-')}</small></td>
+                    <td>${session.request_count || 0} req, ${session.tool_call_count || 0} tool<br><small class="note">${session.allowed_count || 0} allow, ${session.denied_count || 0} deny</small></td>
+                    <td><span class="status ${session.last_decision === 'deny' ? 'failed' : 'done'}">${escapeHtml(session.last_decision || '-')}</span><br><small class="note">${escapeHtml(session.last_reason || '-')}</small></td>
+                </tr>
+            `).join('') : '<tr><td colspan="5">No MCP sessions found.</td></tr>';
         }
 
         async function refreshKbFiles() {
@@ -2314,6 +2417,85 @@
             renderBreakdownTable('analyticsSupportIntentsTable', data.support_intents);
             renderBreakdownTable('analyticsSupportStatusTable', data.support_status);
             renderBreakdownTable('analyticsKbUsageTable', data.kb_usage);
+        }
+
+        function evalScoreStatus(score) {
+            const numeric = Number(score || 0);
+            if (numeric >= 75) return 'done';
+            if (numeric >= 50) return 'queued';
+            return 'failed';
+        }
+
+        function agentEvalRunRowsHtml(items) {
+            if (!items.length) return '<tr><td colspan="3">No evaluation runs found.</td></tr>';
+            return items.map((item) => `
+                <tr>
+                    <td><strong>${escapeHtml(item.name || `Run ${item.id}`)}</strong><br><small class="note">${escapeHtml(item.created_at || '-')} | ${item.sample_size || 0} sample(s)</small></td>
+                    <td><span class="status ${evalScoreStatus(item.avg_score)}">${item.avg_score ?? '-'}</span><br><small class="note">${item.pass_count || 0} pass, ${item.warn_count || 0} warn, ${item.fail_count || 0} fail</small></td>
+                    <td><button class="btn-muted" data-eval-run-view="${item.id}">View</button></td>
+                </tr>
+            `).join('');
+        }
+
+        function agentEvalResultRowsHtml(results) {
+            if (!results.length) return '<tr><td colspan="4">No fail or warn cases found.</td></tr>';
+            return results.map((item) => `
+                <tr>
+                    <td><span class="status ${item.verdict === 'pass' ? 'done' : item.verdict === 'warn' ? 'queued' : 'failed'}">${escapeHtml(item.verdict || '-')}</span><br><small class="note">${escapeHtml(item.mode || '-')} | ${escapeHtml(item.feedback_rating || 'no feedback')}</small></td>
+                    <td><strong>${item.score ?? '-'}</strong><br><small class="note">top ${item.top_score ?? '-'}</small></td>
+                    <td><strong>${escapeHtml(item.user_message || '-')}</strong><br><small class="note">${escapeHtml(item.answer_text || '-')}</small></td>
+                    <td>${escapeHtml(item.reason || '-')}<br><small class="note">${(item.checks || []).map((check) => `${escapeHtml(check.name)}: ${escapeHtml(check.status)}`).join(', ')}</small></td>
+                </tr>
+            `).join('');
+        }
+
+        function renderAgentEvalRun(run) {
+            selectedAgentEvalRun = run || null;
+            const results = (run?.results || []).filter((item) => item.verdict !== 'pass');
+            document.getElementById('agentEvalSummary').textContent = run
+                ? `${run.name} | ${run.sample_size || 0} sample(s) | created ${run.created_at || '-'}`
+                : 'No evaluation run loaded.';
+            document.getElementById('evalAvgScore').textContent = run?.avg_score ?? '-';
+            document.getElementById('evalPassCount').textContent = run?.pass_count ?? '-';
+            document.getElementById('evalWarnCount').textContent = run?.warn_count ?? '-';
+            document.getElementById('evalFailCount').textContent = run?.fail_count ?? '-';
+            setTableBody('agentEvalResultsTable', agentEvalResultRowsHtml(results));
+        }
+
+        async function refreshAgentEvalRuns() {
+            const data = await fetchJson('/api/admin/evaluations/runs?limit=20');
+            agentEvalRuns = data.items || [];
+            setTableBody('agentEvalRunsTable', agentEvalRunRowsHtml(agentEvalRuns));
+            if (!selectedAgentEvalRun && agentEvalRuns.length) {
+                const detail = await fetchJson(`/api/admin/evaluations/runs/${agentEvalRuns[0].id}?limit=100`);
+                renderAgentEvalRun(detail);
+            } else if (!agentEvalRuns.length) {
+                renderAgentEvalRun(null);
+            }
+        }
+
+        async function viewAgentEvalRun(runId) {
+            const detail = await fetchJson(`/api/admin/evaluations/runs/${runId}?limit=100`);
+            renderAgentEvalRun(detail);
+        }
+
+        async function runAgentEvaluation() {
+            const selectedOnly = document.getElementById('evalScope').value === 'selected';
+            const payload = {
+                name: document.getElementById('evalRunName').value.trim() || null,
+                days: Number(document.getElementById('evalDays').value || '7'),
+                limit: Number(document.getElementById('evalLimit').value || '50'),
+            };
+            if (selectedOnly && selectedKbId()) payload.kb_id = selectedKbId();
+            const run = await fetchJson('/api/admin/evaluations/runs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            renderAgentEvalRun(run);
+            document.getElementById('evalRunName').value = '';
+            await refreshAgentEvalRuns();
+            toast(`Evaluation run completed: ${run.sample_size || 0} sample(s)`);
         }
 
         async function refreshAuthAudit() {
@@ -2600,6 +2782,40 @@
             }).join('');
         }
 
+        function workflowRunRowsHtml(items) {
+            if (!items.length) return emptyRow(5, 'No workflow runs found.', 'Support case workflows will appear here after Handle is clicked.');
+            return items.map((run) => {
+                const canCancel = ['running', 'paused'].includes(run.status);
+                const canRetry = ['failed', 'cancelled'].includes(run.status);
+                const canResume = run.status === 'paused';
+                return `
+                    <tr>
+                        <td>
+                            <strong>#${run.id}</strong>
+                            <br><small class="note mono">${escapeHtml(run.workflow_type || '-')}</small>
+                            <br><small class="note">${escapeHtml(run.updated_at || '-')}</small>
+                        </td>
+                        <td>
+                            ${escapeHtml(run.entity_type || '-')} #${escapeHtml(run.entity_id || '-')}
+                            <br><small class="note">steps: ${run.step_count || 0}</small>
+                        </td>
+                        <td>
+                            <span class="status ${run.status}">${escapeHtml(run.status || '-')}</span>
+                            ${run.blocked_reason ? `<br><small class="note">${escapeHtml(run.blocked_reason).slice(0, 120)}</small>` : ''}
+                            ${run.error_message ? `<br><small class="note">${escapeHtml(run.error_message).slice(0, 120)}</small>` : ''}
+                        </td>
+                        <td>${escapeHtml(run.current_step || '-')}</td>
+                        <td>
+                            <button class="btn-muted" data-workflow-view="${run.id}">View</button>
+                            ${canResume ? `<button class="btn-ok" data-workflow-resume="${run.id}">Resume</button>` : ''}
+                            ${canCancel ? `<button class="btn-danger" data-workflow-cancel="${run.id}">Cancel</button>` : ''}
+                            ${canRetry ? `<button class="btn-main" data-workflow-retry="${run.id}">Retry</button>` : ''}
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
         function chatLogRowsHtml(items, compact = false) {
             if (!items.length) return `<tr><td colspan="${compact ? 4 : 6}">No chat logs yet.</td></tr>`;
             return items.map((log) => compact ? `
@@ -2677,6 +2893,7 @@
             setTableBody('operationsPendingActionsTable', pendingActionRowsHtml(pendingActions));
             setTableBody('operationsSyncSchedulesTable', syncScheduleRowsHtml(syncSchedules));
             setTableBody('operationsBackgroundJobsTable', backgroundJobRowsHtml(backgroundJobs));
+            setTableBody('operationsWorkflowRunsTable', workflowRunRowsHtml(workflowRuns));
             setTableBody('operationsChatLogsTable', chatLogRowsHtml(chatLogs, true));
             setTableBody('operationsFeedbackTable', feedbackRowsHtml(feedbackItems, true));
             setTableBody('operationsAuthAuditTable', authAuditRowsHtml(authAuditLogs, true));
@@ -2684,6 +2901,8 @@
             const needsReview = pendingActions.filter((item) => ['draft', 'approved'].includes(item.status)).length;
             const activeJobCount = backgroundJobs.filter((job) => ['queued', 'retrying', 'running', 'cancelling'].includes(job.status)).length;
             const failedJobCount = backgroundJobs.filter((job) => job.status === 'failed').length;
+            const activeWorkflowCount = workflowRuns.filter((run) => ['running', 'paused'].includes(run.status)).length;
+            const failedWorkflowCount = workflowRuns.filter((run) => run.status === 'failed').length;
             const failedWebhooks = webhookDeliveries.filter((item) => item.status === 'failed').length;
             const authDenies = authAuditLogs.filter((item) => item.decision && item.decision !== 'allow').length;
             document.getElementById('opPendingReview').textContent = String(needsReview);
@@ -2692,12 +2911,13 @@
             document.getElementById('opUnreadNotifications').textContent = String(notificationUnreadCount);
             document.getElementById('opFailedWebhooks').textContent = String(failedWebhooks);
             document.getElementById('opAuthDenies').textContent = String(authDenies);
-            document.getElementById('operationsSummary').textContent = `${notificationUnreadCount} unread notification(s), ${needsReview} approval(s), ${activeJobCount} active job(s), ${failedJobCount} failed job(s).`;
+            document.getElementById('operationsSummary').textContent = `${notificationUnreadCount} unread notification(s), ${needsReview} approval(s), ${activeJobCount} active job(s), ${activeWorkflowCount} active workflow(s), ${failedJobCount} failed job(s).`;
             const subSummary = document.getElementById('webhookSubscriptionSummary');
             if (subSummary) {
                 const enabled = webhookSubscriptions.filter((item) => item.enabled).length;
                 subSummary.textContent = `${webhookSubscriptions.length} subscription(s), ${enabled} enabled.`;
             }
+            setTextIfExists('workflowRunSummary', `${workflowRuns.length} run(s), ${activeWorkflowCount} active/paused, ${failedWorkflowCount} failed.`);
         }
 
         async function refreshNotifications(showLoading = true) {
@@ -2957,6 +3177,7 @@
             await allAllowed([
                 ['support', refreshSupportCases],
                 ['operations', refreshBackgroundJobs],
+                ['operations', refreshWorkflowRuns],
             ]);
         }
 
@@ -2968,6 +3189,7 @@
                 ['support', () => refreshSupportEmails(false)],
                 ['support', refreshSupportCases],
                 ['operations', refreshBackgroundJobs],
+                ['operations', refreshWorkflowRuns],
             ]);
         }
 
@@ -3256,6 +3478,7 @@
             await allAllowed([
                 ['operations', refreshPendingActions],
                 ['operations', refreshBackgroundJobs],
+                ['operations', refreshWorkflowRuns],
             ]);
         }
 
@@ -3381,6 +3604,58 @@
             renderOperationsWorkspace();
         }
 
+        async function refreshWorkflowRuns(showLoading = false) {
+            const status = document.getElementById('operationsWorkflowStatus')?.value || '';
+            const query = status ? `?status=${encodeURIComponent(status)}&limit=50` : '?limit=50';
+            if (showLoading) setTableBody('operationsWorkflowRunsTable', loadingRow(5, 'Loading workflow runs...'));
+            const data = await fetchJson(`/api/admin/workflows/runs${query}`);
+            workflowRuns = data.items || [];
+            renderOperationsWorkspace();
+        }
+
+        async function viewWorkflowRun(runId) {
+            const detail = await fetchJson(`/api/admin/workflows/runs/${runId}`);
+            const lines = [
+                `Run #${detail.id} | ${detail.workflow_type} | ${detail.status}`,
+                `Entity: ${detail.entity_type} #${detail.entity_id}`,
+                `Current step: ${detail.current_step || '-'}`,
+                '',
+                'Steps:',
+                ...(detail.steps || []).map((step) => `- ${step.step_key} [${step.status}] attempts=${step.attempts}${step.error_message ? ` | ${step.error_message}` : ''}`),
+                '',
+                'State / result:',
+                JSON.stringify({ state: detail.state, result: detail.result, error: detail.error_message, blocked_reason: detail.blocked_reason }, null, 2),
+            ];
+            await modalAlert('Workflow Run Detail', lines.join('\n'));
+        }
+
+        async function cancelWorkflowRun(runId) {
+            const reason = await modalPrompt('Cancel workflow run', `Cancel workflow run ${runId}? Reason (optional):`, '');
+            if (reason === null) return;
+            await fetchJson(`/api/admin/workflows/runs/${runId}/cancel`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reason: reason || '' }),
+            });
+            toast(`Cancelled workflow run ${runId}`);
+            await refreshWorkflowRuns(false);
+        }
+
+        async function retryWorkflowRun(runId) {
+            await fetchJson(`/api/admin/workflows/runs/${runId}/retry`, { method: 'POST' });
+            toast(`Retried workflow run ${runId}`);
+            await allAllowed([
+                ['operations', () => refreshWorkflowRuns(false)],
+                ['support', () => refreshSupportCases(false)],
+            ]);
+        }
+
+        async function resumeWorkflowRun(runId) {
+            await fetchJson(`/api/admin/workflows/runs/${runId}/resume`, { method: 'POST' });
+            toast(`Resumed workflow run ${runId}`);
+            await refreshWorkflowRuns(false);
+        }
+
         async function cancelBackgroundJob(jobId) {
             const reason = await modalPrompt('Cancel background job', `Cancel job ${jobId}? Reason (optional):`, '');
             if (reason === null) return;
@@ -3418,6 +3693,7 @@
                 ['operations', refreshSyncSchedules],
                 ['operations', refreshPendingActions],
                 ['operations', refreshBackgroundJobs],
+                ['operations', refreshWorkflowRuns],
                 ['operations', refreshNotifications],
                 ['operations', refreshWebhookSubscriptions],
                 ['operations', refreshWebhookDeliveries],
@@ -3425,6 +3701,7 @@
                 ['audit', refreshAuthAudit],
                 ['analytics', refreshFeedback],
                 ['analytics', refreshAnalytics],
+                ['analytics', refreshAgentEvalRuns],
             ]);
             await refreshIfAllowed('knowledge', refreshLibrary);
             renderJobSummary();
@@ -3456,6 +3733,7 @@
                     }
                     if (isActiveView('view-operations-workspace')) {
                         await refreshIfAllowed('operations', () => refreshBackgroundJobs(false));
+                        await refreshIfAllowed('operations', () => refreshWorkflowRuns(false));
                     }
                 } catch (_) {}
                 setTimeout(check, 2000);
@@ -3783,6 +4061,13 @@
         document.getElementById('btnRefreshAnalytics').addEventListener('click', () => refreshAnalytics().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('analyticsDays').addEventListener('change', () => refreshAnalytics().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('analyticsScope').addEventListener('change', () => refreshAnalytics().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnRunAgentEval').addEventListener('click', () => runAgentEvaluation().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnRefreshAgentEvals').addEventListener('click', () => refreshAgentEvalRuns().catch((e) => toast(explainAuthError(e), false)));
+        document.querySelector('#agentEvalRunsTable tbody').addEventListener('click', (e) => {
+            const btn = e.target.closest('button');
+            if (!btn?.dataset.evalRunView) return;
+            viewAgentEvalRun(btn.dataset.evalRunView).catch((err) => toast(explainAuthError(err), false));
+        });
         document.getElementById('btnRefreshSupportCases').addEventListener('click', () => refreshSupportCases().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnRunSlaMonitor').addEventListener('click', () => runSlaMonitor().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnScheduleSlaMonitor').addEventListener('click', () => createSlaMonitorSchedule().catch((e) => toast(explainAuthError(e), false)));
@@ -3813,6 +4098,7 @@
         document.getElementById('btnOperationsRefresh').addEventListener('click', () => allAllowed([
             ['operations', refreshPendingActions],
             ['operations', refreshBackgroundJobs],
+            ['operations', refreshWorkflowRuns],
             ['operations', refreshSyncSchedules],
             ['operations', refreshNotifications],
             ['operations', refreshWebhookSubscriptions],
@@ -3833,6 +4119,8 @@
         document.getElementById('btnOperationsRunWebhooks').addEventListener('click', () => runWebhookDeliveries().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('operationsPendingActionStatus').addEventListener('change', () => refreshPendingActions().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('operationsBackgroundJobStatus').addEventListener('change', () => refreshBackgroundJobs().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('operationsWorkflowStatus').addEventListener('change', () => refreshWorkflowRuns().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnOperationsRefreshWorkflows').addEventListener('click', () => refreshWorkflowRuns(true).catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnRefreshMcp').addEventListener('click', () => refreshMcpStatus().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnCopyMcpEndpoint').addEventListener('click', async () => {
             const value = document.getElementById('mcpEndpoint').value;
@@ -4007,6 +4295,16 @@
             const retryBtn = event.target.closest('[data-job-retry]');
             if (retryBtn) return retryBackgroundJob(retryBtn.dataset.jobRetry).catch((e) => toast(explainAuthError(e), false));
         });
+        document.querySelector('#operationsWorkflowRunsTable tbody').addEventListener('click', (event) => {
+            const viewBtn = event.target.closest('[data-workflow-view]');
+            if (viewBtn) return viewWorkflowRun(Number(viewBtn.dataset.workflowView)).catch((e) => toast(explainAuthError(e), false));
+            const cancelBtn = event.target.closest('[data-workflow-cancel]');
+            if (cancelBtn) return cancelWorkflowRun(Number(cancelBtn.dataset.workflowCancel)).catch((e) => toast(explainAuthError(e), false));
+            const retryBtn = event.target.closest('[data-workflow-retry]');
+            if (retryBtn) return retryWorkflowRun(Number(retryBtn.dataset.workflowRetry)).catch((e) => toast(explainAuthError(e), false));
+            const resumeBtn = event.target.closest('[data-workflow-resume]');
+            if (resumeBtn) return resumeWorkflowRun(Number(resumeBtn.dataset.workflowResume)).catch((e) => toast(explainAuthError(e), false));
+        });
         document.querySelector('#operationsNotificationsTable tbody').addEventListener('click', (event) => {
             const readBtn = event.target.closest('[data-notification-read]');
             if (readBtn) return markNotificationRead(Number(readBtn.dataset.notificationRead)).catch((e) => toast(explainAuthError(e), false));
@@ -4099,6 +4397,9 @@
         }, 30000);
         setInterval(() => {
             if (isActiveView('view-operations-workspace')) refreshIfAllowed('operations', () => refreshBackgroundJobs(false)).catch(() => {});
+        }, 10000);
+        setInterval(() => {
+            if (isActiveView('view-operations-workspace')) refreshIfAllowed('operations', () => refreshWorkflowRuns(false)).catch(() => {});
         }, 10000);
         setInterval(() => {
             if (isActiveView('view-operations-workspace')) refreshIfAllowed('operations', () => refreshNotifications(false)).catch(() => {});

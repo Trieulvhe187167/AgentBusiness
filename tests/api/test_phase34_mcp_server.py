@@ -144,7 +144,7 @@ def test_mcp_denies_high_risk_tools_by_default(isolated_client: TestClient):
     payload = response.json()
     assert payload["error"]["code"] == -32000
     assert payload["error"]["message"] == "Tool blocked by MCP security policy"
-    assert payload["error"]["data"] == "high_risk_denied_by_default"
+    assert payload["error"]["data"]["reason"] == "high_risk_denied_by_default"
 
 
 def test_mcp_requires_tool_scopes(isolated_client: TestClient):
@@ -157,7 +157,56 @@ def test_mcp_requires_tool_scopes(isolated_client: TestClient):
     assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["error"]["code"] == -32000
-    assert payload["error"]["data"] == "scope_not_granted"
+    assert payload["error"]["data"]["reason"] == "scope_not_granted"
+    assert "scope:kb" in payload["error"]["data"]["required_scopes"]
+
+
+def test_mcp_requires_registered_client_token_when_enabled(isolated_client: TestClient, monkeypatch):
+    monkeypatch.setattr(settings, "mcp_require_client_token", True)
+    monkeypatch.setattr(settings, "mcp_client_tokens", "pytest-mcp-client:secret-token")
+
+    missing = _rpc(isolated_client, "ping")
+    assert missing.status_code == 401, missing.text
+
+    allowed = _rpc(isolated_client, "ping", headers={"X-MCP-Client-Token": "secret-token"})
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["result"] == {}
+
+
+def test_mcp_tool_quota_blocks_after_client_limit(isolated_client: TestClient, monkeypatch):
+    monkeypatch.setattr(settings, "mcp_tool_quotas", "pytest-mcp-client:list_customer_tickets:1")
+
+    first = _rpc(
+        isolated_client,
+        "tools/call",
+        {"name": "list_customer_tickets", "arguments": {}, "context": {"session_id": "mcp-quota"}},
+    )
+    blocked = _rpc(
+        isolated_client,
+        "tools/call",
+        {"name": "list_customer_tickets", "arguments": {}, "context": {"session_id": "mcp-quota"}},
+        request_id=2,
+    )
+
+    assert first.status_code == 200, first.text
+    assert first.json()["result"]["isError"] is False
+    assert blocked.status_code == 200, blocked.text
+    payload = blocked.json()
+    assert payload["error"]["message"] == "Tool blocked by MCP quota policy"
+    assert payload["error"]["data"]["reason"] == "tool_quota_exceeded"
+    assert payload["error"]["data"]["quota"]["limit"] == 1
+
+
+def test_mcp_risk_preview_reports_policy_and_quota(isolated_client: TestClient, monkeypatch):
+    monkeypatch.setattr(settings, "mcp_tool_quotas", "pytest-mcp-client:search_kb:5")
+    response = _rpc(isolated_client, "tools/riskPreview", {"name": "search_kb"})
+    assert response.status_code == 200, response.text
+    result = response.json()["result"]
+    assert result["tool_name"] == "search_kb"
+    assert result["risk_level"] == "low"
+    assert "scope:kb" in result["required_scopes"]
+    assert result["quota"]["enabled"] is True
+    assert result["quota"]["limit"] == 5
 
 
 def test_mcp_origin_validation(isolated_client: TestClient, monkeypatch):
@@ -247,9 +296,13 @@ def test_admin_mcp_status_endpoint(isolated_client: TestClient):
     payload = response.json()
     assert payload["enabled"] is True
     assert payload["endpoint_path"] == "/mcp"
-    assert payload["capabilities"] == {"tools": True, "resources": True, "resource_templates": True}
+    assert payload["capabilities"]["tools"] is True
+    assert payload["capabilities"]["risk_preview"] is True
+    assert payload["capabilities"]["session_audit"] is True
     assert payload["tools"]["registered_count"] >= payload["tools"]["exposed_count"] >= 1
     assert payload["security"]["require_tool_scopes"] is True
+    assert payload["security"]["require_client_token"] is False
+    assert payload["security"]["default_tool_quota_per_window"] >= 0
     assert payload["security"]["manifest_signature"]["signature"]
     assert any(item["name"] == "search_kb" for item in payload["tools"]["exposed"])
     assert any(item["name"] == "list_kbs" for item in payload["tools"]["blocked_by_policy"])

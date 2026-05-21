@@ -20,13 +20,19 @@ from app.database import fetch_all, fetch_one
 from app.kb_service import KB_SELECT, open_db, row_to_kb_summary
 from app.mcp_security import (
     McpClientContext,
+    consume_mcp_tool_quota,
     decide_tool_exposure,
+    list_mcp_sessions,
     log_mcp_audit,
     mcp_client_context,
+    preview_tool_risk,
+    record_mcp_session_activity,
     sign_tool_manifest,
     tool_required_scopes,
+    validate_mcp_client_token,
 )
 from app.models import AuthContext, RequestContext
+from app.observability import trace_span
 from app.tools import tool_registry
 from app.tools.registry import ToolAuthorizationError, ToolExecutionError, ToolValidationError
 from app.vector_store import vector_store
@@ -127,9 +133,11 @@ def _tool_security_report(definitions, *, auth=None, client=None) -> list[dict[s
         required_scopes = tool_required_scopes(item.name, policy)
         if client is not None and auth is not None:
             decision = decide_tool_exposure(item, auth=auth, client=client)
+            quota = preview_tool_risk(item, auth=auth, client=client)["quota"]
             allowed = decision.allowed
             reason = decision.reason
         else:
+            quota = {"enabled": False, "limit": 0, "remaining": 0, "reset_after_seconds": 0}
             allowed = True
             reason = "configured"
         rows.append(
@@ -143,6 +151,7 @@ def _tool_security_report(definitions, *, auth=None, client=None) -> list[dict[s
                 "required_scopes": sorted(required_scopes),
                 "exposed": allowed,
                 "reason": reason,
+                "quota": quota,
             }
         )
     return rows
@@ -392,6 +401,15 @@ async def build_mcp_status() -> dict[str, Any]:
             "require_tool_scopes": settings.mcp_require_tool_scopes,
             "scope_header": "X-MCP-Scopes",
             "client_id_header": "X-MCP-Client-Id",
+            "require_client_token": settings.mcp_require_client_token,
+            "client_token_header": settings.mcp_client_token_header,
+            "registered_clients": sorted(settings.mcp_client_token_map.keys()),
+            "default_tool_quota_per_window": settings.mcp_default_tool_quota_per_window,
+            "tool_quota_window_seconds": settings.mcp_tool_quota_window_seconds,
+            "tool_quota_rules": [
+                {"client_id": client_id, "tool_name": tool_name, "limit": limit}
+                for (client_id, tool_name), limit in sorted(settings.mcp_tool_quota_rules.items())
+            ],
             "high_risk_allowed_tools": sorted(settings.mcp_high_risk_tool_names),
             "manifest_signature": sign_tool_manifest(manifest_tools),
         },
@@ -413,6 +431,11 @@ async def build_mcp_status() -> dict[str, Any]:
             "tools": True,
             "resources": True,
             "resource_templates": True,
+            "risk_preview": True,
+            "session_audit": True,
+        },
+        "sessions": {
+            "recent": list_mcp_sessions(limit=20),
         },
     }
 
@@ -449,48 +472,178 @@ async def _handle_method(message: dict[str, Any], request: Request) -> dict[str,
         return None if is_notification else _error(request_id, INVALID_PARAMS, "params must be an object")
 
     try:
-        if method == "initialize":
-            protocol_version = str(params.get("protocolVersion") or settings.mcp_protocol_version)
-            result = {
-                "protocolVersion": protocol_version,
-                "capabilities": {"tools": {}, "resources": {}},
-                "serverInfo": {
-                    "name": settings.mcp_server_name,
-                    "version": settings.mcp_server_version,
-                },
-            }
-            return None if is_notification else _success(request_id, result)
+        auth_for_session = get_request_auth(request)
+        client_for_session = mcp_client_context(request)
+        record_mcp_session_activity(
+            auth=auth_for_session,
+            client=client_for_session,
+            method=method,
+            decision="seen",
+            reason="method_received",
+        )
 
-        if method == "notifications/initialized":
-            return None
+        with trace_span(
+            "mcp.method",
+            {
+                "rpc.system": "jsonrpc",
+                "rpc.method": method,
+                "mcp.client_id": client_for_session.client_id,
+                "mcp.session_id": client_for_session.session_id,
+                "app.request_id": getattr(request.state, "request_id", None),
+            },
+        ) as span:
+            if method == "initialize":
+                protocol_version = str(params.get("protocolVersion") or settings.mcp_protocol_version)
+                result = {
+                    "protocolVersion": protocol_version,
+                    "capabilities": {"tools": {}, "resources": {}},
+                    "serverInfo": {
+                        "name": settings.mcp_server_name,
+                        "version": settings.mcp_server_version,
+                    },
+                }
+                span.set_attribute("mcp.protocol_version", protocol_version)
+                return None if is_notification else _success(request_id, result)
 
-        if method == "ping":
-            return None if is_notification else _success(request_id, {})
+            if method == "notifications/initialized":
+                return None
 
-        if method == "tools/list":
-            tools = [_tool_to_mcp(item) for item in _visible_tool_definitions(request)]
-            result = {"tools": tools, "manifest": sign_tool_manifest(tools)}
-            return None if is_notification else _success(request_id, result)
+            if method == "ping":
+                return None if is_notification else _success(request_id, {})
 
-        if method == "tools/manifest":
-            tools = [_tool_to_mcp(item) for item in _visible_tool_definitions(request)]
-            result = {"tools": tools, "manifest": sign_tool_manifest(tools)}
-            return None if is_notification else _success(request_id, result)
+            if method == "tools/list":
+                tools = [_tool_to_mcp(item) for item in _visible_tool_definitions(request)]
+                result = {"tools": tools, "manifest": sign_tool_manifest(tools)}
+                span.set_attribute("mcp.tools.count", len(tools))
+                return None if is_notification else _success(request_id, result)
 
-        if method == "tools/call":
-            name = params.get("name")
-            arguments = params.get("arguments") or {}
-            if not isinstance(name, str) or not name.strip():
-                return None if is_notification else _error(request_id, INVALID_PARAMS, "tools/call requires params.name")
-            if not _is_exposed_tool(name):
-                return None if is_notification else _error(request_id, TOOL_ERROR, "Tool is not exposed through MCP", name)
-            if not isinstance(arguments, dict):
-                return None if is_notification else _error(request_id, INVALID_PARAMS, "params.arguments must be an object")
-            definition = tool_registry.get(name).summary()
-            auth = get_request_auth(request)
-            client = mcp_client_context(request)
-            decision = decide_tool_exposure(definition, auth=auth, client=client)
-            if not decision.allowed:
+            if method == "tools/manifest":
+                tools = [_tool_to_mcp(item) for item in _visible_tool_definitions(request)]
+                result = {"tools": tools, "manifest": sign_tool_manifest(tools)}
+                span.set_attribute("mcp.tools.count", len(tools))
+                return None if is_notification else _success(request_id, result)
+
+            if method == "tools/riskPreview":
+                name = params.get("name")
+                if not isinstance(name, str) or not name.strip():
+                    return None if is_notification else _error(request_id, INVALID_PARAMS, "tools/riskPreview requires params.name")
+                span.set_attribute("mcp.tool.name", name)
+                if not _is_exposed_tool(name):
+                    return None if is_notification else _error(request_id, TOOL_ERROR, "Tool is not exposed through MCP", {"reason": "tool_not_exposed"})
+                definition = tool_registry.get(name).summary()
+                auth = get_request_auth(request)
+                client = mcp_client_context(request)
+                result = preview_tool_risk(definition, auth=auth, client=client)
+                span.set_attribute("mcp.tool.allowed", bool(result.get("allowed")))
+                span.set_attribute("mcp.tool.risk_level", result.get("risk_level"))
+                return None if is_notification else _success(request_id, result)
+
+            if method == "tools/call":
+                name = params.get("name")
+                arguments = params.get("arguments") or {}
+                if not isinstance(name, str) or not name.strip():
+                    return None if is_notification else _error(request_id, INVALID_PARAMS, "tools/call requires params.name")
+                span.set_attribute("mcp.tool.name", name)
+                if not _is_exposed_tool(name):
+                    span.set_attribute("mcp.decision", "deny")
+                    span.set_attribute("mcp.reason", "tool_not_exposed")
+                    return None if is_notification else _error(request_id, TOOL_ERROR, "Tool is not exposed through MCP", name)
+                if not isinstance(arguments, dict):
+                    return None if is_notification else _error(request_id, INVALID_PARAMS, "params.arguments must be an object")
+                definition = tool_registry.get(name).summary()
+                auth = get_request_auth(request)
+                client = mcp_client_context(request)
+                decision = decide_tool_exposure(definition, auth=auth, client=client)
+                span.set_attribute("mcp.tool.risk_level", definition.auth_policy.get("risk_level"))
+                span.set_attribute("mcp.tool.scope", definition.auth_policy.get("scope"))
+                if not decision.allowed:
+                    span.set_attribute("mcp.decision", "deny")
+                    span.set_attribute("mcp.reason", decision.reason)
+                    record_mcp_session_activity(
+                        auth=auth,
+                        client=client,
+                        method=method,
+                        decision="deny",
+                        reason=decision.reason,
+                        is_tool_call=True,
+                        count_request=False,
+                    )
+                    log_mcp_audit(
+                        request_id=str(request_id) if request_id is not None else None,
+                        auth=auth,
+                        client=client,
+                        method=method,
+                        tool_name=name,
+                        required_scopes=decision.required_scopes,
+                        risk_level=definition.auth_policy.get("risk_level"),
+                        tool_scope=definition.auth_policy.get("scope"),
+                        decision="deny",
+                        reason=decision.reason,
+                    )
+                    return None if is_notification else _error(
+                        request_id,
+                        TOOL_ERROR,
+                        "Tool blocked by MCP security policy",
+                        {"reason": decision.reason, "required_scopes": sorted(decision.required_scopes)},
+                    )
+
+                quota = consume_mcp_tool_quota(client, name)
+                if not quota.allowed:
+                    span.set_attribute("mcp.decision", "deny")
+                    span.set_attribute("mcp.reason", quota.reason)
+                    span.set_attribute("mcp.quota.limit", quota.limit)
+                    span.set_attribute("mcp.quota.remaining", quota.remaining)
+                    record_mcp_session_activity(
+                        auth=auth,
+                        client=client,
+                        method=method,
+                        decision="deny",
+                        reason=quota.reason,
+                        is_tool_call=True,
+                        count_request=False,
+                    )
+                    log_mcp_audit(
+                        request_id=str(request_id) if request_id is not None else None,
+                        auth=auth,
+                        client=client,
+                        method=method,
+                        tool_name=name,
+                        required_scopes=decision.required_scopes,
+                        risk_level=definition.auth_policy.get("risk_level"),
+                        tool_scope=definition.auth_policy.get("scope"),
+                        decision="deny",
+                        reason=quota.reason,
+                    )
+                    return None if is_notification else _error(
+                        request_id,
+                        TOOL_ERROR,
+                        "Tool blocked by MCP quota policy",
+                        {
+                            "reason": quota.reason,
+                            "quota": {
+                                "limit": quota.limit,
+                                "remaining": quota.remaining,
+                                "reset_after_seconds": quota.reset_after_seconds,
+                            },
+                        },
+                    )
+
+                execution = await tool_registry.execute(
+                    name,
+                    arguments,
+                    request_context=_request_context(request, params),
+                )
+                span.set_attribute("mcp.decision", "allow")
+                span.set_attribute("mcp.tool.latency_ms", execution.latency_ms)
+                record_mcp_session_activity(
+                    auth=auth,
+                    client=client,
+                    method=method,
+                    decision="allow",
+                    reason="tool_executed",
+                    is_tool_call=True,
+                    count_request=False,
+                )
                 log_mcp_audit(
                     request_id=str(request_id) if request_id is not None else None,
                     auth=auth,
@@ -500,56 +653,41 @@ async def _handle_method(message: dict[str, Any], request: Request) -> dict[str,
                     required_scopes=decision.required_scopes,
                     risk_level=definition.auth_policy.get("risk_level"),
                     tool_scope=definition.auth_policy.get("scope"),
-                    decision="deny",
-                    reason=decision.reason,
+                    decision="allow",
+                    reason="tool_executed",
                 )
-                return None if is_notification else _error(request_id, TOOL_ERROR, "Tool blocked by MCP security policy", decision.reason)
+                output_text = json.dumps(execution.output, ensure_ascii=False)
+                result = {
+                    "content": [{"type": "text", "text": output_text}],
+                    "isError": False,
+                    "structuredContent": execution.output,
+                }
+                return None if is_notification else _success(request_id, result)
 
-            execution = await tool_registry.execute(
-                name,
-                arguments,
-                request_context=_request_context(request, params),
-            )
-            log_mcp_audit(
-                request_id=str(request_id) if request_id is not None else None,
-                auth=auth,
-                client=client,
-                method=method,
-                tool_name=name,
-                required_scopes=decision.required_scopes,
-                risk_level=definition.auth_policy.get("risk_level"),
-                tool_scope=definition.auth_policy.get("scope"),
-                decision="allow",
-                reason="tool_executed",
-            )
-            output_text = json.dumps(execution.output, ensure_ascii=False)
-            result = {
-                "content": [{"type": "text", "text": output_text}],
-                "isError": False,
-                "structuredContent": execution.output,
-            }
-            return None if is_notification else _success(request_id, result)
+            if method == "resources/list":
+                _require_resource_admin(request, method=method, request_id=request_id)
+                result = {"resources": await _list_resources()}
+                span.set_attribute("mcp.resources.count", len(result["resources"]))
+                return None if is_notification else _success(request_id, result)
 
-        if method == "resources/list":
-            _require_resource_admin(request, method=method, request_id=request_id)
-            result = {"resources": await _list_resources()}
-            return None if is_notification else _success(request_id, result)
+            if method == "resources/templates/list":
+                _require_resource_admin(request, method=method, request_id=request_id)
+                result = {"resourceTemplates": _list_resource_templates()}
+                span.set_attribute("mcp.resource_templates.count", len(result["resourceTemplates"]))
+                return None if is_notification else _success(request_id, result)
 
-        if method == "resources/templates/list":
-            _require_resource_admin(request, method=method, request_id=request_id)
-            result = {"resourceTemplates": _list_resource_templates()}
-            return None if is_notification else _success(request_id, result)
+            if method == "resources/read":
+                uri = params.get("uri")
+                if not isinstance(uri, str) or not uri.strip():
+                    return None if is_notification else _error(request_id, INVALID_PARAMS, "resources/read requires params.uri")
+                uri = uri.strip()
+                span.set_attribute("mcp.resource.uri", uri)
+                _require_resource_admin(request, method=method, request_id=request_id, resource_uri=uri)
+                result = {"contents": [await _read_resource(uri)]}
+                return None if is_notification else _success(request_id, result)
 
-        if method == "resources/read":
-            uri = params.get("uri")
-            if not isinstance(uri, str) or not uri.strip():
-                return None if is_notification else _error(request_id, INVALID_PARAMS, "resources/read requires params.uri")
-            uri = uri.strip()
-            _require_resource_admin(request, method=method, request_id=request_id, resource_uri=uri)
-            result = {"contents": [await _read_resource(uri)]}
-            return None if is_notification else _success(request_id, result)
+            return None if is_notification else _error(request_id, METHOD_NOT_FOUND, f"Unknown method: {method}")
 
-        return None if is_notification else _error(request_id, METHOD_NOT_FOUND, f"Unknown method: {method}")
     except ToolValidationError as err:
         return None if is_notification else _error(request_id, INVALID_PARAMS, str(err))
     except ToolAuthorizationError as err:
@@ -570,6 +708,7 @@ async def handle_mcp_request(request: Request) -> Response:
         raise HTTPException(status_code=404, detail="MCP server is disabled")
     _validate_mcp_origin(request)
     _validate_mcp_auth(request)
+    validate_mcp_client_token(request)
 
     try:
         payload = await request.json()

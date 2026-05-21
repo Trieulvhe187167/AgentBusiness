@@ -15,6 +15,7 @@ from app.rate_limit import rate_limiter
 from app.config import settings
 from app.kb import create_knowledge_base
 from app.kb_service import attach_file_to_kb, get_default_kb, open_db
+from app.mcp_security import reset_mcp_quota_buckets
 from app.models import KnowledgeBaseCreate
 from app.vector_store import vector_store
 
@@ -88,6 +89,7 @@ def configure_test_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, expec
     settings.ensure_dirs()
     run(database.init_db())
     rate_limiter.reset()
+    reset_mcp_quota_buckets()
     vector_store.initialize(expected_dim=expected_dim)
 
 

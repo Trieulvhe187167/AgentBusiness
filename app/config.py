@@ -141,6 +141,12 @@ class Settings(BaseSettings):
     mcp_require_tool_scopes: bool = True
     mcp_high_risk_tool_allowlist: str = ""
     mcp_manifest_signing_secret: str = ""
+    mcp_require_client_token: bool = False
+    mcp_client_token_header: str = "X-MCP-Client-Token"
+    mcp_client_tokens: str = ""
+    mcp_default_tool_quota_per_window: int = 0
+    mcp_tool_quota_window_seconds: int = 60
+    mcp_tool_quotas: str = ""
     mcp_exposed_tools: str = (
         "search_kb,"
         "list_kbs,"
@@ -230,6 +236,19 @@ class Settings(BaseSettings):
     rate_limit_sync_requests_per_window: int = 60
     rate_limit_max_buckets: int = 10000
     rate_limit_exempt_paths: str = "/health,/api/system"
+
+    # ------------------------------------------------------------------
+    # OpenTelemetry tracing
+    # Production observability for HTTP, MCP, tools, RAG, and workflows.
+    # ------------------------------------------------------------------
+    otel_enabled: bool = False
+    otel_service_name: str = "agent-business"
+    otel_environment: str = "local"
+    otel_exporter: str = "otlp"  # otlp|console
+    otel_exporter_otlp_endpoint: str = "http://localhost:4318/v1/traces"
+    otel_exporter_otlp_headers: str = ""
+    otel_trace_content: bool = False
+    otel_fail_closed: bool = False
 
     # ------------------------------------------------------------------
     # External business integrations
@@ -410,6 +429,33 @@ class Settings(BaseSettings):
     @property
     def mcp_allowed_origin_values(self) -> set[str]:
         return set(self._parse_csv_setting(self.mcp_allowed_origins))
+
+    @property
+    def mcp_client_token_map(self) -> dict[str, str]:
+        tokens: dict[str, str] = {}
+        for item in self._parse_csv_setting(self.mcp_client_tokens):
+            client_id, sep, secret = item.partition(":")
+            client_id = client_id.strip()
+            secret = secret.strip()
+            if sep and client_id and secret:
+                tokens[client_id] = secret
+        return tokens
+
+    @property
+    def mcp_tool_quota_rules(self) -> dict[tuple[str, str], int]:
+        rules: dict[tuple[str, str], int] = {}
+        for item in self._parse_csv_setting(self.mcp_tool_quotas):
+            parts = [part.strip() for part in item.split(":")]
+            if len(parts) != 3 or not all(parts):
+                continue
+            client_id, tool_name, raw_limit = parts
+            try:
+                limit = int(raw_limit)
+            except ValueError:
+                continue
+            if limit > 0:
+                rules[(client_id, tool_name)] = limit
+        return rules
 
     @property
     def rate_limit_exempt_paths_set(self) -> set[str]:

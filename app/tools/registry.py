@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from app.authorization import AuthorizationDeniedError, authorize_tool_access
 from app.models import RequestContext
+from app.observability import trace_span
 from app.tool_audit import log_tool_call
 
 
@@ -127,15 +128,41 @@ class ToolRegistry:
         raw_args = arguments or {}
         tool_call_id = uuid.uuid4().hex[:12]
         started = time.perf_counter()
+        with trace_span(
+            "tool.execute",
+            {
+                "tool.name": name,
+                "tool.call_id": tool_call_id,
+                "tool.risk_level": spec.auth_policy.risk_level,
+                "tool.scope": spec.auth_policy.scope,
+                "app.request_id": context.request_id,
+                "app.kb_id": context.kb_id,
+                "app.kb_key": context.kb_key,
+            },
+        ) as span:
+            return await self._execute_traced(spec, context, raw_args, tool_call_id, started, span)
+
+    async def _execute_traced(
+        self,
+        spec: ToolSpec,
+        context: RequestContext,
+        raw_args: dict[str, Any],
+        tool_call_id: str,
+        started: float,
+        span,
+    ) -> ToolExecutionResult:
+        name = spec.name
 
         try:
             self._authorize(spec, context, raw_args)
             validated_input = spec.input_model.model_validate(raw_args)
         except ToolAuthorizationError as err:
+            span.set_attribute("tool.status", "permission_denied")
             self._log_failure(spec, tool_call_id, context, raw_args, "permission_denied", err, started)
             raise
         except Exception as err:  # pydantic validation errors land here
             wrapped = ToolValidationError(str(err))
+            span.set_attribute("tool.status", "validation_error")
             self._log_failure(spec, tool_call_id, context, raw_args, "validation_error", wrapped, started)
             raise wrapped from err
 
@@ -146,6 +173,7 @@ class ToolRegistry:
             )
         except asyncio.TimeoutError as err:
             wrapped = ToolExecutionError(f"Tool '{name}' timed out after {spec.timeout_seconds}s")
+            span.set_attribute("tool.status", "timeout")
             self._log_failure(spec, tool_call_id, context, raw_args, "timeout", wrapped, started)
             raise wrapped from err
         except Exception as err:
@@ -158,10 +186,13 @@ class ToolRegistry:
             else:
                 status = "error"
                 wrapped = err if isinstance(err, ToolExecutionError) else ToolExecutionError(str(err))
+            span.set_attribute("tool.status", status)
             self._log_failure(spec, tool_call_id, context, raw_args, status, wrapped, started)
             raise wrapped from err
 
         latency_ms = int((time.perf_counter() - started) * 1000)
+        span.set_attribute("tool.status", "success")
+        span.set_attribute("tool.latency_ms", latency_ms)
         summary = spec.summarize_result(payload) if spec.summarize_result else self._default_summary(spec.name, payload)
         log_tool_call(
             name,

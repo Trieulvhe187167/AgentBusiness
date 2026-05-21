@@ -51,6 +51,8 @@ def test_admin_and_debug_endpoints_are_kb_scoped(isolated_client: TestClient):
     assert system_payload["scope"]["type"] == "kb"
     assert system_payload["scope"]["kb_id"] == kb_id
     assert system_payload["source_count"] >= 1
+    assert system_payload["observability"]["enabled"] is False
+    assert system_payload["observability"]["service_name"] == "agent-business"
 
     similarity = isolated_client.get(
         "/api/debug/similarity",
