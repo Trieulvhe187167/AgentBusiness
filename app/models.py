@@ -325,6 +325,10 @@ class HealthResponse(BaseModel):
     embeddings_backend: str = "hashing"   # "sentence-transformers" | "hashing"
     embeddings_ready: bool = False        # True only after warm-up completes
     vector_store_ready: bool = False
+    ready_for_chat: bool = False
+    ready_for_production: bool = False
+    setup_complete: bool = False
+    issues: list[dict[str, str | None]] = Field(default_factory=list)
     timestamp: str
 
 
@@ -597,6 +601,8 @@ class CurrentUserProfile(BaseModel):
     authenticated: bool
     auth_mode: str
     debug_auth_inputs_enabled: bool
+    access_management_enabled: bool = True
+    access_role_mode: str = "fallback"
     user_id: str | None = None
     roles: list[str] = Field(default_factory=list)
     channel: str = "web"

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from app.database import execute_sync, fetch_all_sync, fetch_one_sync, utcnow_iso
 from app.models import AuthContext, RequestContext
+from app.observability import trace_span
 
 PendingActionStatus = Literal["draft", "approved", "executed", "rejected", "failed"]
 PendingActionType = Literal["send_email_reply", "delete_google_drive_source", "sync_google_drive_source", "support_case_review"]
@@ -197,17 +198,31 @@ def reject_pending_action(action_id: int, *, auth: AuthContext, note: str | None
     if item.status not in {"draft", "approved"}:
         raise ValueError("Only draft or approved pending actions can be rejected")
     now = utcnow_iso()
-    execute_sync(
-        """
-        UPDATE pending_actions
-        SET status = 'rejected',
-            approved_by_user_id = ?,
-            error_message = ?,
-            updated_at = ?
-        WHERE id = ?
-        """,
-        (auth.user_id, note, now, action_id),
-    )
+    with trace_span(
+        "pending_action.reject",
+        {
+            "pending_action.id": action_id,
+            "pending_action.type": item.action_type,
+            "pending_action.risk_level": item.risk_level,
+            "app.user_id": auth.user_id,
+        },
+    ):
+        execute_sync(
+            """
+            UPDATE pending_actions
+            SET status = 'rejected',
+                approved_by_user_id = ?,
+                error_message = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (auth.user_id, note, now, action_id),
+        )
+        _auto_resume_from_pending_action(
+            get_pending_action(action_id),
+            context=RequestContext(request_id=f"pending-action-{action_id}", auth=auth),
+            trigger_status="rejected",
+        )
     return get_pending_action(action_id).model_dump()
 
 
@@ -216,38 +231,86 @@ async def execute_pending_action(action_id: int, *, context: RequestContext) -> 
     if item.status != "approved":
         raise ValueError("Pending action must be approved before execution")
 
-    try:
-        result = await _dispatch_pending_action(item, context=context)
-    except Exception as err:
+    with trace_span(
+        "pending_action.execute",
+        {
+            "pending_action.id": action_id,
+            "pending_action.type": item.action_type,
+            "pending_action.risk_level": item.risk_level,
+            "app.request_id": context.request_id,
+            "app.user_id": context.auth.user_id,
+        },
+    ) as span:
+        try:
+            result = await _dispatch_pending_action(item, context=context)
+        except Exception as err:
+            now = utcnow_iso()
+            execute_sync(
+                """
+                UPDATE pending_actions
+                SET status = 'failed',
+                    error_message = ?,
+                    executed_by_user_id = ?,
+                    executed_at = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (str(err), context.auth.user_id, now, now, action_id),
+            )
+            span.set_attribute("pending_action.status", "failed")
+            raise
+
         now = utcnow_iso()
         execute_sync(
             """
             UPDATE pending_actions
-            SET status = 'failed',
-                error_message = ?,
+            SET status = 'executed',
+                result_json = ?,
                 executed_by_user_id = ?,
                 executed_at = ?,
                 updated_at = ?
             WHERE id = ?
             """,
-            (str(err), context.auth.user_id, now, now, action_id),
+            (json.dumps(result, ensure_ascii=False, sort_keys=True), context.auth.user_id, now, now, action_id),
         )
-        raise
+        updated = get_pending_action(action_id)
+        resumed = _auto_resume_from_pending_action(updated, context=context, trigger_status="executed")
+        if resumed:
+            result = {
+                **result,
+                "auto_resumed_workflow_ids": [item["id"] for item in resumed],
+            }
+            execute_sync(
+                "UPDATE pending_actions SET result_json = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(result, ensure_ascii=False, sort_keys=True), utcnow_iso(), action_id),
+            )
+            span.set_attribute("workflow.auto_resumed_count", len(resumed))
+        span.set_attribute("pending_action.status", "executed")
+        return get_pending_action(action_id).model_dump()
 
-    now = utcnow_iso()
-    execute_sync(
-        """
-        UPDATE pending_actions
-        SET status = 'executed',
-            result_json = ?,
-            executed_by_user_id = ?,
-            executed_at = ?,
-            updated_at = ?
-        WHERE id = ?
-        """,
-        (json.dumps(result, ensure_ascii=False, sort_keys=True), context.auth.user_id, now, now, action_id),
-    )
-    return get_pending_action(action_id).model_dump()
+
+def _auto_resume_from_pending_action(
+    item: PendingActionItem,
+    *,
+    context: RequestContext,
+    trigger_status: str,
+) -> list[dict[str, Any]]:
+    if item.action_type != "support_case_review":
+        return []
+    ticket_id = item.payload.get("ticket_id")
+    if not ticket_id:
+        return []
+    try:
+        from app.workflow_engine import auto_resume_paused_workflows_for_ticket
+
+        return auto_resume_paused_workflows_for_ticket(
+            int(ticket_id),
+            context=context,
+            trigger_action_id=item.id,
+            trigger_status=trigger_status,
+        )
+    except Exception:
+        return []
 
 
 async def _dispatch_pending_action(item: PendingActionItem, *, context: RequestContext) -> dict[str, Any]:

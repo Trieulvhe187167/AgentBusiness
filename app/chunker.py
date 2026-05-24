@@ -163,11 +163,19 @@ def chunk_records(
                 "org_id": org_id,
                 "owner_user_id": owner_user_id,
                 # Parser-specific metadata
+                "title": meta.get("title"),
+                "heading": meta.get("heading"),
                 "page_num": meta.get("page_num"),
                 "sheet_name": meta.get("sheet_name"),
                 "row_num": meta.get("row_num"),
+                "table_idx": meta.get("table_idx"),
                 "category": meta.get("category"),
                 "keywords": meta.get("keywords"),
+                "image_format": meta.get("image_format"),
+                "image_width": meta.get("image_width"),
+                "image_height": meta.get("image_height"),
+                "ocr_region_idx": meta.get("ocr_region_idx"),
+                "ocr_extraction": meta.get("ocr_extraction"),
                 "lang": meta.get("lang"),
             }
             all_chunks.append(chunk)

@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from app.authorization import AuthorizationDeniedError, authorize_tool_access
 from app.models import RequestContext
-from app.observability import trace_span
+from app.observability import tool_trace_attrs, trace_span
 from app.tool_audit import log_tool_call
 
 
@@ -131,10 +131,12 @@ class ToolRegistry:
         with trace_span(
             "tool.execute",
             {
-                "tool.name": name,
-                "tool.call_id": tool_call_id,
-                "tool.risk_level": spec.auth_policy.risk_level,
-                "tool.scope": spec.auth_policy.scope,
+                **tool_trace_attrs(
+                    name=name,
+                    call_id=tool_call_id,
+                    risk_level=spec.auth_policy.risk_level,
+                    scope=spec.auth_policy.scope,
+                ),
                 "app.request_id": context.request_id,
                 "app.kb_id": context.kb_id,
                 "app.kb_key": context.kb_key,

@@ -27,7 +27,7 @@ from app.kb_service import ensure_kb_access, normalize_kb_key
 from app.lang import detect_language
 from app.llm_client import active_provider_name, generate_stream, is_llm_ready
 from app.models import Citation, RequestContext
-from app.observability import trace_span
+from app.observability import retrieval_trace_attrs, trace_span
 from app.query_expander import expand_query
 from app.reranker import rerank
 from app.vector_store import vector_store
@@ -594,11 +594,7 @@ def retrieve(
     k = top_k or settings.top_k
     with trace_span(
         "rag.retrieve",
-        {
-            "rag.top_k": k,
-            "rag.kb_id": kb_id,
-            "rag.kb_key": kb_key,
-        },
+        retrieval_trace_attrs(query=query, top_k=k, kb_id=kb_id, kb_key=kb_key),
     ) as span:
         kb_scope = _resolve_kb_scope(kb_id=kb_id, kb_key=kb_key, auth_context=auth_context)
         span.set_attribute("rag.kb_id", kb_scope["id"])

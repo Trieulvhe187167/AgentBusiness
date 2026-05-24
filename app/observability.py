@@ -49,6 +49,113 @@ def _safe_attrs(attributes: Mapping[str, Any] | None) -> dict[str, Any]:
     return safe
 
 
+def content_attrs(prefix: str, text: str | None, *, limit: int = 500) -> dict[str, Any]:
+    if not settings.otel_trace_content or not text:
+        return {}
+    return {f"{prefix}.content": str(text)[: max(1, limit)]}
+
+
+def gen_ai_attrs(
+    *,
+    operation: str,
+    system: str | None = None,
+    model: str | None = None,
+    request_model: str | None = None,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
+) -> dict[str, Any]:
+    attrs: dict[str, Any] = {
+        "gen_ai.operation.name": operation,
+    }
+    if system:
+        attrs["gen_ai.system"] = system
+    if model:
+        attrs["gen_ai.response.model"] = model
+    if request_model:
+        attrs["gen_ai.request.model"] = request_model
+    if max_tokens is not None:
+        attrs["gen_ai.request.max_tokens"] = max_tokens
+    if temperature is not None:
+        attrs["gen_ai.request.temperature"] = temperature
+    if top_p is not None:
+        attrs["gen_ai.request.top_p"] = top_p
+    return attrs
+
+
+def tool_trace_attrs(
+    *,
+    name: str,
+    call_id: str | None = None,
+    status: str | None = None,
+    risk_level: str | None = None,
+    scope: str | None = None,
+) -> dict[str, Any]:
+    attrs: dict[str, Any] = {
+        "gen_ai.operation.name": "execute_tool",
+        "gen_ai.tool.name": name,
+        "tool.name": name,
+    }
+    if call_id:
+        attrs["tool.call_id"] = call_id
+    if status:
+        attrs["tool.status"] = status
+    if risk_level:
+        attrs["tool.risk_level"] = risk_level
+    if scope:
+        attrs["tool.scope"] = scope
+    return attrs
+
+
+def retrieval_trace_attrs(
+    *,
+    query: str | None = None,
+    top_k: int | None = None,
+    kb_id: int | None = None,
+    kb_key: str | None = None,
+) -> dict[str, Any]:
+    attrs: dict[str, Any] = {
+        "gen_ai.operation.name": "retrieve",
+        "rag.operation": "retrieve",
+    }
+    if top_k is not None:
+        attrs["rag.top_k"] = top_k
+    if kb_id is not None:
+        attrs["rag.kb_id"] = kb_id
+    if kb_key:
+        attrs["rag.kb_key"] = kb_key
+    attrs.update(content_attrs("rag.query", query, limit=240))
+    return attrs
+
+
+def workflow_trace_attrs(
+    *,
+    workflow_type: str,
+    run_id: int | None = None,
+    step: str | None = None,
+    step_type: str | None = None,
+    status: str | None = None,
+    entity_type: str | None = None,
+    entity_id: str | int | None = None,
+) -> dict[str, Any]:
+    attrs: dict[str, Any] = {
+        "workflow.type": workflow_type,
+    }
+    if run_id is not None:
+        attrs["workflow.run_id"] = run_id
+    if step:
+        attrs["workflow.step"] = step
+    if step_type:
+        attrs["workflow.step_type"] = step_type
+    if status:
+        attrs["workflow.status"] = status
+    if entity_type:
+        attrs["workflow.entity_type"] = entity_type
+    if entity_id is not None:
+        attrs["workflow.entity_id"] = str(entity_id)
+    return attrs
+
+
 def _parse_headers(raw: str) -> dict[str, str]:
     headers: dict[str, str] = {}
     for item in str(raw or "").split(","):

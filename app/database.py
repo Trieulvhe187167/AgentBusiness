@@ -928,6 +928,34 @@ CREATE INDEX IF NOT EXISTS idx_workflow_steps_status
     ON workflow_steps(status, completed_at DESC);
 """
 
+_PHASE50_ACCESS_MANAGEMENT_SCHEMA = """
+CREATE TABLE IF NOT EXISTS app_users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL UNIQUE,
+    display_name TEXT,
+    email TEXT,
+    roles_json TEXT NOT NULL DEFAULT '[]',
+    last_roles_json TEXT NOT NULL DEFAULT '[]',
+    channel TEXT,
+    tenant_id TEXT,
+    org_id TEXT,
+    source TEXT NOT NULL DEFAULT 'observed',
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_by_user_id TEXT,
+    notes TEXT,
+    first_seen_at TEXT,
+    last_seen_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_app_users_active_seen
+    ON app_users(is_active, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_app_users_email
+    ON app_users(email);
+CREATE INDEX IF NOT EXISTS idx_app_users_tenant_org
+    ON app_users(tenant_id, org_id);
+"""
+
 MIGRATIONS: list[tuple[str, str]] = [
     ("001_core_schema", _CORE_SCHEMA),
     ("002_knowledge_bases", _KB_SCHEMA),
@@ -959,6 +987,7 @@ MIGRATIONS: list[tuple[str, str]] = [
     ("028_phase47_agent_evaluations", _PHASE47_AGENT_EVALUATIONS_SCHEMA),
     ("029_phase48_mcp_security_v2", _PHASE48_MCP_SECURITY_V2_SCHEMA),
     ("030_phase49_durable_workflows", _PHASE49_DURABLE_WORKFLOWS_SCHEMA),
+    ("031_phase50_access_management", _PHASE50_ACCESS_MANAGEMENT_SCHEMA),
 ]
 
 

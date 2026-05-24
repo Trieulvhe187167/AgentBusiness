@@ -98,6 +98,17 @@ In this mode:
 - the agent ignores browser-supplied `X-User-Id` and `X-Roles`
 - `/api/me` and chat KB visibility reflect the forwarded upstream identity
 
+### Access management
+
+The app includes an internal user directory for Admin UI operations:
+
+- observed users are recorded in `app_users`
+- admins can edit display metadata, fallback roles, and active/inactive status
+- inactive users are blocked even if they present otherwise valid dev/JWT/gateway identity
+- role mode defaults to `fallback`, meaning internal roles are used only when upstream auth sends no roles
+
+This is not a password/login system. For production login, keep using JWT or trusted gateway auth and use Access Management as an operational control layer.
+
 ## Dependency profiles
 
 | File | Purpose |
@@ -110,7 +121,8 @@ In this mode:
 Important dependency notes:
 
 - `chromadb` is optional for MVP and required only for the Chroma backend.
-- PDF parsing currently uses `pdfminer.six`; OCR is not included.
+- PDF parsing uses `pdfminer.six` first, extracts structured table rows via `pdfplumber`, and can fall back to local OCR for scanned PDFs via `pdf2image` + `pytesseract`.
+- Image uploads use Pillow validation, OCR through `pytesseract`, and OpenCV cleanup for detected table/document regions.
 - Legacy `.xls` parsing requires `pandas` plus `xlrd`.
 - `.docx` parsing uses `python-docx`.
 
@@ -118,15 +130,35 @@ Important dependency notes:
 
 Supported file types:
 
-- `.pdf`, `.xlsx`, `.xls`, `.csv`, `.html`, `.htm`, `.txt`, `.md`, `.docx`, `.json`, `.jsonl`
+- `.pdf`, `.xlsx`, `.xls`, `.csv`, `.html`, `.htm`, `.txt`, `.md`, `.docx`, `.json`, `.jsonl`, `.png`, `.jpg`, `.jpeg`, `.tiff`, `.tif`, `.webp`, `.bmp`
 
 Implementation notes:
 
-- PDF parsing is text-only via `pdfminer.six`; no OCR pipeline is included.
+- PDF parsing is text-first via `pdfminer.six`; detected tables are added as row-level records via `pdfplumber`; scanned/image-only pages can fall back to OCR when Poppler and Tesseract are installed.
+- Image parsing validates the real image format with Pillow, OCRs the image with Tesseract, and adds cleaner OCR records for detected perspective/table regions.
 - HTML parsing is static HTML only; dynamic pages are not rendered.
 - `.xlsx` works from the core install via `openpyxl`.
 - `.xls` needs the richer fallback parser from `requirements-rag.txt`.
 - JSON and JSONL are treated as structured text records; see `docs/parser-support.md` for the exact expectations.
+
+### OCR for scanned documents and images
+
+The OCR path is local-first. For PDFs it only runs when extracted PDF text is too short; for image uploads it runs directly on the image.
+
+Python dependencies are in `requirements-core.txt`, but the OCR engines are system tools:
+
+- Install Poppler so `pdf2image` can render PDF pages.
+- Install Tesseract OCR so `pytesseract` can read rendered page images.
+- For Vietnamese PDFs, install the Vietnamese Tesseract language pack and set `RAG_PDF_OCR_LANGUAGE=vie` or `eng+vie`.
+
+Windows `.env` examples:
+
+```dotenv
+RAG_PDF_OCR_ENABLED=true
+RAG_PDF_OCR_TESSERACT_CMD=C:\Program Files\Tesseract-OCR\tesseract.exe
+RAG_PDF_OCR_POPPLER_PATH=C:\poppler\Library\bin
+RAG_PDF_OCR_LANGUAGE=eng
+```
 
 ## Docker Compose
 

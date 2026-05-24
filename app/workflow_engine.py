@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from app.database import execute_sync, fetch_all_sync, fetch_one_sync, utcnow_iso
 from app.models import AuthContext, RequestContext
-from app.observability import trace_span
+from app.observability import trace_span, workflow_trace_attrs
 
 
 TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
@@ -287,6 +287,41 @@ def _set_run_status(
     )
 
 
+def _insert_system_step(
+    run_id: int,
+    *,
+    step_key: str,
+    step_type: str,
+    status: str = "done",
+    input_payload: dict[str, Any] | None = None,
+    output: Any = None,
+) -> None:
+    now = utcnow_iso()
+    attempts_row = fetch_one_sync(
+        "SELECT COALESCE(MAX(attempts), 0) AS attempts FROM workflow_steps WHERE run_id = ? AND step_key = ?",
+        (int(run_id), step_key),
+    )
+    execute_sync(
+        """
+        INSERT INTO workflow_steps (
+            run_id, step_key, step_type, status, input_json,
+            output_json, attempts, started_at, completed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            int(run_id),
+            step_key,
+            step_type,
+            status,
+            _json_dumps(input_payload or {}),
+            _json_dumps(output) if output is not None else None,
+            int((attempts_row or {}).get("attempts") or 0) + 1,
+            now,
+            now,
+        ),
+    )
+
+
 def cancel_workflow_run(run_id: int, *, reason: str | None, auth: AuthContext) -> dict[str, Any]:
     item = _get_workflow_run_item(run_id)
     if item.status in TERMINAL_STATUSES:
@@ -323,6 +358,13 @@ async def resume_workflow_run(run_id: int, *, context: RequestContext) -> dict[s
     if item.workflow_type == "support_ticket_case" and item.entity_type == "support_ticket":
         if _pending_approval_count_for_ticket(item.entity_id) > 0:
             raise ValueError("Workflow is waiting for pending approval to be executed")
+        _insert_system_step(
+            run_id,
+            step_key="resume_after_approval",
+            step_type="resume",
+            input_payload={"trigger": "manual", "request_id": context.request_id},
+            output={"resumed": True, "reason": "No open support_case_review approval remains."},
+        )
         _set_run_status(
             run_id,
             status="completed",
@@ -332,6 +374,74 @@ async def resume_workflow_run(run_id: int, *, context: RequestContext) -> dict[s
         )
         return get_workflow_run(run_id)
     raise ValueError(f"Resume is not implemented for workflow type '{item.workflow_type}'")
+
+
+def auto_resume_paused_workflows_for_ticket(
+    ticket_id: int,
+    *,
+    context: RequestContext,
+    trigger_action_id: int | None = None,
+    trigger_status: str = "executed",
+) -> list[dict[str, Any]]:
+    rows = fetch_all_sync(
+        """
+        SELECT id
+        FROM workflow_runs
+        WHERE workflow_type = 'support_ticket_case'
+          AND entity_type = 'support_ticket'
+          AND entity_id = ?
+          AND status = 'paused'
+        ORDER BY id ASC
+        """,
+        (str(ticket_id),),
+    )
+    if not rows or _pending_approval_count_for_ticket(str(ticket_id)) > 0:
+        return []
+
+    resumed: list[dict[str, Any]] = []
+    for row in rows:
+        run_id = int(row["id"])
+        output = {
+            "resumed": True,
+            "trigger": "pending_action_terminal",
+            "trigger_action_id": trigger_action_id,
+            "trigger_status": trigger_status,
+        }
+        with trace_span(
+            "workflow.auto_resume",
+            workflow_trace_attrs(
+                workflow_type="support_ticket_case",
+                run_id=run_id,
+                step="resume_after_approval",
+                step_type="resume",
+                status="completed",
+                entity_type="support_ticket",
+                entity_id=ticket_id,
+            ),
+        ):
+            _insert_system_step(
+                run_id,
+                step_key="resume_after_approval",
+                step_type="resume",
+                input_payload={
+                    "trigger": "pending_action_terminal",
+                    "trigger_action_id": trigger_action_id,
+                    "trigger_status": trigger_status,
+                    "request_id": context.request_id,
+                },
+                output=output,
+            )
+            _set_run_status(
+                run_id,
+                status="completed",
+                current_step="resume_after_approval",
+                result=output,
+                state={"ticket_id": ticket_id, "auto_resumed": True},
+                blocked_reason=None,
+                completed=True,
+            )
+            resumed.append(get_workflow_run(run_id))
+    return resumed
 
 
 async def retry_workflow_run(run_id: int, *, context: RequestContext) -> dict[str, Any]:
@@ -347,8 +457,11 @@ async def retry_workflow_run(run_id: int, *, context: RequestContext) -> dict[st
 
 
 class WorkflowRecorder:
-    def __init__(self, run_id: int):
+    def __init__(self, run_id: int, *, workflow_type: str = "unknown", entity_type: str | None = None, entity_id: str | int | None = None):
         self.run_id = int(run_id)
+        self.workflow_type = workflow_type
+        self.entity_type = entity_type
+        self.entity_id = entity_id
 
     @classmethod
     def start(
@@ -371,7 +484,7 @@ class WorkflowRecorder:
             )
         else:
             _set_run_status(run_id, status="running", current_step=None, error_message=None, blocked_reason=None)
-        return cls(run_id)
+        return cls(run_id, workflow_type=workflow_type, entity_type=entity_type, entity_id=entity_id)
 
     def _insert_step(self, step_key: str, step_type: str, input_payload: dict[str, Any] | None) -> int:
         attempts_row = fetch_one_sync(
@@ -429,7 +542,18 @@ class WorkflowRecorder:
         input_payload: dict[str, Any] | None = None,
     ) -> Any:
         step_id = self._insert_step(step_key, step_type, input_payload)
-        with trace_span("workflow.step", {"workflow.run_id": self.run_id, "workflow.step": step_key, "workflow.step_type": step_type}):
+        with trace_span(
+            "workflow.step",
+            workflow_trace_attrs(
+                workflow_type=self.workflow_type,
+                run_id=self.run_id,
+                step=step_key,
+                step_type=step_type,
+                status="running",
+                entity_type=self.entity_type,
+                entity_id=self.entity_id,
+            ),
+        ):
             try:
                 output = fn()
             except Exception as err:
@@ -447,7 +571,18 @@ class WorkflowRecorder:
         input_payload: dict[str, Any] | None = None,
     ) -> Any:
         step_id = self._insert_step(step_key, step_type, input_payload)
-        with trace_span("workflow.step", {"workflow.run_id": self.run_id, "workflow.step": step_key, "workflow.step_type": step_type}):
+        with trace_span(
+            "workflow.step",
+            workflow_trace_attrs(
+                workflow_type=self.workflow_type,
+                run_id=self.run_id,
+                step=step_key,
+                step_type=step_type,
+                status="running",
+                entity_type=self.entity_type,
+                entity_id=self.entity_id,
+            ),
+        ):
             try:
                 output = fn()
                 if inspect.isawaitable(output):

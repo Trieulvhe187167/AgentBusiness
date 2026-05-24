@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import email
+import html
 import imaplib
 import json
 import re
@@ -23,6 +24,8 @@ from email.message import EmailMessage, Message
 from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 from typing import Any
 
+from bs4 import BeautifulSoup
+
 from app.config import settings
 from app.database import execute_sync, fetch_all_sync, fetch_one_sync, utcnow_iso
 from app.models import RequestContext
@@ -30,6 +33,8 @@ from app.support_ticket_service import create_support_ticket
 from app.tools.registry import ToolExecutionError, ToolValidationError
 
 _ORDER_CODE_RE = re.compile(r"\b(?:DH|ORD|ORDER)[A-Z0-9-]{3,}\b", re.IGNORECASE)
+_HTML_MARKER_RE = re.compile(r"<(?:!doctype|html|body|head|table|div|span|p|br|img|a)\b", re.IGNORECASE)
+_TRACKING_LINK_RE = re.compile(r"(open\.aspx|emltrk\.com|/open\?|click\.[^/\s]+)", re.IGNORECASE)
 
 
 @dataclass(slots=True)
@@ -71,6 +76,80 @@ def _decode_mime_header(value: str | None) -> str:
         return value.strip()
 
 
+def _collapse_email_text(value: str | None) -> str:
+    text = html.unescape(str(value or ""))
+    text = text.replace("\xa0", " ")
+    text = re.sub(r"[\u200b\u200c\u200d\ufeff]+", "", text)
+    lines = [re.sub(r"[ \t\r\f\v]+", " ", line).strip() for line in text.splitlines()]
+    compact: list[str] = []
+    last_blank = False
+    for line in lines:
+        if not line:
+            if compact and not last_blank:
+                compact.append("")
+            last_blank = True
+            continue
+        compact.append(line)
+        last_blank = False
+    return "\n".join(compact).strip()
+
+
+def _looks_like_html(value: str | None) -> bool:
+    text = str(value or "")
+    return bool(_HTML_MARKER_RE.search(text) or _HTML_MARKER_RE.search(html.unescape(text)))
+
+
+def _html_to_display_text(value: str | None) -> str:
+    source = html.unescape(str(value or ""))
+    if not source.strip():
+        return ""
+
+    soup = BeautifulSoup(source, "html.parser")
+    for tag in soup(["script", "style", "noscript", "head", "meta", "title"]):
+        tag.decompose()
+
+    for tag in soup.find_all(True):
+        attrs = tag.attrs or {}
+        raw_classes = attrs.get("class") or []
+        if isinstance(raw_classes, str):
+            raw_classes = raw_classes.split()
+        classes = set(raw_classes)
+        style = str(attrs.get("style") or "").replace(" ", "").lower()
+        if classes.intersection({"preheader", "litmus-builder-preview-text"}) or "display:none" in style:
+            tag.decompose()
+
+    for image in soup.find_all("img"):
+        alt = str(image.get("alt") or "").strip()
+        width = str(image.get("width") or "").strip()
+        height = str(image.get("height") or "").strip()
+        if alt and not (width == "1" and height == "1"):
+            image.replace_with(f" {alt} ")
+        else:
+            image.decompose()
+
+    for link in soup.find_all("a"):
+        label = link.get_text(" ", strip=True)
+        href = str(link.get("href") or "").strip()
+        if href and label and not _TRACKING_LINK_RE.search(href) and not href.lower().startswith("mailto:"):
+            link.replace_with(f"{label} ({href})")
+        else:
+            link.replace_with(label)
+
+    return _collapse_email_text(soup.get_text("\n"))
+
+
+def _email_display_text(value: str | None, *, fallback: str | None = None) -> str:
+    text = str(value or "")
+    cleaned = _html_to_display_text(text) if _looks_like_html(text) else _collapse_email_text(text)
+    if cleaned:
+        return cleaned
+    return _collapse_email_text(fallback)
+
+
+def _email_snippet(value: str | None, *, fallback: str | None = None, limit: int = 260) -> str:
+    return " ".join(_email_display_text(value, fallback=fallback).split())[:limit]
+
+
 def _message_text_body(msg: Message) -> str:
     if msg.is_multipart():
         html_fallback = ""
@@ -91,20 +170,23 @@ def _message_text_body(msg: Message) -> str:
             except LookupError:
                 text = payload.decode("utf-8", errors="replace")
             if content_type == "text/plain" and text.strip():
-                return text.strip()
+                return _collapse_email_text(text)
             if content_type == "text/html" and text.strip() and not html_fallback:
-                html_fallback = re.sub(r"<[^>]+>", " ", text)
-        return " ".join(html_fallback.split())
+                html_fallback = text
+        return _html_to_display_text(html_fallback)
 
     payload = msg.get_payload(decode=True)
     if payload is None:
         raw = msg.get_payload()
-        return str(raw or "").strip()
+        return _email_display_text(str(raw or ""))
     charset = msg.get_content_charset() or "utf-8"
     try:
-        return payload.decode(charset, errors="replace").strip()
+        text = payload.decode(charset, errors="replace")
     except LookupError:
-        return payload.decode("utf-8", errors="replace").strip()
+        text = payload.decode("utf-8", errors="replace")
+    if msg.get_content_type() == "text/html":
+        return _html_to_display_text(text)
+    return _collapse_email_text(text)
 
 
 def _parsed_received_at(value: str | None) -> str | None:
@@ -142,7 +224,7 @@ def _parse_message(uid: str, raw_bytes: bytes) -> ParsedEmail:
     in_reply_to = (msg.get("In-Reply-To") or "").strip() or None
     references_header = (msg.get("References") or "").strip() or None
     body_text = _message_text_body(msg)
-    snippet = " ".join(body_text.split())[:260]
+    snippet = _email_snippet(body_text)
     thread_id = _thread_id(message_id, in_reply_to, references_header, uid)
     return ParsedEmail(
         provider=_provider_name(),
@@ -257,6 +339,8 @@ def _send_smtp_reply(*, to_address: str, subject: str, body: str, original: dict
 
 
 def _serialize_row(row: dict[str, Any]) -> dict[str, Any]:
+    body_text = _email_display_text(row.get("body_text"), fallback=row.get("snippet"))
+    snippet = _email_snippet(row.get("snippet"), fallback=body_text)
     return {
         "id": int(row["id"]),
         "provider": row.get("provider") or "",
@@ -268,8 +352,8 @@ def _serialize_row(row: dict[str, Any]) -> dict[str, Any]:
         "to_addresses": json.loads(row.get("to_addresses_json") or "[]"),
         "cc_addresses": json.loads(row.get("cc_addresses_json") or "[]"),
         "subject": row.get("subject") or "",
-        "snippet": row.get("snippet") or "",
-        "body_text": row.get("body_text") or "",
+        "snippet": snippet,
+        "body_text": body_text,
         "received_at": row.get("received_at"),
         "direction": row.get("direction") or "inbound",
         "status": row.get("status") or "new",
@@ -459,7 +543,7 @@ def create_ticket_from_email(
             "created_at": row.get("updated_at") or utcnow_iso(),
         }
 
-    body = row.get("body_text") or row.get("snippet") or ""
+    body = _email_display_text(row.get("body_text"), fallback=row.get("snippet"))
     message = message_override or f"Email subject: {row.get('subject') or '(no subject)'}\nFrom: {row.get('from_address') or '-'}\n\n{body}"
     ticket = create_support_ticket(
         issue_type=issue_type,

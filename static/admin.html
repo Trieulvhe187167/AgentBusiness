@@ -86,6 +86,9 @@
         .trace-event pre { white-space:pre-wrap; word-break:break-word; background:#f7f1e8; border-radius:10px; padding:8px; max-height:180px; overflow:auto; }
         .case-list li { margin:4px 0; }
         .case-raw summary { cursor:pointer; font-weight:800; color:var(--brand); }
+        .readiness-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+        .readiness-item { border:1px solid var(--line); border-radius:12px; background:#fff; padding:10px; }
+        .readiness-item strong { display:block; margin-bottom:4px; }
         .knowledge-shell { display:grid; grid-template-columns:minmax(360px, 5fr) minmax(340px, 4fr); gap:14px; align-items:start; }
         .knowledge-panel { display:flex; flex-direction:column; gap:10px; }
         .knowledge-strip { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
@@ -126,7 +129,7 @@
         .modal-card h2 { margin:0; font-size:17px; }
         .modal-card p { margin:8px 0 12px; color:var(--dim); font-size:13px; line-height:1.5; white-space:pre-wrap; }
         .modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:12px; }
-        @media (max-width:1100px) { .span-8,.span-7,.span-6,.span-5,.span-4 { grid-column:span 12; } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } .support-shell,.knowledge-shell,.operations-shell,.analytics-hero,.webhook-form { grid-template-columns:1fr; } .knowledge-strip,.analytics-insights,.case-kv { grid-template-columns:1fr; } }
+        @media (max-width:1100px) { .span-8,.span-7,.span-6,.span-5,.span-4 { grid-column:span 12; } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } .support-shell,.knowledge-shell,.operations-shell,.analytics-hero,.webhook-form { grid-template-columns:1fr; } .knowledge-strip,.analytics-insights,.case-kv,.readiness-list { grid-template-columns:1fr; } }
     </style>
 </head>
 <body>
@@ -210,6 +213,7 @@
             <button class="tab-btn active" data-target="view-knowledge-workspace" title="Unified workspace for KB files, source library, Google Drive sync, and source quality.">Knowledge Workspace</button>
             <button class="tab-btn" data-target="view-support-workspace" title="Unified workspace for support inbox, case context, notes, assignment, and escalation.">Support Workspace</button>
             <button class="tab-btn" data-target="view-operations-workspace" title="Unified workspace for approvals, jobs, schedules, and audit snapshots.">Operations Workspace</button>
+            <button class="tab-btn" data-target="view-access" title="Manage internal user directory, access status, and production readiness.">Access</button>
             <button class="tab-btn" data-target="view-analytics" title="Track chat quality, workflow health, jobs, and support operations.">Analytics</button>
             <button class="tab-btn" data-target="view-calibrate" title="Test retrieval quality in the currently selected Knowledge Base.">Calibrate</button>
             <button class="tab-btn" data-target="view-mcp" title="Inspect MCP server status, exposed tools, and resources.">MCP Server</button>
@@ -1386,6 +1390,93 @@
             </div>
         </div>
 
+        <div id="view-access" class="view">
+            <div class="grid">
+                <section class="card span-12">
+                    <div class="section-head">
+                        <h2>Production Readiness Checklist</h2>
+                        <p>Operational setup checks for chat readiness, secure auth, user directory, and production deployment.</p>
+                    </div>
+                    <div class="toolbar" style="margin-bottom:10px;">
+                        <button class="btn-main" id="btnRefreshReadiness" title="Reload production readiness checks.">Refresh Checklist</button>
+                        <span class="note" id="readinessSummary">No readiness check loaded.</span>
+                    </div>
+                    <div class="readiness-list" id="readinessList">
+                        <div class="empty-state"><strong>No readiness checks loaded.</strong><small>Refresh to inspect setup status.</small></div>
+                    </div>
+                </section>
+                <section class="card span-4">
+                    <div class="section-head">
+                        <h2>User Directory</h2>
+                        <p>Create or update internal user metadata. Roles are used as fallback unless configured otherwise.</p>
+                    </div>
+                    <div class="field-stack">
+                        <label for="accessUserId">User ID</label>
+                        <input id="accessUserId" type="text" placeholder="employee-1">
+                    </div>
+                    <div class="field-stack">
+                        <label for="accessDisplayName">Display Name</label>
+                        <input id="accessDisplayName" type="text" placeholder="Employee One">
+                    </div>
+                    <div class="field-stack">
+                        <label for="accessEmail">Email</label>
+                        <input id="accessEmail" type="text" placeholder="employee@example.com">
+                    </div>
+                    <div class="field-stack">
+                        <label for="accessRoles">Roles</label>
+                        <input id="accessRoles" type="text" placeholder="employee, support_agent">
+                    </div>
+                    <div class="row">
+                        <div class="field-stack">
+                            <label for="accessTenant">Tenant</label>
+                            <input id="accessTenant" type="text" placeholder="optional tenant">
+                        </div>
+                        <div class="field-stack">
+                            <label for="accessOrg">Org</label>
+                            <input id="accessOrg" type="text" placeholder="optional org">
+                        </div>
+                    </div>
+                    <div class="field-stack">
+                        <label for="accessStatus">Status</label>
+                        <select id="accessStatus">
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive / blocked</option>
+                        </select>
+                    </div>
+                    <div class="field-stack">
+                        <label for="accessNotes">Notes</label>
+                        <textarea id="accessNotes" placeholder="Internal access notes..."></textarea>
+                    </div>
+                    <div class="btn-row">
+                        <button class="btn-main" id="btnSaveAccessUser" title="Create or update this user.">Save User</button>
+                        <button class="btn-muted" id="btnClearAccessUser" title="Clear the user form.">Clear</button>
+                    </div>
+                </section>
+                <section class="card span-8">
+                    <div class="section-head">
+                        <h2>Users</h2>
+                        <p>Users are auto-created when they call the app with a valid identity. Admins can edit metadata or deactivate access.</p>
+                    </div>
+                    <div class="toolbar" style="margin-bottom:10px;">
+                        <input id="accessUserSearch" class="grow" type="text" placeholder="Search user_id, email, display name">
+                        <select id="accessUserStatus" style="max-width:180px;">
+                            <option value="all">All users</option>
+                            <option value="active">Active only</option>
+                            <option value="inactive">Inactive only</option>
+                        </select>
+                        <button class="btn-main" id="btnRefreshAccessUsers" title="Reload user directory.">Refresh Users</button>
+                        <span class="note" id="accessUserSummary">No users loaded.</span>
+                    </div>
+                    <div class="scroll">
+                        <table class="table" id="accessUsersTable">
+                            <thead><tr><th>User</th><th>Roles</th><th>Scope</th><th>Seen</th><th>Status</th><th>Actions</th></tr></thead>
+                            <tbody><tr><td colspan="6">No users loaded.</td></tr></tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </div>
+
         <div id="view-mcp" class="view">
             <div class="grid">
                 <section class="card span-12">
@@ -1494,6 +1585,8 @@
         let mcpStatus = null;
         let viewerProfile = null;
         let visibleTargets = new Set();
+        let accessUsers = [];
+        let readinessStatus = null;
 
         const TAB_ACCESS = {
             'view-knowledge-workspace': ['admin', 'content_manager', 'integration_admin'],
@@ -1503,6 +1596,7 @@
             'view-email': ['admin', 'support_manager', 'support_agent'],
             'view-support-cases': ['admin', 'support_manager', 'support_agent'],
             'view-operations-workspace': ['admin', 'support_manager', 'approver', 'integration_admin', 'auditor'],
+            'view-access': ['admin'],
             'view-actions': ['admin', 'support_manager', 'approver'],
             'view-jobs': ['admin', 'integration_admin'],
             'view-analytics': ['admin', 'support_manager', 'analyst'],
@@ -1517,6 +1611,7 @@
             drive: ['admin', 'integration_admin'],
             support: TAB_ACCESS['view-support-workspace'],
             operations: TAB_ACCESS['view-operations-workspace'],
+            access: TAB_ACCESS['view-access'],
             analytics: TAB_ACCESS['view-analytics'],
             audit: ['admin', 'auditor'],
             mcp: ['admin', 'integration_admin'],
@@ -1997,6 +2092,119 @@
                     </tr>
                 `;
             }).join('');
+        }
+
+        function readinessItemsHtml(payload) {
+            const items = payload?.checks || [];
+            if (!items.length) return '<div class="empty-state"><strong>No readiness checks loaded.</strong><small>Refresh to inspect setup status.</small></div>';
+            return items.map((item) => `
+                <div class="readiness-item">
+                    <span class="status ${item.status === 'pass' ? 'done' : item.status === 'fail' ? 'failed' : 'queued'}">${escapeHtml(item.status)}</span>
+                    <strong>${escapeHtml(item.label)}</strong>
+                    <small class="note">${escapeHtml(item.message || '-')}</small>
+                    ${item.fix ? `<br><small class="note"><strong>Fix:</strong> ${escapeHtml(item.fix)}</small>` : ''}
+                </div>
+            `).join('');
+        }
+
+        function accessUserRowsHtml(items) {
+            if (!items.length) return emptyRow(6, 'No users found.', 'Users are added automatically after authenticated requests or manually from the form.');
+            return items.map((item) => {
+                const roles = item.roles?.length ? item.roles.join(', ') : '-';
+                const lastRoles = item.last_roles?.length ? item.last_roles.join(', ') : '-';
+                return `
+                    <tr>
+                        <td><strong>${escapeHtml(item.user_id)}</strong><br><small class="note">${escapeHtml(item.display_name || item.email || '-')}</small></td>
+                        <td>${escapeHtml(roles)}<br><small class="note">last seen: ${escapeHtml(lastRoles)}</small></td>
+                        <td><small>${escapeHtml(item.tenant_id || '-')}/${escapeHtml(item.org_id || '-')}<br>${escapeHtml(item.channel || '-')}</small></td>
+                        <td><small>${escapeHtml(item.last_seen_at || item.first_seen_at || '-')}</small></td>
+                        <td><span class="status ${item.is_active ? 'done' : 'failed'}">${item.is_active ? 'active' : 'inactive'}</span><br><small class="note">${escapeHtml(item.source || '-')}</small></td>
+                        <td>
+                            <button class="btn-muted" data-access-edit="${escapeHtml(item.user_id)}">Edit</button>
+                            <button class="${item.is_active ? 'btn-danger' : 'btn-ok'}" data-access-toggle="${escapeHtml(item.user_id)}" data-active="${item.is_active ? '0' : '1'}">${item.is_active ? 'Deactivate' : 'Activate'}</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function clearAccessUserForm() {
+            setValueIfExists('accessUserId', '');
+            setValueIfExists('accessDisplayName', '');
+            setValueIfExists('accessEmail', '');
+            setValueIfExists('accessRoles', '');
+            setValueIfExists('accessTenant', '');
+            setValueIfExists('accessOrg', '');
+            setValueIfExists('accessStatus', 'active');
+            setValueIfExists('accessNotes', '');
+        }
+
+        function fillAccessUserForm(item) {
+            setValueIfExists('accessUserId', item.user_id || '');
+            setValueIfExists('accessDisplayName', item.display_name || '');
+            setValueIfExists('accessEmail', item.email || '');
+            setValueIfExists('accessRoles', (item.roles || []).join(', '));
+            setValueIfExists('accessTenant', item.tenant_id || '');
+            setValueIfExists('accessOrg', item.org_id || '');
+            setValueIfExists('accessStatus', item.is_active ? 'active' : 'inactive');
+            setValueIfExists('accessNotes', item.notes || '');
+        }
+
+        async function refreshReadiness() {
+            readinessStatus = await fetchJson('/api/admin/readiness');
+            const failCount = (readinessStatus.checks || []).filter((item) => item.status === 'fail').length;
+            const warnCount = (readinessStatus.checks || []).filter((item) => item.status === 'warn').length;
+            setTextIfExists(
+                'readinessSummary',
+                `Chat: ${readinessStatus.ready_for_chat ? 'ready' : 'not ready'} | Production: ${readinessStatus.ready_for_production ? 'ready' : 'not ready'} | ${failCount} fail, ${warnCount} warn.`
+            );
+            const list = document.getElementById('readinessList');
+            if (list) list.innerHTML = readinessItemsHtml(readinessStatus);
+        }
+
+        async function refreshAccessUsers() {
+            const query = encodeURIComponent(valueFrom('accessUserSearch').trim());
+            const status = valueFrom('accessUserStatus') || 'all';
+            const data = await fetchJson(`/api/admin/access/users?limit=100&status=${status}&query=${query}`);
+            accessUsers = data.items || [];
+            setTextIfExists('accessUserSummary', `Loaded ${accessUsers.length} user(s).`);
+            setTableBody('accessUsersTable', accessUserRowsHtml(accessUsers));
+        }
+
+        async function refreshAccessManagement() {
+            await Promise.all([refreshReadiness(), refreshAccessUsers()]);
+        }
+
+        async function saveAccessUser() {
+            const userId = valueFrom('accessUserId').trim();
+            if (!userId) return toast('User ID is required.', false);
+            const payload = {
+                user_id: userId,
+                display_name: valueFrom('accessDisplayName').trim() || null,
+                email: valueFrom('accessEmail').trim() || null,
+                roles: parseCommaList(valueFrom('accessRoles')),
+                is_active: valueFrom('accessStatus') !== 'inactive',
+                tenant_id: valueFrom('accessTenant').trim() || null,
+                org_id: valueFrom('accessOrg').trim() || null,
+                notes: valueFrom('accessNotes').trim() || null,
+            };
+            await fetchJson('/api/admin/access/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            toast(`Saved user ${userId}`);
+            await refreshAccessManagement();
+        }
+
+        async function toggleAccessUser(userId, active) {
+            await fetchJson(`/api/admin/access/users/${encodeURIComponent(userId)}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ is_active: Boolean(Number(active)) }),
+            });
+            toast(`${Boolean(Number(active)) ? 'Activated' : 'Deactivated'} ${userId}`);
+            await refreshAccessManagement();
         }
 
         function renderKnowledgeWorkspace() {
@@ -3102,7 +3310,8 @@
             const summary = `Thread ${data.thread_id}: ${data.total} message(s). Selected email ID ${emailId}.`;
             const body = (data.messages || []).map((msg) => {
                 const who = msg.direction === 'outbound' ? `Support -> ${(msg.to_addresses || []).join(', ')}` : `${msg.from_address || '-'}`;
-                return `[${msg.received_at || '-'}] ${who}\nSubject: ${msg.subject || '(no subject)'}\n\n${msg.body_text || msg.snippet || ''}`;
+                const content = msg.body_text || msg.snippet || '(empty message body)';
+                return `[${msg.received_at || '-'}] ${who}\nSubject: ${msg.subject || '(no subject)'}\n\n${content}`;
             }).join('\n\n---\n\n');
             setTextIfExists('supportEmailThreadSummary', summary);
             setTextIfExists('workspaceEmailThreadSummary', summary);
@@ -3697,6 +3906,7 @@
                 ['operations', refreshNotifications],
                 ['operations', refreshWebhookSubscriptions],
                 ['operations', refreshWebhookDeliveries],
+                ['access', refreshAccessManagement],
                 ['audit', refreshLogs],
                 ['audit', refreshAuthAudit],
                 ['analytics', refreshFeedback],
@@ -4121,6 +4331,14 @@
         document.getElementById('operationsBackgroundJobStatus').addEventListener('change', () => refreshBackgroundJobs().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('operationsWorkflowStatus').addEventListener('change', () => refreshWorkflowRuns().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnOperationsRefreshWorkflows').addEventListener('click', () => refreshWorkflowRuns(true).catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnRefreshReadiness').addEventListener('click', () => refreshReadiness().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnRefreshAccessUsers').addEventListener('click', () => refreshAccessUsers().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnSaveAccessUser').addEventListener('click', () => saveAccessUser().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnClearAccessUser').addEventListener('click', clearAccessUserForm);
+        document.getElementById('accessUserStatus').addEventListener('change', () => refreshAccessUsers().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('accessUserSearch').addEventListener('keypress', (event) => {
+            if (event.key === 'Enter') refreshAccessUsers().catch((e) => toast(explainAuthError(e), false));
+        });
         document.getElementById('btnRefreshMcp').addEventListener('click', () => refreshMcpStatus().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnCopyMcpEndpoint').addEventListener('click', async () => {
             const value = document.getElementById('mcpEndpoint').value;
@@ -4323,6 +4541,16 @@
             const retryBtn = event.target.closest('[data-webhook-retry]');
             if (retryBtn) return retryWebhookDelivery(Number(retryBtn.dataset.webhookRetry)).catch((e) => toast(explainAuthError(e), false));
         });
+        document.querySelector('#accessUsersTable tbody').addEventListener('click', (event) => {
+            const editBtn = event.target.closest('[data-access-edit]');
+            if (editBtn) {
+                const item = accessUsers.find((user) => user.user_id === editBtn.dataset.accessEdit);
+                if (item) fillAccessUserForm(item);
+                return;
+            }
+            const toggleBtn = event.target.closest('[data-access-toggle]');
+            if (toggleBtn) return toggleAccessUser(toggleBtn.dataset.accessToggle, toggleBtn.dataset.active).catch((e) => toast(explainAuthError(e), false));
+        });
 
         const uploadZone = document.getElementById('uploadZone');
         const fileInput = document.getElementById('fileInput');
@@ -4368,6 +4596,9 @@
         setInterval(() => {
             if (isActiveView('view-system')) refreshIfAllowed('system', refreshStatsAndSystem).catch(() => {});
         }, 15000);
+        setInterval(() => {
+            if (isActiveView('view-access')) refreshIfAllowed('access', refreshReadiness).catch(() => {});
+        }, 30000);
         setInterval(() => {
             if (isActiveView('view-mcp')) refreshIfAllowed('mcp', refreshMcpStatus).catch(() => {});
         }, 30000);

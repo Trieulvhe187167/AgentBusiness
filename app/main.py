@@ -17,6 +17,17 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import AppStatus, EventSourceResponse
 
+from app.access_management import (
+    AppUserItem,
+    ListAppUsersOutput,
+    ProductionReadinessOutput,
+    UpdateAppUserInput,
+    UpsertAppUserInput,
+    build_production_readiness,
+    list_app_users,
+    update_app_user,
+    upsert_app_user,
+)
 from app.analytics import build_analytics_dashboard
 from app.auth import (
     get_request_auth,
@@ -421,6 +432,17 @@ async def health(request: Request):
     from app.embeddings import is_embeddings_ready, using_hashing_fallback
 
     hashing = using_hashing_fallback()
+    readiness = build_production_readiness()
+    issues = [
+        {
+            "level": "error" if item.status == "fail" else "warn",
+            "component": item.key,
+            "message": item.message,
+            "fix": item.fix,
+        }
+        for item in readiness.checks
+        if item.status in {"warn", "fail"}
+    ]
     return HealthResponse(
         status="ok",
         llm_loaded=getattr(request.app.state, "llm_loaded", False),
@@ -428,6 +450,10 @@ async def health(request: Request):
         embeddings_backend="hashing" if hashing else "sentence-transformers",
         embeddings_ready=is_embeddings_ready(),
         vector_store_ready=getattr(request.app.state, "vector_store_ready", False),
+        ready_for_chat=readiness.ready_for_chat,
+        ready_for_production=readiness.ready_for_production,
+        setup_complete=readiness.setup_complete,
+        issues=issues,
         timestamp=datetime.now(timezone.utc).isoformat(),
     )
 
@@ -492,12 +518,39 @@ async def current_user_profile(auth=Depends(get_request_auth)):
             and settings.allow_header_auth_in_dev
             and settings.auth_header_debug_enabled
         ),
+        access_management_enabled=settings.access_management_enabled,
+        access_role_mode=settings.normalized_access_management_role_mode,
         user_id=auth.user_id,
         roles=auth.roles,
         channel=auth.channel,
         tenant_id=auth.tenant_id,
         org_id=auth.org_id,
     )
+
+
+@app.get("/api/admin/access/users", response_model=ListAppUsersOutput)
+async def admin_list_app_users(
+    query: str | None = Query(default=None, max_length=200),
+    status: str = Query(default="all", pattern="^(all|active|inactive)$"),
+    limit: int = Query(default=100, ge=1, le=500),
+    _=Depends(require_admin),
+):
+    return list_app_users(query=query, status=status, limit=limit)
+
+
+@app.post("/api/admin/access/users", response_model=AppUserItem)
+async def admin_upsert_app_user(payload: UpsertAppUserInput, auth=Depends(require_admin)):
+    return upsert_app_user(payload, auth=auth)
+
+
+@app.patch("/api/admin/access/users/{user_id}", response_model=AppUserItem)
+async def admin_update_app_user(user_id: str, payload: UpdateAppUserInput, auth=Depends(require_admin)):
+    return update_app_user(user_id=user_id, payload=payload, auth=auth)
+
+
+@app.get("/api/admin/readiness", response_model=ProductionReadinessOutput)
+async def admin_production_readiness(_=Depends(require_system_role)):
+    return build_production_readiness()
 
 
 @app.get("/api/kb/stats", response_model=KBStats)

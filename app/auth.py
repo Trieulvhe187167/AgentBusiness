@@ -17,6 +17,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from fastapi import HTTPException, Request
 
+from app.access_management import register_auth_context
 from app.auth_audit import log_auth_decision
 from app.authorization import can_manage_kb
 from app.config import settings
@@ -346,18 +347,18 @@ def auth_context_from_request(request: Request) -> AuthContext:
     bearer_token = _parse_bearer_token(request)
 
     if bearer_token:
-        return _auth_context_from_jwt(request, bearer_token)
+        return register_auth_context(_auth_context_from_jwt(request, bearer_token))
 
     if mode == "gateway":
-        return _auth_context_from_trusted_gateway(request)
+        return register_auth_context(_auth_context_from_trusted_gateway(request))
 
     if mode == "jwt":
         raise HTTPException(status_code=401, detail=AUTH_REQUIRED_DETAIL)
 
     if settings.allow_header_auth_in_dev:
-        return _auth_context_from_headers(request)
+        return register_auth_context(_auth_context_from_headers(request))
 
-    return AuthContext(channel=request.headers.get("X-Channel") or "web")
+    return register_auth_context(AuthContext(channel=request.headers.get("X-Channel") or "web"))
 
 
 def get_request_auth(request: Request) -> AuthContext:

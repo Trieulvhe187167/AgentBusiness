@@ -19,6 +19,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 from app.config import settings
+from app.observability import content_attrs, gen_ai_attrs, trace_span
 
 logger = logging.getLogger(__name__)
 
@@ -506,45 +507,64 @@ def complete_chat(
     max_tokens: int | None = None,
 ) -> LLMChatResult:
     selected = (provider or choose_provider()).lower().strip()
-
-    if selected == "openai_compatible":
-        return _chat_completions_request(
-            base_url=settings.llm_base_url,
-            api_key=settings.llm_api_key,
-            model=_normalized_model_name(settings.llm_model),
-            prompt=prompt,
-            system_prompt=system_prompt,
-            tools=tools,
-            tool_choice=tool_choice,
-            response_format=response_format,
-            timeout_seconds=timeout_seconds or settings.llm_timeout_seconds,
-            max_tokens=max_tokens,
-        )
-
-    if selected == "openai":
-        return _chat_completions_request(
-            base_url=settings.openai_base_url,
-            api_key=settings.openai_api_key,
-            model=_normalized_model_name(settings.openai_model),
-            prompt=prompt,
-            system_prompt=system_prompt,
-            tools=tools,
-            tool_choice=tool_choice,
-            response_format=response_format,
-            timeout_seconds=timeout_seconds or settings.openai_timeout_seconds,
-            max_tokens=max_tokens,
-        ).model_copy(update={"provider": "openai"})
-
-    text = "".join(
-        generate_stream(
-            prompt,
-            system_prompt=system_prompt,
-            provider=selected,
-            timeout_seconds=timeout_seconds,
-            max_tokens=max_tokens,
-        )
-    ).strip()
-    return LLMChatResult(provider=selected, model=settings.effective_chat_model or None, text=text)
+    request_model = settings.effective_chat_model or None
+    with trace_span(
+        "gen_ai.chat",
+        {
+            **gen_ai_attrs(
+                operation="chat",
+                system=selected,
+                request_model=request_model,
+                max_tokens=max_tokens or settings.llm_max_tokens,
+                temperature=settings.llm_temperature,
+                top_p=settings.llm_top_p,
+            ),
+            "gen_ai.request.tool_count": len(tools or []),
+            **content_attrs("gen_ai.prompt", prompt),
+        },
+    ) as span:
+        if selected == "openai_compatible":
+            result = _chat_completions_request(
+                base_url=settings.llm_base_url,
+                api_key=settings.llm_api_key,
+                model=_normalized_model_name(settings.llm_model),
+                prompt=prompt,
+                system_prompt=system_prompt,
+                tools=tools,
+                tool_choice=tool_choice,
+                response_format=response_format,
+                timeout_seconds=timeout_seconds or settings.llm_timeout_seconds,
+                max_tokens=max_tokens,
+            )
+        elif selected == "openai":
+            result = _chat_completions_request(
+                base_url=settings.openai_base_url,
+                api_key=settings.openai_api_key,
+                model=_normalized_model_name(settings.openai_model),
+                prompt=prompt,
+                system_prompt=system_prompt,
+                tools=tools,
+                tool_choice=tool_choice,
+                response_format=response_format,
+                timeout_seconds=timeout_seconds or settings.openai_timeout_seconds,
+                max_tokens=max_tokens,
+            ).model_copy(update={"provider": "openai"})
+        else:
+            text = "".join(
+                generate_stream(
+                    prompt,
+                    system_prompt=system_prompt,
+                    provider=selected,
+                    timeout_seconds=timeout_seconds,
+                    max_tokens=max_tokens,
+                )
+            ).strip()
+            result = LLMChatResult(provider=selected, model=settings.effective_chat_model or None, text=text)
+        span.set_attribute("gen_ai.response.model", result.model or request_model or "")
+        span.set_attribute("gen_ai.response.finish_reasons", [result.finish_reason] if result.finish_reason else [])
+        span.set_attribute("gen_ai.response.tool_call_count", len(result.tool_calls))
+        span.set_attribute("gen_ai.response.text_length", len(result.text or ""))
+        return result
 
 
 def provider_available(provider: str) -> bool:
@@ -584,44 +604,63 @@ def generate_stream(
     max_tokens: int | None = None,
 ) -> Generator[str, None, None]:
     selected = (provider or choose_provider()).lower().strip()
+    with trace_span(
+        "gen_ai.generate_stream",
+        {
+            **gen_ai_attrs(
+                operation="chat_stream",
+                system=selected,
+                request_model=settings.effective_chat_model or None,
+                max_tokens=max_tokens or settings.llm_max_tokens,
+                temperature=settings.llm_temperature,
+                top_p=settings.llm_top_p,
+            ),
+            **content_attrs("gen_ai.prompt", prompt),
+        },
+    ) as span:
+        token_count = 0
+        text_length = 0
+        try:
+            if selected == "openai":
+                stream = _openai_stream(
+                    prompt,
+                    system_prompt,
+                    timeout_seconds_override=timeout_seconds,
+                    max_tokens_override=max_tokens,
+                )
+            elif selected == "openai_compatible":
+                stream = _openai_compatible_stream(
+                    prompt,
+                    system_prompt,
+                    timeout_seconds_override=timeout_seconds,
+                    max_tokens_override=max_tokens,
+                )
+            elif selected == "gemini":
+                stream = _gemini_stream(
+                    prompt,
+                    system_prompt,
+                    timeout_seconds_override=timeout_seconds,
+                    max_tokens_override=max_tokens,
+                )
+            elif selected == "ollama":
+                stream = _ollama_stream(
+                    prompt,
+                    system_prompt,
+                    timeout_seconds_override=timeout_seconds,
+                    max_tokens_override=max_tokens,
+                )
+            elif selected == "llama_cpp":
+                stream = _llama_cpp_stream(prompt, system_prompt, max_tokens_override=max_tokens)
+            else:
+                raise RuntimeError("No LLM provider available")
 
-    if selected == "openai":
-        yield from _openai_stream(
-            prompt,
-            system_prompt,
-            timeout_seconds_override=timeout_seconds,
-            max_tokens_override=max_tokens,
-        )
-        return
-    if selected == "openai_compatible":
-        yield from _openai_compatible_stream(
-            prompt,
-            system_prompt,
-            timeout_seconds_override=timeout_seconds,
-            max_tokens_override=max_tokens,
-        )
-        return
-    if selected == "gemini":
-        yield from _gemini_stream(
-            prompt,
-            system_prompt,
-            timeout_seconds_override=timeout_seconds,
-            max_tokens_override=max_tokens,
-        )
-        return
-    if selected == "ollama":
-        yield from _ollama_stream(
-            prompt,
-            system_prompt,
-            timeout_seconds_override=timeout_seconds,
-            max_tokens_override=max_tokens,
-        )
-        return
-    if selected == "llama_cpp":
-        yield from _llama_cpp_stream(prompt, system_prompt, max_tokens_override=max_tokens)
-        return
-
-    raise RuntimeError("No LLM provider available")
+            for token in stream:
+                token_count += 1
+                text_length += len(token or "")
+                yield token
+        finally:
+            span.set_attribute("gen_ai.response.token_chunk_count", token_count)
+            span.set_attribute("gen_ai.response.text_length", text_length)
 
 
 def is_llm_ready() -> bool:

@@ -326,6 +326,84 @@ def _background_job_events(ticket_id: int) -> tuple[list[CaseTimelineEvent], lis
     return events, job_ids
 
 
+def _durable_workflow_events(ticket_id: int) -> list[CaseTimelineEvent]:
+    runs = fetch_all_sync(
+        """
+        SELECT *
+        FROM workflow_runs
+        WHERE workflow_type = 'support_ticket_case'
+          AND entity_type = 'support_ticket'
+          AND entity_id = ?
+        ORDER BY created_at ASC, id ASC
+        """,
+        (str(ticket_id),),
+    )
+    events: list[CaseTimelineEvent] = []
+    for run in runs:
+        state = _parse_json(run.get("state_json"), {})
+        result = _parse_json(run.get("result_json"), None)
+        _append(
+            events,
+            id=f"workflow_run:{run['id']}",
+            timestamp=run["created_at"],
+            stage="workflow_run",
+            title=f"Workflow run started: {run['workflow_type']}",
+            summary=f"Run #{run['id']} for {run['entity_type']} #{run['entity_id']}",
+            status=run.get("status"),
+            severity="critical" if run.get("status") == "failed" else "info",
+            actor=run.get("created_by_user_id"),
+            source_table="workflow_runs",
+            source_id=run["id"],
+            details={"input": _parse_json(run.get("input_json"), {}), "state": state, "result": result},
+        )
+        if run.get("completed_at"):
+            _append(
+                events,
+                id=f"workflow_run:{run['id']}:completed",
+                timestamp=run["completed_at"],
+                stage="workflow_run",
+                title=f"Workflow run {run.get('status')}: #{run['id']}",
+                summary=_compact(run.get("blocked_reason") or run.get("error_message") or "Workflow reached a terminal or paused state."),
+                status=run.get("status"),
+                severity="critical" if run.get("status") == "failed" else "info",
+                actor=run.get("created_by_user_id"),
+                source_table="workflow_runs",
+                source_id=run["id"],
+                details={"state": state, "result": result, "error_message": run.get("error_message")},
+            )
+        steps = fetch_all_sync(
+            """
+            SELECT *
+            FROM workflow_steps
+            WHERE run_id = ?
+            ORDER BY id ASC
+            """,
+            (int(run["id"]),),
+        )
+        for step in steps:
+            _append(
+                events,
+                id=f"workflow_step:{step['id']}",
+                timestamp=step.get("completed_at") or step.get("started_at"),
+                stage="workflow_step",
+                title=f"Workflow step: {step['step_key']}",
+                summary=f"{step.get('step_type')} attempt {step.get('attempts')}",
+                status=step.get("status"),
+                severity="critical" if step.get("status") == "failed" else "info",
+                actor="agent",
+                source_table="workflow_steps",
+                source_id=step["id"],
+                details={
+                    "run_id": step.get("run_id"),
+                    "step_type": step.get("step_type"),
+                    "input": _parse_json(step.get("input_json"), {}),
+                    "output": _parse_json(step.get("output_json"), None),
+                    "error_message": step.get("error_message"),
+                },
+            )
+    return events
+
+
 def _tool_audit_events(job_ids: list[str]) -> list[CaseTimelineEvent]:
     if not job_ids:
         return []
@@ -423,6 +501,7 @@ def build_case_timeline(ticket_id: int) -> dict[str, Any]:
     events.extend(_workflow_events(ticket))
     events.extend(_note_events(ticket_id))
     events.extend(_pending_action_events(ticket_id))
+    events.extend(_durable_workflow_events(ticket_id))
     job_events, job_ids = _background_job_events(ticket_id)
     events.extend(job_events)
     events.extend(_tool_audit_events(job_ids))

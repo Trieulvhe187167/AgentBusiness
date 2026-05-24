@@ -3,6 +3,7 @@ Upload validation helpers.
 
 Validation strategy:
 - Signature validation: pdf, xls, xlsx, docx
+- Image validation: png, jpg, jpeg, tiff, tif, webp, bmp
 - Text/content heuristic: html, htm, csv, txt, md, json, jsonl
 """
 
@@ -32,6 +33,25 @@ UPLOAD_PARSER_MAP = {
     ".jsonl": "jsonl",
     ".ndjson": "jsonl",
     ".xml": "xml",
+    ".png": "image",
+    ".jpg": "image",
+    ".jpeg": "image",
+    ".tiff": "image",
+    ".tif": "image",
+    ".webp": "image",
+    ".bmp": "image",
+}
+
+
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tiff", ".tif", ".webp", ".bmp"}
+IMAGE_FORMAT_BY_EXTENSION = {
+    ".png": {"PNG"},
+    ".jpg": {"JPEG"},
+    ".jpeg": {"JPEG"},
+    ".tiff": {"TIFF"},
+    ".tif": {"TIFF"},
+    ".webp": {"WEBP"},
+    ".bmp": {"BMP"},
 }
 
 
@@ -50,6 +70,13 @@ SIGNATURE_VALIDATION_NOTES = {
     ".jsonl": "jsonl_heuristic",
     ".ndjson": "jsonl_heuristic",
     ".xml": "xml_heuristic",
+    ".png": "image_signature",
+    ".jpg": "image_signature",
+    ".jpeg": "image_signature",
+    ".tiff": "image_signature",
+    ".tif": "image_signature",
+    ".webp": "image_signature",
+    ".bmp": "image_signature",
 }
 
 
@@ -148,6 +175,23 @@ def _looks_like_text(content: bytes) -> bool:
     return bool(text and text.strip())
 
 
+def _looks_like_image(content: bytes, extension: str) -> bool:
+    try:
+        from PIL import Image, UnidentifiedImageError
+    except ImportError:
+        return False
+
+    try:
+        with Image.open(io.BytesIO(content)) as image:
+            image.verify()
+            image_format = (image.format or "").upper()
+    except (UnidentifiedImageError, OSError, ValueError):
+        return False
+
+    allowed_formats = IMAGE_FORMAT_BY_EXTENSION.get(extension)
+    return bool(image_format and (not allowed_formats or image_format in allowed_formats))
+
+
 def validate_upload(
     *,
     filename: str | None,
@@ -206,6 +250,9 @@ def validate_upload(
         raise UploadValidationError("content_mismatch", "File content does not match '.xml' format")
 
     if extension in {".csv", ".tsv", ".txt", ".md"} and not _looks_like_text(content):
+        raise UploadValidationError("content_mismatch", f"File content does not match '{extension}' format")
+
+    if extension in IMAGE_EXTENSIONS and not _looks_like_image(content, extension):
         raise UploadValidationError("content_mismatch", f"File content does not match '{extension}' format")
 
     return ValidatedUpload(

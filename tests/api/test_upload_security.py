@@ -1,4 +1,6 @@
-﻿from __future__ import annotations
+from __future__ import annotations
+
+import io
 
 from fastapi.testclient import TestClient
 
@@ -70,3 +72,37 @@ def test_upload_sanitizes_path_traversal_filename(isolated_client: TestClient):
     assert ".." not in payload["filename"]
     assert "\\" not in payload["filename"]
     assert "/" not in payload["filename"]
+
+
+def test_upload_rejects_fake_image(isolated_client: TestClient):
+    response = isolated_client.post(
+        "/api/upload",
+        files={"file": ("fake.png", b"not really an image", "image/png")},
+        headers=admin_headers(),
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "detail": {
+            "code": "content_mismatch",
+            "message": "File content does not match '.png' format",
+        }
+    }
+
+
+def test_upload_accepts_valid_image(isolated_client: TestClient):
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (10, 10), color="white").save(buffer, format="PNG")
+
+    response = isolated_client.post(
+        "/api/upload",
+        files={"file": ("scan.png", buffer.getvalue(), "image/png")},
+        headers=admin_headers(),
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()["file"]
+    assert payload["original_name"] == "scan.png"
+    assert payload["parser_type"] == "image"

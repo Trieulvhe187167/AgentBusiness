@@ -17,6 +17,7 @@ from typing import Any
 from openpyxl import load_workbook
 from openpyxl.utils.exceptions import InvalidFileException
 
+from app.config import settings
 from app.lang import detect_language
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,9 @@ _FAQ_META_COLS = ("category", "tags")
 _STRUCTURED_RECORD_CONTAINER_KEYS = ("data", "items", "records", "results", "rows")
 
 _BLOB_RE = re.compile(r"[{}<>]|<html|<div|<span|<br", re.IGNORECASE)
+_OCR_WORD_RE = re.compile(r"[0-9A-Za-zÀ-ỹĐđ]{2,}", re.UNICODE)
+_OCR_VI_CHAR_RE = re.compile(r"[À-ỹĐđ]", re.UNICODE)
+_OCR_NOISE_RE = re.compile(r"[\\{}<>@#$%^*_~=]{1,}", re.UNICODE)
 
 
 def _normalize_value(value: Any) -> str:
@@ -277,31 +281,88 @@ def parse_csv(file_path: Path) -> list[dict[str, Any]]:
     return records
 
 
-def _parse_excel_with_openpyxl(file_path: Path) -> list[dict[str, Any]]:
+def _row_non_empty_count(row: list[str]) -> int:
+    return sum(1 for cell in row if cell)
+
+
+def _looks_like_excel_header(row: list[str], following_rows: list[list[str]]) -> bool:
+    non_empty = _row_non_empty_count(row)
+    if non_empty < 2:
+        return False
+    unique_non_empty = {cell.lower() for cell in row if cell}
+    if len(unique_non_empty) < non_empty:
+        return False
+    if not following_rows:
+        return True
+    rows_with_data = sum(1 for item in following_rows[:10] if _row_non_empty_count(item) > 0)
+    return rows_with_data > 0
+
+
+def _sheet_dense_records(sheet_title: str, normalized_rows: list[list[str]]) -> list[dict[str, Any]]:
+    lines: list[str] = []
+    for index, row in enumerate(normalized_rows, start=1):
+        values = [cell for cell in row if cell]
+        if values:
+            lines.append(f"Row {index}: " + " | ".join(values))
+    text = "\n".join(lines).strip()
+    if not text:
+        return []
+    return [
+        {
+            "text": text,
+            "metadata": {
+                "sheet_name": sheet_title,
+                "row_num": 1,
+                "columns": [],
+                "lang": detect_language(text),
+                "excel_parse_mode": "dense_sheet",
+            },
+        }
+    ]
+
+
+def _parse_excel_with_openpyxl(file_path: Path, *, data_only: bool = True) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
-    workbook = load_workbook(filename=file_path, read_only=True, data_only=True)
+    workbook = load_workbook(filename=file_path, read_only=True, data_only=data_only)
 
     for sheet in workbook.worksheets:
-        rows_iter = sheet.iter_rows(values_only=True)
-        try:
-            header_row = next(rows_iter)
-        except StopIteration:
+        normalized_rows = [
+            [_normalize_value(cell) for cell in row]
+            for row in sheet.iter_rows(values_only=True)
+        ]
+        non_empty_rows = [row for row in normalized_rows if any(row)]
+        if not non_empty_rows:
             continue
 
-        raw_cols = [_normalize_value(cell) for cell in header_row]
-        if not any(raw_cols):
+        header_index: int | None = None
+        for index, row in enumerate(normalized_rows):
+            if _looks_like_excel_header(row, normalized_rows[index + 1 :]):
+                header_index = index
+                break
+
+        if header_index is None:
+            records.extend(_sheet_dense_records(sheet.title, normalized_rows))
             continue
 
-        normalized_columns = [col if col else f"col_{index + 1}" for index, col in enumerate(raw_cols)]
+        raw_cols = normalized_rows[header_index]
+        normalized_columns = [
+            col if col else f"col_{index + 1}"
+            for index, col in enumerate(raw_cols)
+        ]
         raw_rows: list[dict[str, Any]] = []
-        for values in rows_iter:
+        for values in normalized_rows[header_index + 1 :]:
             row_map = {
                 normalized_columns[index]: _normalize_value(values[index] if index < len(values) else "")
                 for index in range(len(normalized_columns))
             }
-            raw_rows.append(row_map)
+            if any(row_map.values()):
+                raw_rows.append(row_map)
 
-        records.extend(_rows_to_records(raw_rows, normalized_columns, {"sheet_name": sheet.title}))
+        sheet_records = _rows_to_records(raw_rows, normalized_columns, {"sheet_name": sheet.title})
+        if sheet_records:
+            records.extend(sheet_records)
+        else:
+            records.extend(_sheet_dense_records(sheet.title, normalized_rows))
 
     workbook.close()
     return records
@@ -330,6 +391,8 @@ def _parse_excel_with_pandas_fallback(file_path: Path) -> list[dict[str, Any]]:
 def parse_excel(file_path: Path) -> list[dict[str, Any]]:
     try:
         records = _parse_excel_with_openpyxl(file_path)
+        if not records:
+            records = _parse_excel_with_openpyxl(file_path, data_only=False)
         logger.info("Parsed Excel via openpyxl: %s records from %s", len(records), file_path.name)
         return records
     except InvalidFileException:
@@ -338,11 +401,11 @@ def parse_excel(file_path: Path) -> list[dict[str, Any]]:
         return records
 
 
-def parse_pdf(file_path: Path) -> list[dict[str, Any]]:
+def _pdf_text_pages(file_path: Path) -> dict[int, str]:
     from pdfminer.high_level import extract_pages
     from pdfminer.layout import LTTextContainer
 
-    records: list[dict[str, Any]] = []
+    pages: dict[int, str] = {}
     for page_index, layout in enumerate(extract_pages(str(file_path)), start=1):
         texts: list[str] = []
         for element in layout:
@@ -351,13 +414,219 @@ def parse_pdf(file_path: Path) -> list[dict[str, Any]]:
                 if text:
                     texts.append(text)
 
-        page_text = "\n".join(texts).strip()
+        pages[page_index] = "\n".join(texts).strip()
+
+    return pages
+
+
+def _pdf_records_from_pages(pages: dict[int, str], *, extraction: str) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for page_index in sorted(pages):
+        page_text = pages[page_index].strip()
         if not page_text:
             continue
 
-        records.append({"text": page_text, "metadata": {"page_num": page_index, "lang": detect_language(page_text)}})
+        records.append(
+            {
+                "text": page_text,
+                "metadata": {
+                    "page_num": page_index,
+                    "lang": detect_language(page_text),
+                    "pdf_extraction": extraction,
+                },
+            }
+        )
+    return records
 
-    logger.info("Parsed PDF: %s pages from %s", len(records), file_path.name)
+
+def _pdf_table_rows_to_records(
+    table: list[list[Any]],
+    *,
+    page_num: int,
+    table_idx: int,
+) -> list[dict[str, Any]]:
+    if not table:
+        return []
+
+    headers = [_normalize_value(cell) for cell in table[0]]
+    if not any(headers):
+        max_columns = max((len(row) for row in table if row), default=0)
+        headers = [f"Column {index + 1}" for index in range(max_columns)]
+
+    records: list[dict[str, Any]] = []
+    for row_idx, row in enumerate(table[1:], start=2):
+        values = [_normalize_value(cell) for cell in row]
+        parts = []
+        for index, value in enumerate(values):
+            if not value:
+                continue
+            header = (
+                headers[index]
+                if index < len(headers) and headers[index]
+                else f"Column {index + 1}"
+            )
+            parts.append(f"{header}: {value}")
+
+        text = " | ".join(parts).strip()
+        if not text:
+            continue
+
+        records.append(
+            {
+                "text": text,
+                "metadata": {
+                    "page_num": page_num,
+                    "table_idx": table_idx,
+                    "row_num": row_idx,
+                    "lang": detect_language(text),
+                    "pdf_extraction": "pdfplumber_table",
+                },
+            }
+        )
+
+    return records
+
+
+def _pdf_table_records(file_path: Path) -> list[dict[str, Any]]:
+    try:
+        import pdfplumber
+    except Exception:
+        logger.info("PDF table extraction skipped for %s: pdfplumber is not installed", file_path.name)
+        return []
+
+    records: list[dict[str, Any]] = []
+    try:
+        with pdfplumber.open(str(file_path)) as pdf:
+            for page_num, page in enumerate(pdf.pages, start=1):
+                tables = page.extract_tables() or []
+                for table_idx, table in enumerate(tables, start=1):
+                    records.extend(
+                        _pdf_table_rows_to_records(table, page_num=page_num, table_idx=table_idx)
+                    )
+    except Exception:
+        logger.warning(
+            "PDF table extraction failed for %s; continuing with text extraction",
+            file_path.name,
+            exc_info=True,
+        )
+        return []
+
+    return records
+
+
+def _ocr_pdf_pages(file_path: Path, page_numbers: list[int]) -> dict[int, str]:
+    try:
+        from pdf2image import convert_from_path
+        import pytesseract
+    except Exception as err:
+        raise ValueError(
+            "PDF OCR requires optional dependencies pdf2image and pytesseract. "
+            "Install them with `pip install pdf2image pytesseract`, then install Poppler and Tesseract OCR."
+        ) from err
+
+    if settings.pdf_ocr_tesseract_cmd.strip():
+        pytesseract.pytesseract.tesseract_cmd = settings.pdf_ocr_tesseract_cmd.strip()
+
+    poppler_path = settings.pdf_ocr_poppler_path.strip() or None
+    dpi = max(72, int(settings.pdf_ocr_dpi))
+    timeout = max(1, int(settings.pdf_ocr_timeout_seconds))
+    language = settings.pdf_ocr_language.strip() or "eng"
+    max_pages = max(1, int(settings.pdf_ocr_max_pages))
+
+    selected_pages = page_numbers[:max_pages]
+    if len(page_numbers) > len(selected_pages):
+        logger.warning(
+            "PDF OCR page limit reached for %s: processing %s/%s pages",
+            file_path.name,
+            len(selected_pages),
+            len(page_numbers),
+        )
+
+    ocr_pages: dict[int, str] = {}
+    for page_number in selected_pages:
+        try:
+            images = convert_from_path(
+                str(file_path),
+                dpi=dpi,
+                first_page=page_number,
+                last_page=page_number,
+                fmt="png",
+                poppler_path=poppler_path,
+            )
+        except Exception as err:
+            raise ValueError(
+                "PDF OCR could not render pages. Install Poppler and set "
+                "RAG_PDF_OCR_POPPLER_PATH if Poppler is not on PATH."
+            ) from err
+
+        page_texts: list[str] = []
+        for image in images:
+            try:
+                page_texts.append(
+                    pytesseract.image_to_string(
+                        image,
+                        lang=language,
+                        config=_tesseract_base_config(),
+                        timeout=timeout,
+                    )
+                )
+            except Exception as err:
+                raise ValueError(
+                    "PDF OCR failed while running Tesseract. Install Tesseract OCR, "
+                    "ensure the configured language data exists, or set RAG_PDF_OCR_TESSERACT_CMD."
+                ) from err
+        ocr_pages[page_number] = "\n".join(page_texts).strip()
+
+    return ocr_pages
+
+
+def parse_pdf(file_path: Path) -> list[dict[str, Any]]:
+    text_pages = _pdf_text_pages(file_path)
+    text_records = _pdf_records_from_pages(text_pages, extraction="pdfminer")
+    table_records = _pdf_table_records(file_path)
+    records = text_records + table_records
+    total_text_chars = sum(len(record["text"]) for record in text_records)
+
+    if not settings.pdf_ocr_enabled or total_text_chars >= max(0, settings.pdf_ocr_min_text_chars):
+        logger.info(
+            "Parsed PDF: %s records from %s (table_records=%s)",
+            len(records),
+            file_path.name,
+            len(table_records),
+        )
+        return records
+
+    min_page_chars = max(0, settings.pdf_ocr_min_text_chars)
+    candidate_pages = [
+        page_number
+        for page_number in sorted(text_pages)
+        if len(text_pages.get(page_number, "").strip()) < min_page_chars
+    ]
+    if not candidate_pages and not records:
+        candidate_pages = [1]
+
+    try:
+        ocr_pages = _ocr_pdf_pages(file_path, candidate_pages)
+    except ValueError:
+        if records:
+            logger.warning("PDF OCR failed for %s; returning non-OCR PDF records", file_path.name, exc_info=True)
+            return records
+        raise
+
+    merged_pages = dict(text_pages)
+    for page_number, ocr_text in ocr_pages.items():
+        if ocr_text.strip():
+            merged_pages[page_number] = ocr_text.strip()
+
+    text_records = _pdf_records_from_pages(merged_pages, extraction="pdfminer_ocr")
+    records = text_records + table_records
+    logger.info(
+        "Parsed PDF: %s records from %s (ocr_pages=%s, table_records=%s)",
+        len(records),
+        file_path.name,
+        len([text for text in ocr_pages.values() if text.strip()]),
+        len(table_records),
+    )
     return records
 
 
@@ -385,6 +654,261 @@ def parse_text(file_path: Path) -> list[dict[str, Any]]:
     if not content:
         return []
     return [{"text": content, "metadata": {"title": file_path.stem, "lang": detect_language(content), "encoding": encoding}}]
+
+
+def _ocr_image_text(image: Any) -> str:
+    try:
+        import pytesseract
+        from PIL import ImageOps
+    except Exception as err:
+        raise ValueError(
+            "Image OCR requires optional dependencies pytesseract and Pillow. "
+            "Install them with `pip install pytesseract Pillow`, then install Tesseract OCR."
+        ) from err
+
+    if settings.pdf_ocr_tesseract_cmd.strip():
+        pytesseract.pytesseract.tesseract_cmd = settings.pdf_ocr_tesseract_cmd.strip()
+
+    language = settings.pdf_ocr_language.strip() or "eng"
+    timeout = max(1, int(settings.pdf_ocr_timeout_seconds))
+    base_config = _tesseract_base_config()
+
+    gray = ImageOps.grayscale(image)
+    autocontrast = ImageOps.autocontrast(gray)
+    variants = [
+        image,
+        gray,
+        gray.resize((gray.width * 2, gray.height * 2)),
+        autocontrast.resize((autocontrast.width * 2, autocontrast.height * 2)),
+        autocontrast.point(lambda value: 255 if value > 170 else 0).resize(
+            (autocontrast.width * 2, autocontrast.height * 2)
+        ),
+    ]
+    configs = ("--psm 6", "", "--psm 4", "--psm 11")
+    candidates: list[str] = []
+    for variant in variants:
+        for config in configs:
+            try:
+                full_config = f"{base_config} {config}".strip()
+                candidate = pytesseract.image_to_string(
+                    variant,
+                    lang=language,
+                    config=full_config,
+                    timeout=timeout,
+                )
+            except Exception as err:
+                if not candidates:
+                    raise ValueError(
+                        "Image OCR failed while running Tesseract. Install Tesseract OCR, "
+                        "ensure the configured language data exists, or set RAG_PDF_OCR_TESSERACT_CMD."
+                    ) from err
+                logger.debug("Image OCR fallback failed for config=%s", config, exc_info=True)
+                continue
+            if candidate.strip():
+                candidates.append(candidate)
+
+    if candidates:
+        return max(candidates, key=_ocr_candidate_score)
+
+    return ""
+
+
+def _tesseract_base_config() -> str:
+    tessdata_dir = settings.tesseract_data_dir.strip()
+    if not tessdata_dir:
+        return ""
+    return f"--tessdata-dir {Path(tessdata_dir).resolve()}"
+
+
+def _ocr_candidate_score(text: str) -> float:
+    stripped = text.strip()
+    if not stripped:
+        return 0.0
+
+    words = _OCR_WORD_RE.findall(stripped)
+    vi_chars = _OCR_VI_CHAR_RE.findall(stripped)
+    noise = _OCR_NOISE_RE.findall(stripped)
+    one_char_lines = sum(1 for line in stripped.splitlines() if len(line.strip()) == 1)
+    alpha_chars = sum(1 for char in stripped if char.isalpha())
+    printable_chars = sum(1 for char in stripped if not char.isspace())
+    alpha_ratio = alpha_chars / max(1, printable_chars)
+
+    return (
+        len(words) * 8.0
+        + len(stripped) * 0.35
+        + len(vi_chars) * 1.5
+        + alpha_ratio * 40.0
+        - len(noise) * 8.0
+        - one_char_lines * 12.0
+    )
+
+
+def parse_image(file_path: Path) -> list[dict[str, Any]]:
+    try:
+        from PIL import Image, UnidentifiedImageError
+    except ImportError as err:
+        raise ValueError("Image OCR requires Pillow. Install with: pip install Pillow") from err
+
+    try:
+        with Image.open(file_path) as image:
+            image.load()
+            image_format = image.format or file_path.suffix.lstrip(".").upper()
+            width, height = image.size
+            text = _ocr_image_text(image).strip()
+            region_texts = _ocr_image_region_texts(image, context_text=text)
+    except (UnidentifiedImageError, OSError) as err:
+        raise ValueError(f"Cannot open image file {file_path.name}") from err
+
+    if not text:
+        raise ValueError(
+            "Image OCR produced no text. The image may not contain readable text, "
+            "may need a clearer crop, or may require installing the matching Tesseract language data."
+        )
+
+    records = [
+        {
+            "text": text,
+            "metadata": {
+                "title": file_path.stem,
+                "lang": detect_language(text),
+                "image_format": image_format,
+                "image_width": width,
+                "image_height": height,
+                "ocr_extraction": "image_ocr",
+            },
+        }
+    ]
+    for region_idx, region_text in enumerate(region_texts, start=1):
+        records.append(
+            {
+                "text": region_text,
+                "metadata": {
+                    "title": file_path.stem,
+                    "lang": detect_language(region_text),
+                    "image_format": image_format,
+                    "image_width": width,
+                    "image_height": height,
+                    "ocr_region_idx": region_idx,
+                    "ocr_extraction": "image_ocr_region",
+                },
+            }
+        )
+    return records
+
+
+def _ocr_image_region_texts(image: Any, *, context_text: str) -> list[str]:
+    try:
+        import cv2
+        import numpy as np
+        from PIL import Image
+    except Exception:
+        return []
+
+    try:
+        rgb = image.convert("RGB")
+        source = cv2.cvtColor(np.array(rgb), cv2.COLOR_RGB2BGR)
+        height, width = source.shape[:2]
+        ratio = height / 500.0
+        resized = cv2.resize(source, (max(1, int(width / ratio)), 500))
+        gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
+        gray = cv2.GaussianBlur(gray, (5, 5), 0)
+        edged = cv2.Canny(gray, 50, 150)
+        contours, _ = cv2.findContours(edged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    except Exception:
+        logger.debug("Image OCR region detection failed", exc_info=True)
+        return []
+
+    context = _ocr_context_prefix(context_text)
+    region_texts: list[str] = []
+    seen_boxes: set[tuple[int, int, int, int]] = set()
+    min_area = width * height * 0.015
+    for contour in sorted(contours, key=cv2.contourArea, reverse=True)[:12]:
+        perimeter = cv2.arcLength(contour, True)
+        approx = cv2.approxPolyDP(contour, 0.02 * perimeter, True)
+        if len(approx) != 4:
+            continue
+
+        quad = approx.reshape(4, 2).astype("float32") * ratio
+        if cv2.contourArea(quad.astype("float32")) < min_area:
+            continue
+
+        x, y, w, h = cv2.boundingRect(quad.astype("int32"))
+        box_key = (round(x / 20), round(y / 20), round(w / 20), round(h / 20))
+        if box_key in seen_boxes:
+            continue
+        seen_boxes.add(box_key)
+
+        warped = _warp_quad(source, quad)
+        if warped is None:
+            continue
+        try:
+            region_image = Image.fromarray(cv2.cvtColor(warped, cv2.COLOR_BGR2RGB))
+            region_text = _ocr_image_text(region_image).strip()
+        except Exception:
+            logger.debug("Image OCR region text extraction failed", exc_info=True)
+            continue
+        if len(region_text) < 20:
+            continue
+
+        region_texts.append(f"{context}\n{region_text}".strip() if context else region_text)
+        if len(region_texts) >= 3:
+            break
+
+    return region_texts
+
+
+def _warp_quad(source: Any, quad: Any) -> Any | None:
+    import cv2
+    import numpy as np
+
+    sums = quad.sum(axis=1)
+    diffs = np.diff(quad, axis=1).reshape(-1)
+    rect = np.array(
+        [
+            quad[np.argmin(sums)],
+            quad[np.argmin(diffs)],
+            quad[np.argmax(sums)],
+            quad[np.argmax(diffs)],
+        ],
+        dtype="float32",
+    )
+    top_left, top_right, bottom_right, bottom_left = rect
+    target_width = max(
+        np.linalg.norm(bottom_right - bottom_left),
+        np.linalg.norm(top_right - top_left),
+    )
+    target_height = max(
+        np.linalg.norm(top_right - bottom_right),
+        np.linalg.norm(top_left - bottom_left),
+    )
+    if target_width < 80 or target_height < 40:
+        return None
+
+    target = np.array(
+        [
+            [0, 0],
+            [target_width - 1, 0],
+            [target_width - 1, target_height - 1],
+            [0, target_height - 1],
+        ],
+        dtype="float32",
+    )
+    matrix = cv2.getPerspectiveTransform(rect, target)
+    return cv2.warpPerspective(source, matrix, (int(target_width), int(target_height)))
+
+
+def _ocr_context_prefix(text: str) -> str:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    context_lines = []
+    for line in lines:
+        upper = line.upper()
+        if "CHÍNH" in upper or "SÁCH" in upper or "POLICY" in upper:
+            context_lines.append(line)
+        elif len(line) <= 80 and sum(1 for char in line if char.isupper()) >= max(4, len(line) // 3):
+            context_lines.append(line)
+        if len(context_lines) >= 3:
+            break
+    return "\n".join(context_lines)
 
 
 def _flatten_scalar(value: Any) -> str:
@@ -542,6 +1066,7 @@ PARSERS = {
     "ndjson": parse_jsonl,
     "json": parse_jsonl,
     "xml": parse_xml,
+    "image": parse_image,
 }
 
 

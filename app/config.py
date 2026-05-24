@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     allowed_extensions: list[str] = [
         ".xlsx", ".xls", ".csv", ".pdf", ".html", ".htm",
         ".txt", ".md", ".docx", ".json", ".jsonl", ".ndjson", ".tsv", ".xml",
+        ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".webp", ".bmp",
     ]
 
     # ------------------------------------------------------------------
@@ -50,6 +51,15 @@ class Settings(BaseSettings):
     # Custom column overrides for CSV/Excel (empty = auto-detect)
     kb_text_columns: list[str] = []
     kb_meta_columns: list[str] = []
+    pdf_ocr_enabled: bool = True
+    pdf_ocr_min_text_chars: int = 40
+    pdf_ocr_dpi: int = 200
+    pdf_ocr_language: str = "eng"
+    pdf_ocr_max_pages: int = 50
+    pdf_ocr_tesseract_cmd: str = ""
+    tesseract_data_dir: str = ""
+    pdf_ocr_poppler_path: str = ""
+    pdf_ocr_timeout_seconds: int = 30
 
     # ------------------------------------------------------------------
     # Chunking
@@ -209,6 +219,9 @@ class Settings(BaseSettings):
     auth_mode: str = "dev"  # dev|jwt|gateway
     allow_header_auth_in_dev: bool = True
     auth_header_debug_enabled: bool = True
+    access_management_enabled: bool = True
+    access_management_enforce_active: bool = True
+    access_management_role_mode: str = "fallback"  # disabled|fallback|override
     jwt_issuer: str = ""
     jwt_audience: str = ""
     jwt_jwks_url: str = ""
@@ -407,6 +420,11 @@ class Settings(BaseSettings):
     def normalized_auth_mode(self) -> str:
         mode = self.auth_mode.strip().lower()
         return mode if mode in {"dev", "jwt", "gateway"} else "dev"
+
+    @property
+    def normalized_access_management_role_mode(self) -> str:
+        mode = self.access_management_role_mode.strip().lower()
+        return mode if mode in {"disabled", "fallback", "override"} else "fallback"
 
     @property
     def normalized_agent_tool_choice_mode(self) -> str:

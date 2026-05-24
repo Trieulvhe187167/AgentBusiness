@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from app.config import settings
 from app.database import execute_sync, fetch_all_sync, fetch_one_sync, utcnow_iso
 from app.models import RequestContext
+from app.observability import trace_span
 
 logger = logging.getLogger(__name__)
 
@@ -465,32 +466,25 @@ async def _run_background_job(job: dict[str, Any], *, worker_id: str | None = No
     job_id = job["job_id"]
     resolved_worker_id = worker_id or job.get("worker_id") or _default_worker_id()
     heartbeat_task = asyncio.create_task(_heartbeat_loop(job_id, worker_id=resolved_worker_id))
-    try:
-        ensure_background_job_not_cancelled(job_id)
-        result = await _dispatch_job(job)
-        ensure_background_job_not_cancelled(job_id)
-    except BackgroundJobCancelledError as err:
-        logger.info("Background job %s cancelled", job_id)
-        now = utcnow_iso()
-        execute_sync(
-            """
-            UPDATE background_jobs
-            SET status = 'cancelled',
-                error_message = ?,
-                cancelled_at = COALESCE(cancelled_at, ?),
-                finished_at = ?,
-                worker_id = NULL,
-                updated_at = ?
-            WHERE job_id = ?
-            """,
-            (str(err), now, now, now, job_id),
-        )
-        await _stop_heartbeat_task(heartbeat_task)
-        _notify_background_job(job_id, "cancelled", str(err), job)
-        return
-    except Exception as err:
-        if is_background_job_cancel_requested(job_id):
-            logger.info("Background job %s cancelled after provider error", job_id)
+    with trace_span(
+        "background_job.run",
+        {
+            "background_job.id": job_id,
+            "background_job.type": job.get("job_type"),
+            "background_job.attempts": job.get("attempts"),
+            "background_job.worker_id": resolved_worker_id,
+            "app.request_id": job_id,
+            "app.kb_id": job.get("kb_id"),
+            "app.kb_key": job.get("kb_key"),
+        },
+    ) as span:
+        try:
+            ensure_background_job_not_cancelled(job_id)
+            result = await _dispatch_job(job)
+            ensure_background_job_not_cancelled(job_id)
+        except BackgroundJobCancelledError as err:
+            span.set_attribute("background_job.status", "cancelled")
+            logger.info("Background job %s cancelled", job_id)
             now = utcnow_iso()
             execute_sync(
                 """
@@ -508,59 +502,81 @@ async def _run_background_job(job: dict[str, Any], *, worker_id: str | None = No
             await _stop_heartbeat_task(heartbeat_task)
             _notify_background_job(job_id, "cancelled", str(err), job)
             return
+        except Exception as err:
+            span.set_attribute("background_job.status", "failed")
+            if is_background_job_cancel_requested(job_id):
+                logger.info("Background job %s cancelled after provider error", job_id)
+                now = utcnow_iso()
+                execute_sync(
+                    """
+                    UPDATE background_jobs
+                    SET status = 'cancelled',
+                        error_message = ?,
+                        cancelled_at = COALESCE(cancelled_at, ?),
+                        finished_at = ?,
+                        worker_id = NULL,
+                        updated_at = ?
+                    WHERE job_id = ?
+                    """,
+                    (str(err), now, now, now, job_id),
+                )
+                await _stop_heartbeat_task(heartbeat_task)
+                _notify_background_job(job_id, "cancelled", str(err), job)
+                return
 
-        logger.exception("Background job %s failed", job_id)
-        latest = get_background_job(job_id)
-        now = utcnow_iso()
-        if int(latest["attempts"]) < int(latest["max_attempts"]):
-            retry_after = _next_retry_after(int(latest["attempts"]))
+            logger.exception("Background job %s failed", job_id)
+            latest = get_background_job(job_id)
+            now = utcnow_iso()
+            if int(latest["attempts"]) < int(latest["max_attempts"]):
+                retry_after = _next_retry_after(int(latest["attempts"]))
+                execute_sync(
+                    """
+                    UPDATE background_jobs
+                    SET status = 'retrying',
+                        error_message = ?,
+                        retry_after = ?,
+                        worker_id = NULL,
+                        updated_at = ?
+                    WHERE job_id = ?
+                    """,
+                    (str(err), retry_after, now, job_id),
+                )
+                await _stop_heartbeat_task(heartbeat_task)
+                return
+
             execute_sync(
                 """
                 UPDATE background_jobs
-                SET status = 'retrying',
+                SET status = 'failed',
                     error_message = ?,
-                    retry_after = ?,
+                    progress = 1.0,
+                    finished_at = ?,
                     worker_id = NULL,
                     updated_at = ?
                 WHERE job_id = ?
                 """,
-                (str(err), retry_after, now, job_id),
+                (str(err), now, now, job_id),
             )
             await _stop_heartbeat_task(heartbeat_task)
+            _notify_background_job(job_id, "failed", str(err), job)
             return
 
+        now = utcnow_iso()
         execute_sync(
             """
             UPDATE background_jobs
-            SET status = 'failed',
-                error_message = ?,
+            SET status = 'done',
+                result_json = ?,
                 progress = 1.0,
                 finished_at = ?,
                 worker_id = NULL,
                 updated_at = ?
             WHERE job_id = ?
             """,
-            (str(err), now, now, job_id),
+            (json.dumps(result or {}, ensure_ascii=False, sort_keys=True), now, now, job_id),
         )
+        span.set_attribute("background_job.status", "done")
         await _stop_heartbeat_task(heartbeat_task)
-        _notify_background_job(job_id, "failed", str(err), job)
-        return
-
-    now = utcnow_iso()
-    execute_sync(
-        """
-        UPDATE background_jobs
-        SET status = 'done',
-            result_json = ?,
-            progress = 1.0,
-            finished_at = ?,
-            worker_id = NULL,
-            updated_at = ?
-        WHERE job_id = ?
-        """,
-        (json.dumps(result or {}, ensure_ascii=False, sort_keys=True), now, now, job_id),
-    )
-    await _stop_heartbeat_task(heartbeat_task)
 
 
 def _notify_background_job(job_id: str, status: str, message: str, job: dict[str, Any]) -> None:
