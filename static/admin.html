@@ -420,6 +420,31 @@
             </section>
             <section class="card source-quality-full">
                 <div class="section-head">
+                    <h2>Review & Quality Details</h2>
+                    <p>Open deeper governance tables only when reviewing quality, stale documents, or language distribution.</p>
+                </div>
+                <div class="btn-row">
+                    <button class="btn-muted" id="btnOpenReviewQueueDetails" title="Open the full Knowledge Review Queue.">Review Queue</button>
+                    <button class="btn-muted" id="btnOpenQualityWorkflowDetails" title="Open the full Knowledge Quality Workflow.">Quality Workflow</button>
+                    <button class="btn-muted" id="btnOpenSourceQualityDetails" title="Open source chunk and language distribution.">Source Quality</button>
+                    <span class="note" id="knowledgeDetailsSummary">Review and quality details are available in the Details view.</span>
+                </div>
+            </section>
+        </div>
+
+        <div id="view-knowledge-details" class="view">
+            <section class="card">
+                <div class="view-all-head">
+                    <div>
+                        <h2>Knowledge Details</h2>
+                        <p class="note">Review queue, lifecycle workflow, and source quality diagnostics for the selected KB.</p>
+                    </div>
+                    <button class="btn-muted" id="btnKnowledgeDetailsBack" title="Return to the daily Knowledge Workspace.">Back to Knowledge</button>
+                </div>
+            </section>
+
+            <section class="card source-quality-full" id="knowledgeDetailsReviewQueue">
+                <div class="section-head">
                     <h2>Knowledge Review Queue</h2>
                     <p>Prioritized queue for draft, stale, Drive changed, and low-quality documents.</p>
                 </div>
@@ -441,7 +466,7 @@
                     </table>
                 </div>
             </section>
-            <section class="card source-quality-full">
+            <section class="card source-quality-full" id="knowledgeDetailsQualityWorkflow">
                 <div class="section-head">
                     <h2>Knowledge Quality Workflow</h2>
                     <p>Govern document lifecycle, stale Drive changes, and quality signals from feedback/fallbacks.</p>
@@ -453,7 +478,7 @@
                     </table>
                 </div>
             </section>
-            <section class="card source-quality-full">
+            <section class="card source-quality-full" id="knowledgeDetailsSourceQuality">
                 <div class="section-head">
                     <h2>Source Quality</h2>
                     <p>Chunk and language distribution after ingest.</p>
@@ -1712,6 +1737,7 @@
 
         const TAB_ACCESS = {
             'view-knowledge-workspace': ['admin', 'content_manager', 'integration_admin'],
+            'view-knowledge-details': ['admin', 'content_manager', 'integration_admin'],
             'view-file-browser': ['admin', 'content_manager', 'integration_admin'],
             'view-kb': ['admin', 'content_manager', 'integration_admin'],
             'view-drive': ['admin', 'content_manager', 'integration_admin'],
@@ -1744,6 +1770,7 @@
 
         const VIEW_COPY = {
             'view-knowledge-workspace': ['Knowledge Workspace', 'Manage knowledge bases, sources, and content lifecycle.'],
+            'view-knowledge-details': ['Knowledge Details', 'Review queue, lifecycle workflow, and source diagnostics.'],
             'view-file-browser': ['Source Files', 'Browse source files and run document actions.'],
             'view-support-workspace': ['Support Workspace', 'Handle inbox messages, tickets, notes, and escalations.'],
             'view-operations-workspace': ['Operations Workspace', 'Monitor jobs, schedules, notifications, and workflow runs.'],
@@ -2463,6 +2490,12 @@
                     ? `${kbReviewQueue.total} item(s): ${kbReviewQueue.drive_changed_count} Drive changed, ${kbReviewQueue.low_quality_count} low quality, ${kbReviewQueue.stale_count} stale, ${kbReviewQueue.draft_count} draft.`
                     : 'No review queue loaded.';
             }
+            const detailsSummary = document.getElementById('knowledgeDetailsSummary');
+            if (detailsSummary) {
+                const reviewCount = kbReviewQueue?.total ?? 0;
+                const qualityScore = kbQualityReport?.average_quality_score ?? '-';
+                detailsSummary.textContent = `${reviewCount} review item(s), quality ${qualityScore}, ${sourceStats.length} source(s).`;
+            }
             requestAnimationFrame(syncKnowledgeCardHeights);
             renderFileBrowser();
         }
@@ -2532,6 +2565,14 @@
             setValueIfExists('fileBrowserSearch', '');
             renderFileBrowser();
             activateTab('view-file-browser');
+        }
+
+        function openKnowledgeDetails(sectionId) {
+            activateTab('view-knowledge-details');
+            requestAnimationFrame(() => {
+                const target = document.getElementById(sectionId);
+                if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
         }
 
         function updateKbHeader() {
@@ -4868,6 +4909,10 @@
         document.getElementById('btnViewAllLibraryFiles').addEventListener('click', () => openFileBrowser('library'));
         document.getElementById('btnFileBrowserBack').addEventListener('click', () => activateTab('view-knowledge-workspace'));
         document.getElementById('fileBrowserSearch').addEventListener('input', renderFileBrowser);
+        document.getElementById('btnOpenReviewQueueDetails').addEventListener('click', () => openKnowledgeDetails('knowledgeDetailsReviewQueue'));
+        document.getElementById('btnOpenQualityWorkflowDetails').addEventListener('click', () => openKnowledgeDetails('knowledgeDetailsQualityWorkflow'));
+        document.getElementById('btnOpenSourceQualityDetails').addEventListener('click', () => openKnowledgeDetails('knowledgeDetailsSourceQuality'));
+        document.getElementById('btnKnowledgeDetailsBack').addEventListener('click', () => activateTab('view-knowledge-workspace'));
         document.getElementById('knowledgeReviewQueueFilter').addEventListener('change', () => refreshKnowledgeReviewQueue().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnKnowledgeReviewQueueRefresh').addEventListener('click', () => refreshKnowledgeReviewQueue().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnClearCache').addEventListener('click', () => clearCache().catch((e) => toast(explainAuthError(e), false)));

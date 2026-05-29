@@ -141,6 +141,16 @@ def test_knowledge_workspace_is_wired():
     assert "fileBrowserTable" in html
     assert "fileBrowserSearch" in html
     assert "function openFileBrowser" in html
+    assert "Review & Quality Details" in html
+    assert "view-knowledge-details" in html
+    assert "btnOpenReviewQueueDetails" in html
+    assert "btnOpenQualityWorkflowDetails" in html
+    assert "btnOpenSourceQualityDetails" in html
+    assert "btnKnowledgeDetailsBack" in html
+    assert "function openKnowledgeDetails" in html
+    assert "knowledgeDetailsReviewQueue" in html
+    assert "knowledgeDetailsQualityWorkflow" in html
+    assert "knowledgeDetailsSourceQuality" in html
     assert "data-file-menu" in html
     assert "knowledgeWorkspaceDriveSourcesTable" in html
     assert "knowledgeWorkspaceSourcesTable" in html
@@ -171,6 +181,7 @@ def test_knowledge_workspace_is_wired():
     assert "data-file-version-diff" in html
     assert "renderKnowledgeWorkspace" in html
     assert "'view-knowledge-workspace'" in html
+    assert "'view-knowledge-details'" in html
     assert "'view-file-browser'" in html
     assert ".png,.jpg,.jpeg,.webp,.tif,.tiff,.bmp" in html
 
