@@ -10,6 +10,7 @@ from fastapi import HTTPException
 
 from app.config import settings
 from app.database import execute_with_retry, fetch_one
+from app.file_versions import ensure_current_file_version, record_uploaded_file_version
 from app.kb_service import attach_file_to_kb, get_default_kb, open_db
 from app.upload_validation import (
     UploadValidationError,
@@ -51,54 +52,65 @@ async def import_content_to_uploaded_file(
     original_name = validated.original_name
     ext = validated.extension
     file_hash = compute_file_hash(content)
+    skip_content_update = False
 
     if existing_file_id is not None:
         existing = await fetch_one("SELECT * FROM uploaded_files WHERE id = ?", (existing_file_id,))
         if not existing:
             raise HTTPException(status_code=404, detail=f"Uploaded file {existing_file_id} not found")
+        existing = dict(existing)
         safe_name = existing["filename"]
+        if existing.get("file_hash") == file_hash:
+            skip_content_update = True
+            await ensure_current_file_version(existing, created_by_user_id=owner_user_id)
+        else:
+            await ensure_current_file_version(existing, created_by_user_id=owner_user_id)
     else:
         safe_name = f"{uuid.uuid4().hex[:8]}_{original_name}"
 
     save_path = settings.raw_upload_dir / safe_name
     settings.raw_upload_dir.mkdir(parents=True, exist_ok=True)
-    save_path.write_bytes(content)
+    if not skip_content_update:
+        save_path.write_bytes(content)
 
     if existing_file_id is not None:
-        await execute_with_retry(
-            """
-            UPDATE uploaded_files
-            SET filename = ?,
-                original_name = ?,
-                file_type = ?,
-                file_size = ?,
-                file_hash = ?,
-                status = 'uploaded',
-                access_level = ?,
-                tenant_id = ?,
-                org_id = ?,
-                owner_user_id = ?,
-                parser_type = ?,
-                pages_or_rows = NULL,
-                ingested_at = NULL,
-                error_message = NULL
-            WHERE id = ?
-            """,
-            (
-                safe_name,
-                original_name,
-                ext,
-                len(content),
-                file_hash,
-                access_level,
-                tenant_id,
-                org_id,
-                owner_user_id,
-                validated.parser_type,
-                existing_file_id,
-            ),
-        )
+        if not skip_content_update:
+            await execute_with_retry(
+                """
+                UPDATE uploaded_files
+                SET filename = ?,
+                    original_name = ?,
+                    file_type = ?,
+                    file_size = ?,
+                    file_hash = ?,
+                    status = 'uploaded',
+                    access_level = ?,
+                    tenant_id = ?,
+                    org_id = ?,
+                    owner_user_id = ?,
+                    parser_type = ?,
+                    pages_or_rows = NULL,
+                    ingested_at = NULL,
+                    error_message = NULL
+                WHERE id = ?
+                """,
+                (
+                    safe_name,
+                    original_name,
+                    ext,
+                    len(content),
+                    file_hash,
+                    access_level,
+                    tenant_id,
+                    org_id,
+                    owner_user_id,
+                    validated.parser_type,
+                    existing_file_id,
+                ),
+            )
         row = await fetch_one("SELECT * FROM uploaded_files WHERE id = ?", (existing_file_id,))
+        if not skip_content_update:
+            await record_uploaded_file_version(existing_file_id, created_by_user_id=owner_user_id)
     else:
         cursor = await execute_with_retry(
             """
@@ -130,6 +142,8 @@ async def import_content_to_uploaded_file(
             ),
         )
         row = await fetch_one("SELECT * FROM uploaded_files WHERE id = ?", (cursor.lastrowid,))
+        if row:
+            await record_uploaded_file_version(int(row["id"]), created_by_user_id=owner_user_id)
 
     if not row:
         raise HTTPException(status_code=500, detail="Uploaded file record was not persisted")

@@ -846,6 +846,41 @@ CREATE INDEX IF NOT EXISTS idx_agent_eval_results_kb
 """
 
 # ---------------------------------------------------------------------------
+# Phase 54 / Golden dataset evaluation + quality regression monitoring
+# ---------------------------------------------------------------------------
+_PHASE54_GOLDEN_EVALUATIONS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS eval_golden_dataset (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kb_id INTEGER NOT NULL,
+    question TEXT NOT NULL,
+    expected_answer TEXT NOT NULL,
+    expected_source_file_id INTEGER,
+    expected_keywords_json TEXT NOT NULL DEFAULT '[]',
+    tags_json TEXT NOT NULL DEFAULT '[]',
+    active INTEGER NOT NULL DEFAULT 1,
+    created_by_user_id TEXT,
+    tenant_id TEXT,
+    org_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(kb_id) REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    FOREIGN KEY(expected_source_file_id) REFERENCES uploaded_files(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_eval_golden_dataset_kb_active
+    ON eval_golden_dataset(kb_id, active, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_eval_golden_dataset_created
+    ON eval_golden_dataset(created_at DESC);
+
+ALTER TABLE agent_eval_results ADD COLUMN golden_item_id INTEGER;
+ALTER TABLE agent_eval_results ADD COLUMN expected_answer TEXT;
+ALTER TABLE agent_eval_results ADD COLUMN answer_similarity REAL;
+ALTER TABLE agent_eval_results ADD COLUMN recall_at_k REAL;
+ALTER TABLE agent_eval_results ADD COLUMN citation_accuracy REAL;
+CREATE INDEX IF NOT EXISTS idx_agent_eval_results_golden_item
+    ON agent_eval_results(golden_item_id);
+"""
+
+# ---------------------------------------------------------------------------
 # Phase 48 / MCP security V2 sessions
 # ---------------------------------------------------------------------------
 _PHASE48_MCP_SECURITY_V2_SCHEMA = """
@@ -956,6 +991,85 @@ CREATE INDEX IF NOT EXISTS idx_app_users_tenant_org
     ON app_users(tenant_id, org_id);
 """
 
+_PHASE51_FILE_VERSIONING_SCHEMA = """
+CREATE TABLE IF NOT EXISTS file_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_id INTEGER NOT NULL,
+    version_number INTEGER NOT NULL,
+    file_hash TEXT NOT NULL,
+    file_size INTEGER NOT NULL,
+    filename TEXT NOT NULL,
+    original_name TEXT NOT NULL,
+    file_type TEXT NOT NULL,
+    parser_type TEXT,
+    pages_or_rows INTEGER,
+    chunk_count INTEGER,
+    ingest_signature TEXT,
+    snapshot_path TEXT,
+    change_summary TEXT,
+    created_by_user_id TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (file_id) REFERENCES uploaded_files(id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_file_versions_file_number
+    ON file_versions(file_id, version_number);
+CREATE INDEX IF NOT EXISTS idx_file_versions_file_id
+    ON file_versions(file_id, version_number DESC);
+CREATE INDEX IF NOT EXISTS idx_file_versions_hash
+    ON file_versions(file_hash);
+
+CREATE TABLE IF NOT EXISTS file_version_ingests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_version_id INTEGER NOT NULL,
+    kb_id INTEGER NOT NULL,
+    file_id INTEGER NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    chunk_count INTEGER,
+    ingest_signature TEXT,
+    activated_at TEXT NOT NULL,
+    deactivated_at TEXT,
+    activated_by_user_id TEXT,
+    FOREIGN KEY (file_version_id) REFERENCES file_versions(id) ON DELETE CASCADE,
+    FOREIGN KEY (kb_id) REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    FOREIGN KEY (file_id) REFERENCES uploaded_files(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_file_version_ingests_active
+    ON file_version_ingests(kb_id, file_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_file_version_ingests_version
+    ON file_version_ingests(file_version_id, is_active);
+"""
+
+_PHASE55_KNOWLEDGE_GAPS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS knowledge_gaps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_log_id INTEGER,
+    query TEXT NOT NULL,
+    normalized_query TEXT NOT NULL,
+    query_hash TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    top_score REAL,
+    threshold REAL,
+    kb_id INTEGER,
+    kb_key TEXT,
+    session_id TEXT,
+    tenant_id TEXT,
+    org_id TEXT,
+    cluster_key TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(chat_log_id) REFERENCES chat_logs(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_gaps_kb_time
+    ON knowledge_gaps(kb_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_gaps_cluster
+    ON knowledge_gaps(cluster_key, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_gaps_status_time
+    ON knowledge_gaps(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_gaps_hash
+    ON knowledge_gaps(query_hash, kb_id);
+"""
+
 MIGRATIONS: list[tuple[str, str]] = [
     ("001_core_schema", _CORE_SCHEMA),
     ("002_knowledge_bases", _KB_SCHEMA),
@@ -988,6 +1102,9 @@ MIGRATIONS: list[tuple[str, str]] = [
     ("029_phase48_mcp_security_v2", _PHASE48_MCP_SECURITY_V2_SCHEMA),
     ("030_phase49_durable_workflows", _PHASE49_DURABLE_WORKFLOWS_SCHEMA),
     ("031_phase50_access_management", _PHASE50_ACCESS_MANAGEMENT_SCHEMA),
+    ("032_phase51_file_versioning", _PHASE51_FILE_VERSIONING_SCHEMA),
+    ("033_phase54_golden_evaluations", _PHASE54_GOLDEN_EVALUATIONS_SCHEMA),
+    ("034_phase55_knowledge_gaps", _PHASE55_KNOWLEDGE_GAPS_SCHEMA),
 ]
 
 

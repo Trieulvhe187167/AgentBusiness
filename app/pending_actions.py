@@ -14,7 +14,13 @@ from app.models import AuthContext, RequestContext
 from app.observability import trace_span
 
 PendingActionStatus = Literal["draft", "approved", "executed", "rejected", "failed"]
-PendingActionType = Literal["send_email_reply", "delete_google_drive_source", "sync_google_drive_source", "support_case_review"]
+PendingActionType = Literal[
+    "send_email_reply",
+    "delete_google_drive_source",
+    "sync_google_drive_source",
+    "support_case_review",
+    "create_faq_entry",
+]
 
 
 class PendingActionItem(BaseModel):
@@ -348,6 +354,16 @@ async def _dispatch_pending_action(item: PendingActionItem, *, context: RequestC
             "reviewed_by_user_id": context.auth.user_id,
         }
 
+    if item.action_type == "create_faq_entry":
+        return {
+            "draft_ready": True,
+            "kb_id": item.kb_id,
+            "kb_key": item.kb_key,
+            "cluster_key": payload.get("cluster_key"),
+            "question": payload.get("question"),
+            "reviewed_by_user_id": context.auth.user_id,
+        }
+
     raise RuntimeError(f"Unsupported pending action type: {item.action_type}")
 
 
@@ -387,5 +403,32 @@ def draft_drive_full_sync_action(*, source_id: int, force_full: bool, context: R
         title=f"Run full Google Drive sync for source {source_id}",
         summary="Force full sync can re-import many files and queue ingest jobs.",
         payload={"source_id": source_id, "force_full": force_full},
+        context=context,
+    )
+
+
+def draft_knowledge_gap_faq_action(
+    *,
+    cluster_key: str,
+    question: str,
+    sample_queries: list[str],
+    answer_template: str,
+    gap_count: int,
+    context: RequestContext,
+) -> dict[str, Any]:
+    payload = {
+        "cluster_key": cluster_key,
+        "question": question,
+        "sample_queries": sample_queries,
+        "answer_template": answer_template,
+        "gap_count": gap_count,
+        "source": "knowledge_gap",
+    }
+    return create_pending_action(
+        action_type="create_faq_entry",
+        risk_level="medium",
+        title=f"Create FAQ entry: {question[:120]}",
+        summary=f"{gap_count} unanswered or low-confidence question(s) matched this gap. Review the draft FAQ content before adding it to the KB.",
+        payload=payload,
         context=context,
     )

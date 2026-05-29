@@ -38,9 +38,34 @@ def test_admin_analytics_dashboard_wires_backend_endpoint():
     assert "function renderAnalyticsInsights" in html
     assert "Agent Evaluation Center" in html
     assert "/api/admin/evaluations/runs" in html
+    assert "Golden Dataset" in html
+    assert "goldenDatasetTable" in html
+    assert "function refreshGoldenDataset" in html
+    assert "function createGoldenDatasetItem" in html
+    assert "function uploadGoldenDatasetCsv" in html
+    assert "function createGoldenEvalSchedule" in html
+    assert "/api/admin/evaluations/golden-dataset" in html
+    assert "/api/admin/evaluations/golden-dataset/upload" in html
+    assert 'value="golden_dataset"' in html
+    assert "payload.alert_drop_threshold" in html
+    assert "agent_eval_run" in html
+    assert "answer_similarity" in html
+    assert "recall_at_k" in html
+    assert "citation_accuracy" in html
     assert "agentEvalRunsTable" in html
     assert "agentEvalResultsTable" in html
     assert "function runAgentEvaluation" in html
+    assert "Knowledge Gaps" in html
+    assert "knowledgeGapsTable" in html
+    assert "function refreshKnowledgeGaps" in html
+    assert "function suggestKnowledgeGapFaq" in html
+    assert "function createKnowledgeGapReportSchedule" in html
+    assert "/api/admin/knowledge-gaps" in html
+    assert "/suggest-faq" in html
+    assert "knowledge_gap_report" in html
+    assert "btnScheduleKnowledgeGapReport" in html
+    assert "data-gap-suggest" in html
+    assert "data-gap-status" in html
 
 
 def test_admin_dev_identity_is_collapsible_and_debug_gated():
@@ -110,6 +135,13 @@ def test_knowledge_workspace_is_wired():
     assert "knowledgeJobSummary" in html
     assert "knowledgeWorkspaceKbFilesTable" in html
     assert "knowledgeWorkspaceLibraryTable" in html
+    assert "btnViewAllKbFiles" in html
+    assert "btnViewAllLibraryFiles" in html
+    assert "view-file-browser" in html
+    assert "fileBrowserTable" in html
+    assert "fileBrowserSearch" in html
+    assert "function openFileBrowser" in html
+    assert "data-file-menu" in html
     assert "knowledgeWorkspaceDriveSourcesTable" in html
     assert "knowledgeWorkspaceSourcesTable" in html
     assert "Knowledge Quality Workflow" in html
@@ -125,10 +157,37 @@ def test_knowledge_workspace_is_wired():
     assert "/api/kbs/${selectedKbId()}/quality" in html
     assert "function updateKbFileLifecycle" in html
     assert "function showKbFileDiff" in html
+    assert "function showFileVersions" in html
+    assert "function replaceFileContent" in html
+    assert "function rollbackFileVersion" in html
+    assert "function showFileVersionDiff" in html
+    assert "/api/files/${fileId}/content" in html
+    assert "/api/files/${fileId}/versions" in html
     assert "data-kb-lifecycle" in html
     assert "data-kb-diff" in html
+    assert "data-file-versions" in html
+    assert "data-file-replace" in html
+    assert "data-file-rollback" in html
+    assert "data-file-version-diff" in html
     assert "renderKnowledgeWorkspace" in html
     assert "'view-knowledge-workspace'" in html
+    assert "'view-file-browser'" in html
+    assert ".png,.jpg,.jpeg,.webp,.tif,.tiff,.bmp" in html
+
+
+def test_admin_workspace_form_style_and_view_all_tables_are_wired():
+    html = (ROOT / "static" / "admin.html").read_text(encoding="utf-8")
+
+    assert "--brand:#007d84" in html
+    assert ".tabs { position:fixed;" in html
+    assert ".knowledge-strip { display:grid; grid-template-columns:repeat(5,minmax(0,1fr));" in html
+    assert ".card-footer-action" in html
+    assert ".link-action" in html
+    assert "All Files In Selected KB" in html
+    assert "All Source Library Files" in html
+    assert "document.getElementById('btnViewAllKbFiles').addEventListener('click', () => openFileBrowser('kb'))" in html
+    assert "document.getElementById('btnViewAllLibraryFiles').addEventListener('click', () => openFileBrowser('library'))" in html
+    assert "document.querySelector('#fileBrowserTable tbody').addEventListener('click'" in html
 
 
 def test_admin_legacy_views_are_hidden_backing_views():

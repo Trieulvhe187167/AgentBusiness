@@ -20,6 +20,7 @@ from app.chunker import chunk_records
 from app.config import settings
 from app.database import execute_with_retry, fetch_all, fetch_one
 from app.embeddings import embed_texts
+from app.file_versions import ensure_current_file_version, mark_version_ingested
 from app.kb_service import attach_file_to_kb, get_default_kb, get_kb_or_404, new_kb_version, open_db
 from app.models import AuthContext, IngestJobResponse, JobStatus, RequestContext
 from app.parsers import parse_file
@@ -225,6 +226,9 @@ async def _run_ingest(job_id: str, kb_id: int, file_id: int):
             model_id=settings.effective_embedding_model_id,
         )
         next_kb_version = new_kb_version()
+        file_version = await ensure_current_file_version(file_row)
+        if not file_version:
+            raise ValueError(f"No file version record found for file {file_id}")
 
         vector_store.delete_by_kb_and_file(kb_id, file_id)
         kb_access_level = str(kb.access_level or "public").lower()
@@ -247,6 +251,9 @@ async def _run_ingest(job_id: str, kb_id: int, file_id: int):
             file_hash=file_row["file_hash"],
             kb_version=next_kb_version,
             ingest_signature=ingest_signature,
+            file_version_id=int(file_version["id"]),
+            version_number=int(file_version["version_number"]),
+            version_hash=str(file_version["file_hash"]),
             chunk_size=settings.chunk_size,
             chunk_overlap=settings.chunk_overlap,
             access_level=effective_access_level,
@@ -299,6 +306,13 @@ async def _run_ingest(job_id: str, kb_id: int, file_id: int):
             WHERE id=?
             """,
             (pages_or_rows, finished, file_id),
+        )
+        await mark_version_ingested(
+            file_version_id=int(file_version["id"]),
+            file_id=file_id,
+            kb_id=kb_id,
+            chunk_count=len(chunks),
+            ingest_signature=ingest_signature,
         )
         logger.info(
             "[%s] Ingestion complete for kb=%s file=%s with %s chunks (prev_kb_version=%s new=%s)",

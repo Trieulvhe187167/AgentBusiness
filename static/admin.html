@@ -8,15 +8,18 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        :root { --bg:#f6f1e7; --panel:#fffcf7; --ink:#1e2b2d; --dim:#617073; --line:#d9d2c3; --brand:#116d7c; --ok:#1f855a; --warn:#9b6800; --bad:#b33f2f; --radius:16px; --shadow:0 8px 28px rgba(24,35,37,.08); }
+        :root { --bg:#fbf7ef; --panel:#fffdf8; --ink:#172b30; --dim:#607276; --line:#e4dcca; --brand:#007d84; --ok:#1f855a; --warn:#9b6800; --bad:#b33f2f; --radius:10px; --shadow:0 10px 30px rgba(39,55,58,.06); }
         * { box-sizing:border-box; }
-        body { margin:0; font-family:"Manrope",sans-serif; background:radial-gradient(circle at 5% 10%, #dcf0ea 0%, transparent 35%), radial-gradient(circle at 95% 90%, #f8e7cd 0%, transparent 40%), var(--bg); color:var(--ink); }
-        .container { max-width:1360px; margin:0 auto; padding:18px; display:flex; flex-direction:column; gap:14px; }
+        body { margin:0; font-family:"Manrope",sans-serif; background:linear-gradient(135deg,#fffdf8 0%,#faf3e8 55%,#f4fbfa 100%); color:var(--ink); }
+        .container { max-width:1480px; margin:0 auto; padding:84px 20px 24px 240px; display:flex; flex-direction:column; gap:14px; }
         .card, .header { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); padding:14px; }
-        .header { display:flex; justify-content:space-between; align-items:center; gap:12px; }
-        .header h1 { margin:0; font-size:20px; }
+        .header { position:fixed; left:0; right:0; top:0; height:60px; z-index:40; display:flex; justify-content:space-between; align-items:center; gap:12px; border:0; border-bottom:1px solid var(--line); border-radius:0; box-shadow:0 8px 24px rgba(39,55,58,.05); padding:0 22px 0 16px; backdrop-filter:blur(14px); }
+        .header h1 { margin:0; font-size:17px; letter-spacing:0; }
+        .header small { display:none; }
         .header small, .note { color:var(--dim); font-size:12px; }
-        .links { display:flex; gap:12px; align-items:center; }
+        .brand { display:flex; align-items:center; gap:12px; min-width:240px; }
+        .brand-mark { display:inline-grid; place-items:center; width:30px; height:30px; border-radius:8px; background:linear-gradient(135deg, var(--brand), #08a3a8); color:#fff; font-weight:800; box-shadow:0 8px 18px rgba(0,125,132,.24); }
+        .links { display:flex; gap:18px; align-items:center; margin-left:auto; margin-right:210px; }
         .links a { text-decoration:none; color:var(--brand); font-weight:700; font-size:13px; }
         .authbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
         .authbar input { width:auto; min-width:140px; }
@@ -26,6 +29,9 @@
         .field-stack small { color:var(--dim); font-size:11px; line-height:1.35; }
         .grid { display:grid; grid-template-columns:repeat(12,minmax(0,1fr)); gap:14px; }
         .span-12 { grid-column:span 12; } .span-8 { grid-column:span 8; } .span-7 { grid-column:span 7; } .span-6 { grid-column:span 6; } .span-5 { grid-column:span 5; } .span-4 { grid-column:span 4; }
+        .page-title { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:2px; }
+        .page-title h2 { margin:0; font-size:22px; letter-spacing:0; }
+        .page-title p { margin:4px 0 0; color:var(--dim); font-size:12px; }
         .card h2 { margin:0; font-size:15px; }
         .section-head { display:flex; flex-direction:column; gap:4px; margin-bottom:12px; }
         .section-head p { margin:0; color:var(--dim); font-size:12px; }
@@ -48,20 +54,27 @@
         .upload { border:2px dashed var(--line); border-radius:14px; padding:18px; text-align:center; position:relative; background:#fff; }
         .upload.drag { border-color:var(--brand); background:#f3fbfd; }
         .upload input[type=file] { position:absolute; inset:0; opacity:0; cursor:pointer; }
-        .role-shell { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
-        .role-shell-title { font-weight:800; font-size:14px; }
-        .role-shell-detail { display:block; margin-top:3px; color:var(--dim); font-size:12px; }
+        .role-shell { position:fixed; top:0; right:18px; z-index:45; height:60px; display:flex; justify-content:flex-end; align-items:center; gap:10px; flex-wrap:nowrap; padding:0; background:transparent; border:0; box-shadow:none; }
+        .role-shell-title { font-weight:800; font-size:12px; line-height:1.15; text-align:right; }
+        .role-shell-detail { display:block; margin-top:3px; color:var(--dim); font-size:11px; line-height:1.15; text-align:right; max-width:145px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .role-pill { display:inline-flex; align-items:center; border-radius:999px; padding:5px 9px; background:#fff; border:1px solid var(--line); color:var(--dim); font-size:12px; font-weight:700; }
-        .dev-identity { width:100%; border-top:1px solid var(--line); padding-top:10px; }
-        .dev-identity summary { cursor:pointer; font-weight:800; color:var(--brand); }
+        .role-shell .role-pill { width:30px; height:30px; justify-content:center; padding:0; background:#dff5ec; border:0; color:var(--brand); }
+        .dev-identity { position:absolute; right:0; top:46px; z-index:60; width:max-content; max-width:min(760px, calc(100vw - 260px)); padding:0; border:0; background:transparent; box-shadow:none; }
+        .dev-identity summary { cursor:pointer; font-weight:800; color:var(--brand); list-style:none; }
+        .dev-identity summary::-webkit-details-marker { display:none; }
+        .dev-identity:not([open]) summary { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line); border-radius:999px; padding:6px 10px; background:rgba(255,253,248,.96); box-shadow:0 8px 20px rgba(39,55,58,.08); font-size:12px; white-space:nowrap; }
+        .dev-identity[open] { top:58px; width:min(760px, calc(100vw - 260px)); padding:12px; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); box-shadow:var(--shadow); }
+        .dev-identity[open] summary { display:inline-flex; margin-bottom:10px; }
         .dev-identity[hidden] { display:none; }
-        .tabs { display:flex; gap:10px; flex-wrap:wrap; }
-        .tab-btn { background:#ece6dc; color:var(--dim); }
-        .tab-btn.active { background:var(--brand); color:#fff; }
+        .tabs { position:fixed; left:0; top:60px; bottom:0; z-index:25; width:200px; height:calc(100vh - 60px); display:flex; flex-direction:column; gap:8px; padding:24px 10px 18px; border-right:1px solid var(--line); background:rgba(255,253,248,.96); box-shadow:8px 0 24px rgba(39,55,58,.035); backdrop-filter:blur(12px); overflow:auto; }
+        .tab-btn { background:transparent; color:var(--dim); text-align:left; border-radius:8px; display:flex; align-items:center; gap:10px; padding:10px 12px; }
+        .tab-btn.active { background:linear-gradient(135deg, var(--brand), #0098a0); color:#fff; box-shadow:0 8px 18px rgba(0,125,132,.22); }
         .tab-btn[hidden] { display:none; }
+        .tab-icon { width:20px; height:20px; border:1.5px solid currentColor; border-radius:6px; display:inline-grid; place-items:center; font-size:11px; line-height:1; flex:0 0 20px; opacity:.88; }
+        .tab-label { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .support-shell { display:grid; grid-template-columns:minmax(360px, 5fr) minmax(360px, 4fr); gap:14px; align-items:start; }
         .support-panel { display:flex; flex-direction:column; gap:10px; }
-        .support-detail-card { border:1px solid var(--line); border-radius:14px; background:#fff; padding:12px; }
+        .support-detail-card { border:1px solid var(--line); border-radius:var(--radius); background:#fff; padding:14px; box-shadow:0 6px 16px rgba(39,55,58,.04); }
         .support-detail-card h3 { margin:0 0 6px; font-size:13px; }
         .support-meta { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
         .subtabs { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; }
@@ -89,12 +102,22 @@
         .readiness-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
         .readiness-item { border:1px solid var(--line); border-radius:12px; background:#fff; padding:10px; }
         .readiness-item strong { display:block; margin-bottom:4px; }
-        .knowledge-shell { display:grid; grid-template-columns:minmax(360px, 5fr) minmax(340px, 4fr); gap:14px; align-items:start; }
+        .knowledge-shell { display:grid; grid-template-columns:minmax(360px, 5fr) minmax(340px, 4fr); gap:14px; align-items:stretch; }
         .knowledge-panel { display:flex; flex-direction:column; gap:10px; }
-        .knowledge-strip { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+        .knowledge-strip { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; }
+        .kb-files-card .scroll { max-height:226px; overflow:auto; }
+        .source-library-card { display:flex; flex-direction:column; overflow:hidden; }
+        .source-library-card .scroll { flex:1 1 auto; max-height:none; min-height:0; overflow:auto; }
+        .source-library-card .card-footer-action { margin-top:10px; }
+        .source-quality-full { margin-top:14px; }
+        .drive-form-grid { display:grid; grid-template-columns:repeat(3,minmax(180px,1fr)); gap:10px; align-items:end; }
+        .drive-form-grid .wide { grid-column:span 2; }
+        .drive-action-row { display:grid; grid-template-columns:minmax(220px,1fr) auto minmax(260px,2fr); gap:10px; align-items:center; margin-bottom:10px; }
         .operations-shell { display:grid; grid-template-columns:minmax(380px, 5fr) minmax(340px, 4fr); gap:14px; align-items:start; }
         .operations-shell > .span-12 { grid-column:1 / -1; }
         .operations-panel { display:flex; flex-direction:column; gap:10px; }
+        .audit-snapshot-card { display:flex; flex-direction:column; overflow:hidden; }
+        .audit-snapshot-card .scroll { flex:1 1 0; min-height:0; max-height:none !important; }
         .webhook-form { display:grid; grid-template-columns:minmax(180px, 1.1fr) minmax(320px, 2.2fr) minmax(180px, 1fr) minmax(260px, 1.5fr); gap:10px; align-items:start; margin-bottom:10px; }
         .webhook-form .field-stack { min-width:0; }
         .analytics-hero { display:grid; grid-template-columns:minmax(280px, 1.2fr) repeat(2,minmax(220px, 1fr)); gap:10px; margin-bottom:12px; }
@@ -108,8 +131,18 @@
         .view { display:none; } .view.active { display:block; }
         .legacy-backfill { display:none !important; }
         .table { width:100%; border-collapse:separate; border-spacing:0; font-size:13px; }
-        .table th, .table td { border-bottom:1px solid var(--line); padding:9px 8px; text-align:left; vertical-align:top; }
-        .table th { position:sticky; top:0; z-index:3; background:linear-gradient(180deg, var(--panel) 0%, #fffaf1 100%); box-shadow:0 1px 0 var(--line), 0 8px 14px rgba(24,35,37,.06); font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--dim); }
+        .table th, .table td { border-bottom:1px solid var(--line); padding:10px 9px; text-align:left; vertical-align:middle; }
+        .table th { position:sticky; top:0; z-index:3; background:#fffaf2; box-shadow:0 1px 0 var(--line); font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--dim); }
+        .table tr:hover td { background:#fffaf2; }
+        .table-actions { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+        .card-footer-action { display:flex; justify-content:flex-end; padding-top:10px; }
+        .link-action { border:none; background:transparent; color:var(--brand); padding:6px 0; font-weight:800; }
+        .action-dot { min-width:34px; padding:7px 9px; border-radius:8px; }
+        .action-menu-wrap { display:flex; justify-content:flex-end; position:relative; }
+        .action-menu { display:none; gap:6px; flex-wrap:wrap; justify-content:flex-end; margin-top:6px; max-width:260px; }
+        .action-menu-wrap.open { flex-direction:column; align-items:flex-end; }
+        .action-menu-wrap.open .action-menu { display:flex; }
+        .view-all-head { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
         .scroll { max-height:360px; overflow:auto; position:relative; }
         .status { display:inline-flex; align-items:center; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; }
         .status.uploaded,.status.queued,.status.running,.status.retrying,.status.cancelling,.status.ingesting,.status.attached,.status.clarify,.status.paused { background:#fff2d9; color:var(--warn); }
@@ -129,20 +162,22 @@
         .modal-card h2 { margin:0; font-size:17px; }
         .modal-card p { margin:8px 0 12px; color:var(--dim); font-size:13px; line-height:1.5; white-space:pre-wrap; }
         .modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:12px; }
-        @media (max-width:1100px) { .span-8,.span-7,.span-6,.span-5,.span-4 { grid-column:span 12; } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } .support-shell,.knowledge-shell,.operations-shell,.analytics-hero,.webhook-form { grid-template-columns:1fr; } .knowledge-strip,.analytics-insights,.case-kv,.readiness-list { grid-template-columns:1fr; } }
+        @media (max-width:1100px) { .container { padding:112px 18px 24px; } .header { height:auto; min-height:60px; flex-wrap:wrap; padding:10px 14px; } .brand { min-width:0; } .links { order:3; width:100%; margin:0; overflow:auto; } .role-shell { top:8px; right:12px; height:44px; } .role-shell-detail { display:none; } .tabs { position:static; width:auto; height:auto; flex-direction:row; overflow:auto; } .tab-btn { flex:0 0 auto; } .span-8,.span-7,.span-6,.span-5,.span-4 { grid-column:span 12; } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } .support-shell,.knowledge-shell,.operations-shell,.analytics-hero,.webhook-form { grid-template-columns:1fr; } .knowledge-strip,.analytics-insights,.case-kv,.readiness-list,.drive-form-grid,.drive-action-row { grid-template-columns:1fr; } .drive-form-grid .wide { grid-column:auto; } }
     </style>
 </head>
 <body>
     <div class="container">
         <header class="header">
-            <div>
+            <div class="brand">
+                <span class="brand-mark">R</span>
+                <div>
                 <h1>CampusRAG Admin</h1>
                 <small>Manage Knowledge Bases, source files, ingest jobs, and KB-scoped retrieval.</small>
+                </div>
             </div>
             <div class="links">
                 <a href="/portal">Portal</a>
                 <a href="/chat">Chat</a>
-                <a href="/chat?kb=default">Chat Default KB</a>
                 <a href="/docs">API Docs</a>
                 <a href="/health">Health</a>
             </div>
@@ -177,6 +212,13 @@
             </details>
         </section>
 
+        <div class="page-title">
+            <div>
+                <h2 id="pageTitle">Knowledge Workspace</h2>
+                <p id="pageSubtitle">Manage knowledge bases, sources, and content lifecycle.</p>
+            </div>
+        </div>
+
         <section class="card">
             <div class="section-head">
                 <h2>Knowledge Base Selector</h2>
@@ -210,14 +252,14 @@
         </section>
 
         <div class="tabs">
-            <button class="tab-btn active" data-target="view-knowledge-workspace" title="Unified workspace for KB files, source library, Google Drive sync, and source quality.">Knowledge Workspace</button>
-            <button class="tab-btn" data-target="view-support-workspace" title="Unified workspace for support inbox, case context, notes, assignment, and escalation.">Support Workspace</button>
-            <button class="tab-btn" data-target="view-operations-workspace" title="Unified workspace for approvals, jobs, schedules, and audit snapshots.">Operations Workspace</button>
-            <button class="tab-btn" data-target="view-access" title="Manage internal user directory, access status, and production readiness.">Access</button>
-            <button class="tab-btn" data-target="view-analytics" title="Track chat quality, workflow health, jobs, and support operations.">Analytics</button>
-            <button class="tab-btn" data-target="view-calibrate" title="Test retrieval quality in the currently selected Knowledge Base.">Calibrate</button>
-            <button class="tab-btn" data-target="view-mcp" title="Inspect MCP server status, exposed tools, and resources.">MCP Server</button>
-            <button class="tab-btn" data-target="view-system" title="Inspect selected KB and runtime system payload.">System</button>
+            <button class="tab-btn active" data-target="view-knowledge-workspace" title="Unified workspace for KB files, source library, Google Drive sync, and source quality."><span class="tab-icon">K</span><span class="tab-label">Knowledge</span></button>
+            <button class="tab-btn" data-target="view-support-workspace" title="Unified workspace for support inbox, case context, notes, assignment, and escalation."><span class="tab-icon">S</span><span class="tab-label">Support</span></button>
+            <button class="tab-btn" data-target="view-operations-workspace" title="Unified workspace for approvals, jobs, schedules, and audit snapshots."><span class="tab-icon">O</span><span class="tab-label">Operations</span></button>
+            <button class="tab-btn" data-target="view-access" title="Manage internal user directory, access status, and production readiness."><span class="tab-icon">A</span><span class="tab-label">Access</span></button>
+            <button class="tab-btn" data-target="view-analytics" title="Track chat quality, workflow health, jobs, and support operations."><span class="tab-icon">N</span><span class="tab-label">Analytics</span></button>
+            <button class="tab-btn" data-target="view-calibrate" title="Test retrieval quality in the currently selected Knowledge Base."><span class="tab-icon">C</span><span class="tab-label">Calibrate</span></button>
+            <button class="tab-btn" data-target="view-mcp" title="Inspect MCP server status, exposed tools, and resources."><span class="tab-icon">M</span><span class="tab-label">MCP Server</span></button>
+            <button class="tab-btn" data-target="view-system" title="Inspect selected KB and runtime system payload."><span class="tab-icon">Y</span><span class="tab-label">System</span></button>
         </div>
 
         <div id="view-access-denied" class="view">
@@ -297,13 +339,13 @@
                             <p>Drop files here to add them to the source library and attach them to the current KB.</p>
                         </div>
                         <div class="upload" id="knowledgeUploadZone">
-                            <input type="file" id="knowledgeFileInput" multiple accept=".pdf,.txt,.md,.html,.htm,.csv,.xlsx,.xls,.docx,.json,.jsonl">
+                            <input type="file" id="knowledgeFileInput" multiple accept=".pdf,.txt,.md,.html,.htm,.csv,.xlsx,.xls,.docx,.json,.jsonl,.xml,.png,.jpg,.jpeg,.webp,.tif,.tiff,.bmp">
                             <strong>Drop files or click to upload</strong>
                             <p class="note">Upload is attached to the selected KB and then available for ingest.</p>
                         </div>
                     </section>
 
-                    <section class="card">
+                    <section class="card kb-files-card">
                         <div class="section-head">
                             <h2>Files In Selected KB</h2>
                             <p>Per-file ingest status and actions for the active KB.</p>
@@ -314,61 +356,15 @@
                                 <tbody><tr><td colspan="7">No files loaded.</td></tr></tbody>
                             </table>
                         </div>
-                    </section>
-
-                    <section class="card">
-                        <div class="section-head">
-                            <h2>Knowledge Review Queue</h2>
-                            <p>Prioritized queue for draft, stale, Drive changed, and low-quality documents.</p>
-                        </div>
-                        <div class="toolbar" style="margin-bottom:8px;">
-                            <select id="knowledgeReviewQueueFilter" title="Filter review queue by issue type.">
-                                <option value="">All review issues</option>
-                                <option value="drive_changed">Drive changed</option>
-                                <option value="low_quality">Low quality</option>
-                                <option value="stale">Stale</option>
-                                <option value="draft">Draft</option>
-                            </select>
-                            <button class="btn-muted" id="btnKnowledgeReviewQueueRefresh" title="Reload Knowledge Review Queue.">Refresh Queue</button>
-                            <span class="note" id="knowledgeReviewQueueSummary">No review queue loaded.</span>
-                        </div>
-                        <div class="scroll">
-                            <table class="table" id="knowledgeReviewQueueTable">
-                                <thead><tr><th>Priority</th><th>Document</th><th>Issue</th><th>Quality</th><th>Suggested Action</th><th>Actions</th></tr></thead>
-                                <tbody><tr><td colspan="6">No review queue loaded.</td></tr></tbody>
-                            </table>
+                        <div class="card-footer-action">
+                            <button class="link-action" id="btnViewAllKbFiles" title="Open all files attached to the selected KB.">View all files -></button>
                         </div>
                     </section>
 
-                    <section class="card">
-                        <div class="section-head">
-                            <h2>Knowledge Quality Workflow</h2>
-                            <p>Govern document lifecycle, stale Drive changes, and quality signals from feedback/fallbacks.</p>
-                        </div>
-                        <div class="scroll">
-                            <table class="table" id="knowledgeQualityTable">
-                                <thead><tr><th>Document</th><th>Lifecycle</th><th>Quality</th><th>Signals</th><th>Stale / Diff</th><th>Actions</th></tr></thead>
-                                <tbody><tr><td colspan="6">No quality report loaded.</td></tr></tbody>
-                            </table>
-                        </div>
-                    </section>
-
-                    <section class="card">
-                        <div class="section-head">
-                            <h2>Source Quality</h2>
-                            <p>Chunk and language distribution after ingest.</p>
-                        </div>
-                        <div class="scroll">
-                            <table class="table" id="knowledgeWorkspaceSourcesTable">
-                                <thead><tr><th>Filename</th><th>Chunks</th><th>VI %</th><th>EN %</th><th>Other %</th></tr></thead>
-                                <tbody><tr><td colspan="5">No sources loaded.</td></tr></tbody>
-                            </table>
-                        </div>
-                    </section>
                 </div>
 
                 <div class="knowledge-panel">
-                    <section class="card">
+                    <section class="card source-library-card">
                         <div class="section-head">
                             <h2>Source Library</h2>
                             <p>Attach existing uploads to the active KB or delete unused library files.</p>
@@ -379,52 +375,96 @@
                                 <tbody><tr><td colspan="5">No library loaded.</td></tr></tbody>
                             </table>
                         </div>
+                        <div class="card-footer-action">
+                            <button class="link-action" id="btnViewAllLibraryFiles" title="Open all source library files.">View all sources -></button>
+                        </div>
                     </section>
 
-                    <section class="card">
-                        <div class="section-head">
-                            <h2>Google Drive Sync</h2>
-                            <p>Run, schedule, inspect, or delete Drive sources bound to this KB.</p>
-                        </div>
-                        <div class="support-detail-card" style="margin-bottom:10px;">
-                            <h3>Create Drive Source</h3>
-                            <div class="row" style="margin-bottom:8px;">
-                                <input id="kwDriveSourceName" type="text" placeholder="Source name" title="Human-readable name for this Google Drive source.">
-                                <input id="kwDriveFolderId" type="text" placeholder="Google Drive folder ID" title="Google Drive folder ID to scan.">
-                            </div>
-                            <div class="row" style="margin-bottom:8px;">
-                                <input id="kwDriveSharedDriveId" type="text" placeholder="Optional shared drive ID" title="Optional shared drive ID if the folder belongs to a shared drive.">
-                                <select id="kwDriveRecursive" title="Choose whether the sync should scan nested folders.">
-                                    <option value="true">Recursive</option>
-                                    <option value="false">Current folder only</option>
-                                </select>
-                            </div>
-                            <div class="row" style="margin-bottom:8px;">
-                                <input id="kwDriveIncludePatterns" type="text" placeholder="Include: *.csv,*.pdf" title="Optional comma-separated filename patterns to include.">
-                                <input id="kwDriveExcludePatterns" type="text" placeholder="Exclude: draft-*,tmp-*" title="Optional comma-separated filename patterns to exclude.">
-                            </div>
-                            <div class="btn-row">
-                                <button class="btn-main" id="btnKwCreateDriveSource" title="Create a Google Drive source for the selected KB.">Create Drive Source</button>
-                            </div>
-                        </div>
-                        <div class="toolbar" style="margin-bottom:10px;">
-                            <select id="knowledgeDriveForceSync" title="Choose whether workspace Drive sync runs changed files only or full refresh.">
-                                <option value="false">Changed files only</option>
-                                <option value="true">Force full sync</option>
-                            </select>
-                            <button class="btn-muted" id="btnKnowledgeDriveRefresh" title="Reload Google Drive source status.">Refresh Drive</button>
-                        </div>
-                        <div class="note" id="knowledgeDriveStatusSummary">No Google Drive source loaded.</div>
-                        <div class="scroll">
-                            <table class="table" id="knowledgeWorkspaceDriveSourcesTable">
-                                <thead><tr><th>ID</th><th>Name</th><th>Folder</th><th>Last Sync</th><th>Latest Run</th><th>Actions</th></tr></thead>
-                                <tbody><tr><td colspan="6">No Drive sources loaded.</td></tr></tbody>
-                            </table>
-                        </div>
-                    </section>
                 </div>
 
             </div>
+            <section class="card source-quality-full">
+                <div class="section-head">
+                    <h2>Google Drive Sync</h2>
+                    <p>Run, schedule, inspect, or delete Drive sources bound to this KB.</p>
+                </div>
+                <div class="support-detail-card" style="margin-bottom:10px;">
+                    <h3>Create Drive Source</h3>
+                    <div class="drive-form-grid">
+                        <input id="kwDriveSourceName" type="text" placeholder="Source name" title="Human-readable name for this Google Drive source.">
+                        <input id="kwDriveFolderId" type="text" placeholder="Google Drive folder ID" title="Google Drive folder ID to scan.">
+                        <input id="kwDriveSharedDriveId" type="text" placeholder="Optional shared drive ID" title="Optional shared drive ID if the folder belongs to a shared drive.">
+                        <select id="kwDriveRecursive" title="Choose whether the sync should scan nested folders.">
+                            <option value="true">Recursive</option>
+                            <option value="false">Current folder only</option>
+                        </select>
+                        <input id="kwDriveIncludePatterns" class="wide" type="text" placeholder="Include: *.csv,*.pdf" title="Optional comma-separated filename patterns to include.">
+                        <input id="kwDriveExcludePatterns" class="wide" type="text" placeholder="Exclude: draft-*,tmp-*" title="Optional comma-separated filename patterns to exclude.">
+                        <button class="btn-main" id="btnKwCreateDriveSource" title="Create a Google Drive source for the selected KB.">Create Drive Source</button>
+                    </div>
+                </div>
+                <div class="drive-action-row">
+                    <select id="knowledgeDriveForceSync" title="Choose whether workspace Drive sync runs changed files only or full refresh.">
+                        <option value="false">Changed files only</option>
+                        <option value="true">Force full sync</option>
+                    </select>
+                    <button class="btn-muted" id="btnKnowledgeDriveRefresh" title="Reload Google Drive source status.">Refresh Drive</button>
+                    <div class="note" id="knowledgeDriveStatusSummary">No Google Drive source loaded.</div>
+                </div>
+                <div class="scroll">
+                    <table class="table" id="knowledgeWorkspaceDriveSourcesTable">
+                        <thead><tr><th>ID</th><th>Name</th><th>Folder</th><th>Last Sync</th><th>Latest Run</th><th>Actions</th></tr></thead>
+                        <tbody><tr><td colspan="6">No Drive sources loaded.</td></tr></tbody>
+                    </table>
+                </div>
+            </section>
+            <section class="card source-quality-full">
+                <div class="section-head">
+                    <h2>Knowledge Review Queue</h2>
+                    <p>Prioritized queue for draft, stale, Drive changed, and low-quality documents.</p>
+                </div>
+                <div class="toolbar" style="margin-bottom:8px;">
+                    <select id="knowledgeReviewQueueFilter" title="Filter review queue by issue type.">
+                        <option value="">All review issues</option>
+                        <option value="drive_changed">Drive changed</option>
+                        <option value="low_quality">Low quality</option>
+                        <option value="stale">Stale</option>
+                        <option value="draft">Draft</option>
+                    </select>
+                    <button class="btn-muted" id="btnKnowledgeReviewQueueRefresh" title="Reload Knowledge Review Queue.">Refresh Queue</button>
+                    <span class="note" id="knowledgeReviewQueueSummary">No review queue loaded.</span>
+                </div>
+                <div class="scroll">
+                    <table class="table" id="knowledgeReviewQueueTable">
+                        <thead><tr><th>Priority</th><th>Document</th><th>Issue</th><th>Quality</th><th>Suggested Action</th><th>Actions</th></tr></thead>
+                        <tbody><tr><td colspan="6">No review queue loaded.</td></tr></tbody>
+                    </table>
+                </div>
+            </section>
+            <section class="card source-quality-full">
+                <div class="section-head">
+                    <h2>Knowledge Quality Workflow</h2>
+                    <p>Govern document lifecycle, stale Drive changes, and quality signals from feedback/fallbacks.</p>
+                </div>
+                <div class="scroll">
+                    <table class="table" id="knowledgeQualityTable">
+                        <thead><tr><th>Document</th><th>Lifecycle</th><th>Quality</th><th>Signals</th><th>Stale / Diff</th><th>Actions</th></tr></thead>
+                        <tbody><tr><td colspan="6">No quality report loaded.</td></tr></tbody>
+                    </table>
+                </div>
+            </section>
+            <section class="card source-quality-full">
+                <div class="section-head">
+                    <h2>Source Quality</h2>
+                    <p>Chunk and language distribution after ingest.</p>
+                </div>
+                <div class="scroll">
+                    <table class="table" id="knowledgeWorkspaceSourcesTable">
+                        <thead><tr><th>Filename</th><th>Chunks</th><th>VI %</th><th>EN %</th><th>Other %</th></tr></thead>
+                        <tbody><tr><td colspan="5">No sources loaded.</td></tr></tbody>
+                    </table>
+                </div>
+            </section>
         </div>
 
         <div id="view-kb" class="view legacy-backfill" hidden aria-hidden="true">
@@ -471,7 +511,7 @@
                         <p>Add source files to the shared library and attach them to the current Knowledge Base.</p>
                     </div>
                     <div class="upload" id="uploadZone">
-                        <input type="file" id="fileInput" multiple accept=".pdf,.txt,.md,.html,.htm,.csv,.xlsx,.xls,.docx,.json,.jsonl">
+                        <input type="file" id="fileInput" multiple accept=".pdf,.txt,.md,.html,.htm,.csv,.xlsx,.xls,.docx,.json,.jsonl,.xml,.png,.jpg,.jpeg,.webp,.tif,.tiff,.bmp">
                         <strong>Drop files or click to upload</strong>
                         <p class="note">Upload goes to the source library and attaches to the selected KB.</p>
                     </div>
@@ -537,6 +577,27 @@
                     </div>
                 </section>
             </div>
+        </div>
+
+        <div id="view-file-browser" class="view">
+            <section class="card">
+                <div class="view-all-head">
+                    <div>
+                        <h2 id="fileBrowserTitle">All Files</h2>
+                        <p class="note" id="fileBrowserSummary">Browse files and run source actions.</p>
+                    </div>
+                    <div class="row">
+                        <input id="fileBrowserSearch" placeholder="Search files..." title="Filter visible files by name or status." style="width:260px;">
+                        <button class="btn-muted" id="btnFileBrowserBack" title="Return to Knowledge Workspace.">Back to Knowledge</button>
+                    </div>
+                </div>
+                <div class="scroll" style="max-height:680px;">
+                    <table class="table" id="fileBrowserTable">
+                        <thead><tr><th>ID</th><th>Name</th><th>Status</th><th>Details</th><th>Actions</th></tr></thead>
+                        <tbody><tr><td colspan="5">No files loaded.</td></tr></tbody>
+                    </table>
+                </div>
+            </section>
         </div>
 
         <div id="view-drive" class="view legacy-backfill" hidden aria-hidden="true">
@@ -705,11 +766,39 @@
                 </section>
                 <section class="card span-12">
                     <div class="section-head">
+                        <h2>Knowledge Gaps</h2>
+                        <p>Top unanswered or low-confidence questions grouped for KB maintenance.</p>
+                    </div>
+                    <div class="toolbar" style="margin-bottom:10px;">
+                        <select id="knowledgeGapStatus" title="Filter knowledge gaps by review status.">
+                            <option value="open">Open</option>
+                            <option value="suggested">Suggested</option>
+                            <option value="resolved">Resolved</option>
+                            <option value="ignored">Ignored</option>
+                            <option value="">All</option>
+                        </select>
+                        <button class="btn-muted" id="btnRefreshKnowledgeGaps" title="Reload knowledge gap clusters.">Refresh Gaps</button>
+                        <button class="btn-main" id="btnScheduleKnowledgeGapReport" title="Create a weekly knowledge gap report schedule.">Schedule Weekly Report</button>
+                        <span class="note" id="knowledgeGapSummary">No knowledge gaps loaded.</span>
+                    </div>
+                    <div class="scroll">
+                        <table class="table" id="knowledgeGapsTable">
+                            <thead><tr><th>Question Cluster</th><th>Count</th><th>Score</th><th>KB</th><th>Status</th><th>Actions</th></tr></thead>
+                            <tbody><tr><td colspan="6">No knowledge gaps loaded.</td></tr></tbody>
+                        </table>
+                    </div>
+                </section>
+                <section class="card span-12">
+                    <div class="section-head">
                         <h2>Agent Evaluation Center</h2>
                         <p>Run repeatable quality checks against recent chat answers using fallback, citation, retrieval, and feedback signals.</p>
                     </div>
                     <div class="toolbar" style="margin-bottom:10px;">
                         <input id="evalRunName" placeholder="Run name, e.g. Weekly answer quality" title="Optional evaluation run name.">
+                        <select id="evalSource" title="Choose evaluation source.">
+                            <option value="chat_logs">Recent chat logs</option>
+                            <option value="golden_dataset">Golden dataset</option>
+                        </select>
                         <select id="evalDays" title="Select evaluation lookback window.">
                             <option value="7">Last 7 days</option>
                             <option value="14">Last 14 days</option>
@@ -721,9 +810,35 @@
                             <option value="selected">Selected KB only</option>
                         </select>
                         <input id="evalLimit" type="number" min="1" max="500" value="50" title="Maximum chat logs to evaluate.">
+                        <input id="evalAlertDrop" type="number" min="0" max="100" value="10" title="Golden eval alert threshold in score points.">
                         <button class="btn-main" id="btnRunAgentEval" title="Create a new evaluation run from recent chat logs.">Run Evaluation</button>
                         <button class="btn-muted" id="btnRefreshAgentEvals" title="Reload evaluation runs.">Refresh Runs</button>
                         <span class="note" id="agentEvalSummary">No evaluation run loaded.</span>
+                    </div>
+                    <div class="support-detail-card" style="margin-bottom:10px;">
+                        <h3>Golden Dataset</h3>
+                        <div class="row" style="margin-bottom:8px;">
+                            <input id="goldenQuestion" placeholder="Question" title="Benchmark question to ask the RAG pipeline.">
+                            <input id="goldenExpectedAnswer" placeholder="Expected answer" title="Reference answer for similarity scoring.">
+                        </div>
+                        <div class="row" style="margin-bottom:8px;">
+                            <input id="goldenSourceFileId" type="number" min="1" placeholder="Expected file ID" title="Optional source file expected in retrieval results.">
+                            <input id="goldenKeywords" placeholder="Expected keywords, comma-separated" title="Optional keywords expected in answer/citations.">
+                            <input id="goldenTags" placeholder="Tags, comma-separated" title="Optional dataset tags.">
+                        </div>
+                        <div class="btn-row" style="margin-bottom:8px;">
+                            <button class="btn-ok" id="btnCreateGoldenItem" title="Add one benchmark Q&A pair to the selected KB.">Add Golden Item</button>
+                            <button class="btn-muted" id="btnUploadGoldenCsv" title="Upload CSV with question, expected_answer, optional source and tags.">Upload CSV</button>
+                            <button class="btn-muted" id="btnRefreshGoldenDataset" title="Reload golden dataset rows.">Refresh Dataset</button>
+                            <button class="btn-main" id="btnScheduleGoldenEval" title="Create a daily scheduled golden evaluation.">Schedule Nightly Eval</button>
+                            <span class="note" id="goldenDatasetSummary">No golden dataset loaded.</span>
+                        </div>
+                        <div class="scroll" style="max-height:220px;">
+                            <table class="table" id="goldenDatasetTable">
+                                <thead><tr><th>ID</th><th>Question</th><th>Expected</th><th>Target</th></tr></thead>
+                                <tbody><tr><td colspan="4">No golden dataset loaded.</td></tr></tbody>
+                            </table>
+                        </div>
                     </div>
                     <div class="stats">
                         <div class="stat"><div class="value" id="evalAvgScore">-</div><div class="label">Avg Score</div></div>
@@ -898,37 +1013,7 @@
                         </div>
                     </section>
 
-                    <section class="card">
-                        <div class="section-head">
-                            <h2>Background Jobs</h2>
-                            <p>Cancel active work or retry failed/cancelled jobs.</p>
-                        </div>
-                        <div class="scroll">
-                            <table class="table" id="operationsBackgroundJobsTable">
-                                <thead><tr><th>Job ID</th><th>Type</th><th>Status</th><th>Progress</th><th>Result</th><th>Actions</th></tr></thead>
-                                <tbody><tr><td colspan="6">No background job loaded.</td></tr></tbody>
-                            </table>
-                        </div>
-                    </section>
-
-                    <section class="card">
-                        <div class="section-head">
-                            <h2>Durable Workflows</h2>
-                            <p>Inspect checkpointed workflow runs, step history, paused approvals, and retry/cancel controls.</p>
-                        </div>
-                        <div class="toolbar" style="margin-bottom:8px;">
-                            <button class="btn-muted" id="btnOperationsRefreshWorkflows" title="Reload durable workflow runs.">Refresh</button>
-                            <span class="note" id="workflowRunSummary">No workflow run loaded.</span>
-                        </div>
-                        <div class="scroll">
-                            <table class="table" id="operationsWorkflowRunsTable">
-                                <thead><tr><th>Run</th><th>Entity</th><th>Status</th><th>Current Step</th><th>Actions</th></tr></thead>
-                                <tbody><tr><td colspan="5">No workflow run loaded.</td></tr></tbody>
-                            </table>
-                        </div>
-                    </section>
-
-                    <section class="card">
+                    <section class="card notification-center-card">
                         <div class="section-head">
                             <h2>Notification Center</h2>
                             <p>Operational alerts for approvals, failed jobs, SLA breaches, and employee replies.</p>
@@ -954,20 +1039,7 @@
                 </div>
 
                 <div class="operations-panel">
-                    <section class="card">
-                        <div class="section-head">
-                            <h2>Sync Schedules</h2>
-                            <p>Enable, disable, edit, or remove recurring sync schedules.</p>
-                        </div>
-                        <div class="scroll">
-                            <table class="table" id="operationsSyncSchedulesTable">
-                                <thead><tr><th>ID</th><th>Name</th><th>Type</th><th>Interval</th><th>Last / Next</th><th>Actions</th></tr></thead>
-                                <tbody><tr><td colspan="6">No sync schedule loaded.</td></tr></tbody>
-                            </table>
-                        </div>
-                    </section>
-
-                    <section class="card">
+                    <section class="card audit-snapshot-card">
                         <div class="section-head">
                             <h2>Audit Snapshot</h2>
                             <p>Latest chat logs, feedback, and authorization decisions.</p>
@@ -992,6 +1064,53 @@
                         </div>
                     </section>
                 </div>
+
+                <section class="card span-12">
+                    <div class="section-head">
+                        <h2>Sync Schedules</h2>
+                        <p>Enable, disable, edit, or remove recurring sync schedules.</p>
+                    </div>
+                    <div class="toolbar" style="margin-bottom:8px;">
+                        <button class="btn-main" id="btnOperationsScheduleGoldenEval" title="Schedule daily golden dataset evaluation for the selected KB.">Schedule Golden Eval</button>
+                        <button class="btn-muted" id="btnOperationsRefreshSchedules" title="Reload sync schedules.">Refresh</button>
+                    </div>
+                    <div class="scroll">
+                        <table class="table" id="operationsSyncSchedulesTable">
+                            <thead><tr><th>ID</th><th>Name</th><th>Type</th><th>Interval</th><th>Last / Next</th><th>Actions</th></tr></thead>
+                            <tbody><tr><td colspan="6">No sync schedule loaded.</td></tr></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="card span-12">
+                    <div class="section-head">
+                        <h2>Background Jobs</h2>
+                        <p>Cancel active work or retry failed/cancelled jobs.</p>
+                    </div>
+                    <div class="scroll">
+                        <table class="table" id="operationsBackgroundJobsTable">
+                            <thead><tr><th>Job ID</th><th>Type</th><th>Status</th><th>Progress</th><th>Result</th><th>Actions</th></tr></thead>
+                            <tbody><tr><td colspan="6">No background job loaded.</td></tr></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="card span-12">
+                    <div class="section-head">
+                        <h2>Durable Workflows</h2>
+                        <p>Inspect checkpointed workflow runs, step history, paused approvals, and retry/cancel controls.</p>
+                    </div>
+                    <div class="toolbar" style="margin-bottom:8px;">
+                        <button class="btn-muted" id="btnOperationsRefreshWorkflows" title="Reload durable workflow runs.">Refresh</button>
+                        <span class="note" id="workflowRunSummary">No workflow run loaded.</span>
+                    </div>
+                    <div class="scroll">
+                        <table class="table" id="operationsWorkflowRunsTable">
+                            <thead><tr><th>Run</th><th>Entity</th><th>Status</th><th>Current Step</th><th>Actions</th></tr></thead>
+                            <tbody><tr><td colspan="5">No workflow run loaded.</td></tr></tbody>
+                        </table>
+                    </div>
+                </section>
 
                 <section class="card span-12">
                     <div class="section-head">
@@ -1573,6 +1692,9 @@
         let feedbackItems = [];
         let agentEvalRuns = [];
         let selectedAgentEvalRun = null;
+        let goldenDataset = [];
+        let knowledgeGaps = [];
+        let fileBrowserMode = 'kb';
         let authAuditLogs = [];
         let notifications = [];
         let notificationUnreadCount = 0;
@@ -1590,6 +1712,7 @@
 
         const TAB_ACCESS = {
             'view-knowledge-workspace': ['admin', 'content_manager', 'integration_admin'],
+            'view-file-browser': ['admin', 'content_manager', 'integration_admin'],
             'view-kb': ['admin', 'content_manager', 'integration_admin'],
             'view-drive': ['admin', 'content_manager', 'integration_admin'],
             'view-support-workspace': ['admin', 'support_manager', 'support_agent'],
@@ -1617,6 +1740,18 @@
             mcp: ['admin', 'integration_admin'],
             system: ['admin', 'integration_admin', 'auditor'],
             calibrate: TAB_ACCESS['view-calibrate'],
+        };
+
+        const VIEW_COPY = {
+            'view-knowledge-workspace': ['Knowledge Workspace', 'Manage knowledge bases, sources, and content lifecycle.'],
+            'view-file-browser': ['Source Files', 'Browse source files and run document actions.'],
+            'view-support-workspace': ['Support Workspace', 'Handle inbox messages, tickets, notes, and escalations.'],
+            'view-operations-workspace': ['Operations Workspace', 'Monitor jobs, schedules, notifications, and workflow runs.'],
+            'view-access': ['Access', 'Manage users, roles, and production readiness.'],
+            'view-analytics': ['Analytics', 'Track quality, feedback, evaluation, and operational metrics.'],
+            'view-calibrate': ['Calibrate', 'Test retrieval ranking and snippet quality in the selected KB.'],
+            'view-mcp': ['MCP Server', 'Inspect MCP health, tools, resources, and security policy.'],
+            'view-system': ['System', 'Inspect runtime and selected Knowledge Base payloads.'],
         };
 
         const ROLE_LABELS = {
@@ -1736,6 +1871,9 @@
             }
             document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.target === target));
             document.querySelectorAll('.view').forEach((v) => v.classList.toggle('active', v.id === target));
+            const copy = VIEW_COPY[target] || VIEW_COPY['view-knowledge-workspace'];
+            setTextIfExists('pageTitle', copy[0]);
+            setTextIfExists('pageSubtitle', copy[1]);
         }
 
         async function loadViewerProfile() {
@@ -1758,15 +1896,19 @@
         function applyRoleShell() {
             const roles = Array.from(roleSet());
             const roleText = roles.length ? roles.map(roleLabel).join(', ') : 'No role';
-            document.getElementById('roleShellTitle').textContent = `${viewerProfile?.user_id || 'Unknown user'} | ${roleText}`;
-            document.getElementById('roleShellDetail').textContent = `Auth mode: ${viewerProfile?.auth_mode || '-'} | Channel: ${viewerProfile?.channel || '-'} | UI modules are filtered by role.`;
+            document.getElementById('roleShellTitle').textContent = viewerProfile?.user_id || 'Unknown user';
+            document.getElementById('roleShellDetail').textContent = roleText;
             const devIdentity = document.getElementById('adminDevIdentity');
             if (devIdentity) devIdentity.hidden = !viewerProfile?.debug_auth_inputs_enabled;
-            document.getElementById('roleShellBadges').innerHTML = [
+            const badges = [
                 ...(roles.length ? roles : ['no_role']),
                 viewerProfile?.tenant_id ? `tenant:${viewerProfile.tenant_id}` : null,
                 viewerProfile?.org_id ? `org:${viewerProfile.org_id}` : null,
-            ].filter(Boolean).map((item) => `<span class="role-pill">${escapeHtml(roleLabel(item))}</span>`).join('');
+            ].filter(Boolean);
+            document.getElementById('roleShellBadges').innerHTML = badges
+                .slice(0, 1)
+                .map((item) => `<span class="role-pill" title="${escapeHtml(roleLabel(item))}">${escapeHtml(roleLabel(item).slice(0, 1).toUpperCase())}</span>`)
+                .join('');
 
             visibleTargets = new Set();
             document.querySelectorAll('.tab-btn').forEach((btn) => {
@@ -1928,9 +2070,54 @@
             if (tbody) tbody.innerHTML = html;
         }
 
-        function kbFileRowsHtml(items) {
+        function compactFileActions(fileId, actionsHtml) {
+            return `
+                <div class="action-menu-wrap">
+                    <button class="btn-muted action-dot" data-file-menu="${fileId}" title="Show file actions.">...</button>
+                    <div class="action-menu">${actionsHtml}</div>
+                </div>
+            `;
+        }
+
+        function kbActionButtons(file) {
+            return `
+                <button class="btn-main" data-kb-ingest="${file.file_id}">${file.kb_status === 'ingested' ? 'Reindex' : 'Ingest'}</button>
+                <button class="btn-muted" data-file-versions="${file.file_id}">Versions</button>
+                <button class="btn-muted" data-file-version-diff="${file.file_id}">V-Diff</button>
+                <button class="btn-ok" data-file-replace="${file.file_id}">Replace</button>
+                <button class="btn-danger" data-file-rollback="${file.file_id}">Rollback</button>
+                <button class="btn-danger" data-detach="${file.file_id}">Detach</button>
+            `;
+        }
+
+        function libraryActionButtons(file, attachedSet) {
+            return `
+                ${attachedSet.has(Number(file.id)) ? '<button class="btn-muted" disabled>Attached</button>' : `<button class="btn-ok" data-attach="${file.id}">Attach</button>`}
+                <button class="btn-muted" data-file-versions="${file.id}">Versions</button>
+                <button class="btn-muted" data-file-version-diff="${file.id}">V-Diff</button>
+                <button class="btn-ok" data-file-replace="${file.id}">Replace</button>
+                <button class="btn-danger" data-file-rollback="${file.id}">Rollback</button>
+                <button class="btn-danger" data-del="${file.id}">Delete</button>
+            `;
+        }
+
+        function toggleActionMenu(menuBtn) {
+            const wrap = menuBtn.closest('.action-menu-wrap');
+            if (!wrap) return;
+            const table = menuBtn.closest('table');
+            table?.querySelectorAll('.action-menu-wrap.open').forEach((item) => {
+                if (item !== wrap) item.classList.remove('open');
+            });
+            wrap.classList.toggle('open');
+        }
+
+        function kbFileRowsHtml(items, options = {}) {
+            const preview = Boolean(options.preview);
+            const compactActions = options.compactActions ?? preview;
+            const limit = Number.isInteger(options.limit) ? options.limit : (preview ? 3 : 0);
+            const visibleItems = limit > 0 ? items.slice(0, limit) : items;
             if (!items.length) return '<tr><td colspan="7">No files attached to this KB.</td></tr>';
-            return items.map((file) => `
+            return visibleItems.map((file) => `
                 <tr>
                     <td>${file.file_id}</td>
                     <td>${escapeHtml(file.original_name)}</td>
@@ -1939,8 +2126,11 @@
                     <td><span class="status ${file.upload_status}">${file.upload_status}</span></td>
                     <td>${file.chunk_count ?? 0}</td>
                     <td>
-                        <button class="btn-main" data-kb-ingest="${file.file_id}">${file.kb_status === 'ingested' ? 'Reindex' : 'Ingest'}</button>
-                        <button class="btn-danger" data-detach="${file.file_id}">Detach</button>
+                        ${compactActions ? compactFileActions(file.file_id, kbActionButtons(file)) : `
+                            <div class="table-actions">
+                                ${kbActionButtons(file)}
+                            </div>
+                        `}
                     </td>
                 </tr>
             `).join('');
@@ -1995,18 +2185,25 @@
             `).join('');
         }
 
-        function libraryRowsHtml(items) {
+        function libraryRowsHtml(items, options = {}) {
             if (!items.length) return '<tr><td colspan="5">No source files uploaded.</td></tr>';
+            const preview = Boolean(options.preview);
+            const compactActions = options.compactActions ?? preview;
+            const limit = Number.isInteger(options.limit) ? options.limit : (preview ? 3 : 0);
+            const visibleItems = limit > 0 ? items.slice(0, limit) : items;
             const attachedSet = new Set(kbFiles.map((item) => Number(item.file_id)));
-            return items.map((file) => `
+            return visibleItems.map((file) => `
                 <tr>
                     <td>${file.id}</td>
                     <td>${escapeHtml(file.original_name)}</td>
                     <td><span class="status ${file.status}">${file.status}</span></td>
                     <td>${file.pages_or_rows ?? '-'}</td>
                     <td>
-                        ${attachedSet.has(Number(file.id)) ? '<button class="btn-muted" disabled>Attached</button>' : `<button class="btn-ok" data-attach="${file.id}">Attach</button>`}
-                        <button class="btn-danger" data-del="${file.id}">Delete</button>
+                        ${compactActions ? compactFileActions(file.id, libraryActionButtons(file, attachedSet)) : `
+                            <div class="table-actions">
+                                ${libraryActionButtons(file, attachedSet)}
+                            </div>
+                        `}
                     </td>
                 </tr>
             `).join('');
@@ -2207,10 +2404,38 @@
             await refreshAccessManagement();
         }
 
+        function syncKnowledgeCardHeights() {
+            const filesCard = document.getElementById('knowledgeWorkspaceKbFilesTable')?.closest('.card');
+            const sourceCard = document.querySelector('.source-library-card');
+            if (!filesCard || !sourceCard) return;
+            if (window.matchMedia('(max-width: 1100px)').matches) {
+                sourceCard.style.height = '';
+                return;
+            }
+            const filesRect = filesCard.getBoundingClientRect();
+            const sourceRect = sourceCard.getBoundingClientRect();
+            const targetHeight = Math.max(280, Math.round(filesRect.bottom - sourceRect.top));
+            sourceCard.style.height = `${targetHeight}px`;
+        }
+
+        function syncOperationsCardHeights() {
+            const notificationCard = document.querySelector('.notification-center-card');
+            const auditCard = document.querySelector('.audit-snapshot-card');
+            if (!notificationCard || !auditCard) return;
+            if (window.matchMedia('(max-width: 1100px)').matches) {
+                auditCard.style.height = '';
+                return;
+            }
+            const notificationRect = notificationCard.getBoundingClientRect();
+            const auditRect = auditCard.getBoundingClientRect();
+            const targetHeight = Math.max(300, Math.round(notificationRect.bottom - auditRect.top));
+            auditCard.style.height = `${targetHeight}px`;
+        }
+
         function renderKnowledgeWorkspace() {
             const selectedDriveSources = driveSourcesForSelectedKb();
-            setTableBody('knowledgeWorkspaceKbFilesTable', kbFileRowsHtml(kbFiles));
-            setTableBody('knowledgeWorkspaceLibraryTable', libraryRowsHtml(libraryFiles));
+            setTableBody('knowledgeWorkspaceKbFilesTable', kbFileRowsHtml(kbFiles, { compactActions: true }));
+            setTableBody('knowledgeWorkspaceLibraryTable', libraryRowsHtml(libraryFiles, { compactActions: true }));
             setTableBody('knowledgeWorkspaceSourcesTable', sourceStatsRowsHtml(sourceStats));
             setTableBody('knowledgeWorkspaceDriveSourcesTable', selectedKbId() ? driveSourceRowsHtml(selectedDriveSources, 'knowledge') : '<tr><td colspan="6">No Knowledge Base selected.</td></tr>');
             setTableBody('knowledgeReviewQueueTable', selectedKbId() ? knowledgeReviewQueueRowsHtml(kbReviewQueue) : '<tr><td colspan="6">No Knowledge Base selected.</td></tr>');
@@ -2238,6 +2463,75 @@
                     ? `${kbReviewQueue.total} item(s): ${kbReviewQueue.drive_changed_count} Drive changed, ${kbReviewQueue.low_quality_count} low quality, ${kbReviewQueue.stale_count} stale, ${kbReviewQueue.draft_count} draft.`
                     : 'No review queue loaded.';
             }
+            requestAnimationFrame(syncKnowledgeCardHeights);
+            renderFileBrowser();
+        }
+
+        function currentFileBrowserItems() {
+            const query = (document.getElementById('fileBrowserSearch')?.value || '').trim().toLowerCase();
+            const base = fileBrowserMode === 'library'
+                ? libraryFiles.map((item) => ({ ...item, browser_kind: 'library' }))
+                : kbFiles.map((item) => ({ ...item, id: item.file_id, status: item.kb_status, browser_kind: 'kb' }));
+            if (!query) return base;
+            return base.filter((item) => [
+                item.id,
+                item.file_id,
+                item.original_name,
+                item.status,
+                item.kb_status,
+                item.upload_status,
+                item.lifecycle_status,
+            ].some((value) => String(value || '').toLowerCase().includes(query)));
+        }
+
+        function fileBrowserRowsHtml(items) {
+            if (!items.length) return '<tr><td colspan="5">No files match this view.</td></tr>';
+            const attachedSet = new Set(kbFiles.map((item) => Number(item.file_id)));
+            return items.map((item) => {
+                const fileId = Number(item.file_id || item.id);
+                const isKbFile = item.browser_kind === 'kb';
+                const status = isKbFile ? item.kb_status : item.status;
+                const details = isKbFile
+                    ? `lifecycle: ${escapeHtml(item.lifecycle_status || 'draft')}<br><small class="note">source: ${escapeHtml(item.upload_status || '-')} | chunks: ${item.chunk_count ?? 0}</small>`
+                    : `rows/pages: ${item.pages_or_rows ?? '-'}<br><small class="note">attached: ${attachedSet.has(fileId) ? 'yes' : 'no'}</small>`;
+                return `
+                    <tr>
+                        <td>${fileId}</td>
+                        <td><strong>${escapeHtml(item.original_name || '-')}</strong></td>
+                        <td><span class="status ${escapeHtml(status || '-')}">${escapeHtml(status || '-')}</span></td>
+                        <td>${details}</td>
+                        <td>
+                            <div class="table-actions">
+                                ${isKbFile ? `<button class="btn-main" data-kb-ingest="${fileId}">${item.kb_status === 'ingested' ? 'Reindex' : 'Ingest'}</button><button class="btn-danger" data-detach="${fileId}">Detach</button>` : attachedSet.has(fileId) ? '<button class="btn-muted" disabled>Attached</button>' : `<button class="btn-ok" data-attach="${fileId}">Attach</button>`}
+                                <button class="btn-muted" data-file-versions="${fileId}">Versions</button>
+                                <button class="btn-muted" data-file-version-diff="${fileId}">V-Diff</button>
+                                <button class="btn-ok" data-file-replace="${fileId}">Replace</button>
+                                <button class="btn-danger" data-file-rollback="${fileId}">Rollback</button>
+                                ${isKbFile ? '' : `<button class="btn-danger" data-del="${fileId}">Delete</button>`}
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function renderFileBrowser() {
+            const title = document.getElementById('fileBrowserTitle');
+            const summary = document.getElementById('fileBrowserSummary');
+            if (!title || !summary) return;
+            const items = currentFileBrowserItems();
+            title.textContent = fileBrowserMode === 'library' ? 'All Source Library Files' : 'All Files In Selected KB';
+            summary.textContent = fileBrowserMode === 'library'
+                ? `${items.length} source file(s) in the shared library.`
+                : `${items.length} file(s) attached to ${activeKb?.name || 'selected KB'}.`;
+            setTableBody('fileBrowserTable', fileBrowserRowsHtml(items));
+        }
+
+        function openFileBrowser(mode) {
+            fileBrowserMode = mode === 'library' ? 'library' : 'kb';
+            setValueIfExists('fileBrowserSearch', '');
+            renderFileBrowser();
+            activateTab('view-file-browser');
         }
 
         function updateKbHeader() {
@@ -2507,6 +2801,111 @@
             `).join('') : `<tr><td colspan="2">${emptyLabel}</td></tr>`;
         }
 
+        function knowledgeGapRowsHtml(items) {
+            if (!items.length) return emptyRow(6, 'No knowledge gaps found.', 'Fallback and low-confidence questions will appear here.');
+            return items.map((item) => {
+                const samples = (item.sample_queries || []).filter((query) => query && query !== item.representative_query);
+                const sampleText = samples.length ? `<br><small class="note">${samples.map(escapeHtml).join(' | ')}</small>` : '';
+                const actionBadge = item.suggested_action ? '<br><span class="status queued">FAQ suggested</span>' : '';
+                const kb = item.kb_key || item.kb_id || '-';
+                return `
+                    <tr>
+                        <td>
+                            <strong>${escapeHtml(item.representative_query || '-')}</strong>
+                            ${sampleText}
+                            ${actionBadge}
+                        </td>
+                        <td>${item.count || 0}</td>
+                        <td>
+                            ${item.avg_score ?? '-'}
+                            <br><small class="note">min ${item.min_score ?? '-'}</small>
+                        </td>
+                        <td>${escapeHtml(kb)}</td>
+                        <td>
+                            <span class="status ${item.status === 'open' ? 'failed' : item.status === 'resolved' ? 'done' : 'queued'}">${escapeHtml(item.status || 'open')}</span>
+                            <br><small class="note">${escapeHtml(item.last_seen_at || '-')}</small>
+                        </td>
+                        <td>
+                            <button class="btn-main" data-gap-suggest="${item.cluster_key}" data-gap-kb="${item.kb_id || ''}">Suggest FAQ</button>
+                            <button class="btn-ok" data-gap-status="${item.cluster_key}" data-gap-next="resolved" data-gap-kb="${item.kb_id || ''}">Resolve</button>
+                            <button class="btn-muted" data-gap-status="${item.cluster_key}" data-gap-next="ignored" data-gap-kb="${item.kb_id || ''}">Ignore</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function refreshKnowledgeGaps(showLoading = true) {
+            const days = Number(document.getElementById('analyticsDays').value || '7');
+            const selectedOnly = document.getElementById('analyticsScope').value === 'selected';
+            const params = new URLSearchParams({
+                days: String(days),
+                limit: '20',
+            });
+            const status = document.getElementById('knowledgeGapStatus')?.value || '';
+            if (status) params.set('status', status);
+            if (selectedOnly && selectedKbId()) params.set('kb_id', String(selectedKbId()));
+            if (showLoading) setTableBody('knowledgeGapsTable', loadingRow(6, 'Loading knowledge gaps...'));
+            const data = await fetchJson(`/api/admin/knowledge-gaps?${params.toString()}`);
+            knowledgeGaps = data.items || [];
+            setTableBody('knowledgeGapsTable', knowledgeGapRowsHtml(knowledgeGaps));
+            document.getElementById('knowledgeGapSummary').textContent = `${knowledgeGaps.length} cluster(s) in ${data.period_days || days} day window${data.kb_id ? ` | KB ${data.kb_id}` : ' | all KBs'}.`;
+        }
+
+        async function updateKnowledgeGapStatus(clusterKey, status, kbId) {
+            const params = new URLSearchParams();
+            if (kbId) params.set('kb_id', String(kbId));
+            const suffix = params.toString() ? `?${params.toString()}` : '';
+            await fetchJson(`/api/admin/knowledge-gaps/${encodeURIComponent(clusterKey)}${suffix}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status }),
+            });
+            toast(`Knowledge gap marked ${status}`);
+            await refreshKnowledgeGaps(false);
+        }
+
+        async function suggestKnowledgeGapFaq(clusterKey, kbId) {
+            const params = new URLSearchParams();
+            if (kbId) params.set('kb_id', String(kbId));
+            const suffix = params.toString() ? `?${params.toString()}` : '';
+            const result = await fetchJson(`/api/admin/knowledge-gaps/${encodeURIComponent(clusterKey)}/suggest-faq${suffix}`, { method: 'POST' });
+            const action = result.pending_action || {};
+            toast(result.created ? `FAQ draft action created: #${action.id}` : `FAQ draft already exists: #${action.id}`);
+            await refreshKnowledgeGaps(false);
+            await refreshPendingActions(false);
+        }
+
+        async function createKnowledgeGapReportSchedule() {
+            const selectedOnly = document.getElementById('analyticsScope').value === 'selected';
+            const targetKb = selectedOnly ? selectedKbId() : null;
+            const defaultNext = new Date();
+            defaultNext.setDate(defaultNext.getDate() + 7);
+            defaultNext.setHours(9, 0, 0, 0);
+            const nextRun = await modalPrompt('Schedule knowledge gap report', 'First weekly run timestamp (ISO):', defaultNext.toISOString());
+            if (nextRun === null) return;
+            const item = await fetchJson('/api/admin/sync-schedules', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    schedule_type: 'knowledge_gap_report',
+                    target_id: targetKb,
+                    name: targetKb ? `Weekly Gap Report: KB ${targetKb}` : 'Weekly Knowledge Gap Report',
+                    enabled: true,
+                    interval_seconds: 604800,
+                    next_run_at: nextRun || defaultNext.toISOString(),
+                    payload: {
+                        days: 7,
+                        kb_id: targetKb,
+                        status: document.getElementById('knowledgeGapStatus')?.value || 'open',
+                        limit: 20,
+                    },
+                }),
+            });
+            toast(`Knowledge gap report schedule saved: ${item.name}`);
+            await refreshSyncSchedules(false);
+        }
+
         function clampNumber(value, min, max) {
             return Math.max(min, Math.min(max, Number(value) || 0));
         }
@@ -2625,6 +3024,7 @@
             renderBreakdownTable('analyticsSupportIntentsTable', data.support_intents);
             renderBreakdownTable('analyticsSupportStatusTable', data.support_status);
             renderBreakdownTable('analyticsKbUsageTable', data.kb_usage);
+            await refreshKnowledgeGaps(false);
         }
 
         function evalScoreStatus(score) {
@@ -2650,9 +3050,21 @@
             return results.map((item) => `
                 <tr>
                     <td><span class="status ${item.verdict === 'pass' ? 'done' : item.verdict === 'warn' ? 'queued' : 'failed'}">${escapeHtml(item.verdict || '-')}</span><br><small class="note">${escapeHtml(item.mode || '-')} | ${escapeHtml(item.feedback_rating || 'no feedback')}</small></td>
-                    <td><strong>${item.score ?? '-'}</strong><br><small class="note">top ${item.top_score ?? '-'}</small></td>
+                    <td><strong>${item.score ?? '-'}</strong><br><small class="note">top ${item.top_score ?? '-'}</small>${item.answer_similarity !== null && item.answer_similarity !== undefined ? `<br><small class="note">sim ${item.answer_similarity}, recall ${item.recall_at_k ?? '-'}, cite ${item.citation_accuracy ?? '-'}</small>` : ''}</td>
                     <td><strong>${escapeHtml(item.user_message || '-')}</strong><br><small class="note">${escapeHtml(item.answer_text || '-')}</small></td>
                     <td>${escapeHtml(item.reason || '-')}<br><small class="note">${(item.checks || []).map((check) => `${escapeHtml(check.name)}: ${escapeHtml(check.status)}`).join(', ')}</small></td>
+                </tr>
+            `).join('');
+        }
+
+        function goldenDatasetRowsHtml(items) {
+            if (!items.length) return '<tr><td colspan="4">No golden dataset rows found.</td></tr>';
+            return items.map((item) => `
+                <tr>
+                    <td>${item.id}<br><span class="status ${item.active ? 'active' : 'paused'}">${item.active ? 'active' : 'paused'}</span></td>
+                    <td><strong>${escapeHtml(item.question || '-')}</strong><br><small class="note">${(item.tags || []).map(escapeHtml).join(', ') || '-'}</small></td>
+                    <td>${escapeHtml(item.expected_answer || '-')}<br><small class="note">keywords: ${(item.expected_keywords || []).map(escapeHtml).join(', ') || '-'}</small></td>
+                    <td>KB ${item.kb_id}<br><small class="note">source file: ${item.expected_source_file_id || '-'}</small></td>
                 </tr>
             `).join('');
         }
@@ -2682,6 +3094,60 @@
             }
         }
 
+        async function refreshGoldenDataset() {
+            const kbId = selectedKbId();
+            const query = kbId ? `?kb_id=${kbId}&limit=100` : '?limit=100';
+            const data = await fetchJson(`/api/admin/evaluations/golden-dataset${query}`);
+            goldenDataset = data.items || [];
+            setTableBody('goldenDatasetTable', goldenDatasetRowsHtml(goldenDataset));
+            document.getElementById('goldenDatasetSummary').textContent = `Loaded ${goldenDataset.length} golden item(s).`;
+        }
+
+        async function createGoldenDatasetItem() {
+            if (!selectedKbId()) return toast('Select a KB first.', false);
+            const question = document.getElementById('goldenQuestion').value.trim();
+            const expected = document.getElementById('goldenExpectedAnswer').value.trim();
+            if (!question || !expected) return toast('Question and expected answer are required.', false);
+            const sourceRaw = document.getElementById('goldenSourceFileId').value;
+            const payload = {
+                kb_id: selectedKbId(),
+                question,
+                expected_answer: expected,
+                expected_source_file_id: sourceRaw ? Number(sourceRaw) : null,
+                expected_keywords: parseCommaList(document.getElementById('goldenKeywords').value),
+                tags: parseCommaList(document.getElementById('goldenTags').value),
+                active: true,
+            };
+            await fetchJson('/api/admin/evaluations/golden-dataset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            ['goldenQuestion', 'goldenExpectedAnswer', 'goldenSourceFileId', 'goldenKeywords', 'goldenTags'].forEach((id) => { document.getElementById(id).value = ''; });
+            toast('Golden item added.');
+            await refreshGoldenDataset();
+        }
+
+        async function uploadGoldenDatasetCsv() {
+            if (!selectedKbId()) return toast('Select a KB first.', false);
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.csv,text/csv';
+            input.style.display = 'none';
+            document.body.appendChild(input);
+            const picked = await new Promise((resolve) => {
+                input.addEventListener('change', () => resolve(input.files && input.files[0] ? input.files[0] : null), { once: true });
+                input.click();
+            });
+            input.remove();
+            if (!picked) return;
+            const body = new FormData();
+            body.append('file', picked);
+            const result = await fetchJson(`/api/admin/evaluations/golden-dataset/upload?kb_id=${selectedKbId()}`, { method: 'POST', body });
+            toast(`Imported ${result.created || 0} golden item(s).`);
+            await refreshGoldenDataset();
+        }
+
         async function viewAgentEvalRun(runId) {
             const detail = await fetchJson(`/api/admin/evaluations/runs/${runId}?limit=100`);
             renderAgentEvalRun(detail);
@@ -2689,11 +3155,14 @@
 
         async function runAgentEvaluation() {
             const selectedOnly = document.getElementById('evalScope').value === 'selected';
+            const source = document.getElementById('evalSource').value || 'chat_logs';
             const payload = {
                 name: document.getElementById('evalRunName').value.trim() || null,
                 days: Number(document.getElementById('evalDays').value || '7'),
                 limit: Number(document.getElementById('evalLimit').value || '50'),
+                source,
             };
+            if (source === 'golden_dataset') payload.alert_drop_threshold = Number(document.getElementById('evalAlertDrop').value || '10');
             if (selectedOnly && selectedKbId()) payload.kb_id = selectedKbId();
             const run = await fetchJson('/api/admin/evaluations/runs', {
                 method: 'POST',
@@ -3126,6 +3595,7 @@
                 subSummary.textContent = `${webhookSubscriptions.length} subscription(s), ${enabled} enabled.`;
             }
             setTextIfExists('workflowRunSummary', `${workflowRuns.length} run(s), ${activeWorkflowCount} active/paused, ${failedWorkflowCount} failed.`);
+            requestAnimationFrame(syncOperationsCardHeights);
         }
 
         async function refreshNotifications(showLoading = true) {
@@ -3758,6 +4228,34 @@
             await refreshSyncSchedules();
         }
 
+        async function createGoldenEvalSchedule() {
+            if (!selectedKbId()) return toast('Select a KB first.', false);
+            const defaultNext = new Date();
+            defaultNext.setDate(defaultNext.getDate() + 1);
+            defaultNext.setHours(2, 0, 0, 0);
+            const nextRun = await modalPrompt('Schedule golden evaluation', 'First run timestamp (ISO). Interval is daily.', defaultNext.toISOString());
+            if (nextRun === null) return;
+            const item = await fetchJson('/api/admin/sync-schedules', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    schedule_type: 'agent_eval_run',
+                    target_id: selectedKbId(),
+                    name: `Golden Eval: KB ${selectedKbId()}`,
+                    enabled: true,
+                    interval_seconds: 86400,
+                    next_run_at: nextRun || defaultNext.toISOString(),
+                    payload: {
+                        kb_id: selectedKbId(),
+                        limit: Number(document.getElementById('evalLimit')?.value || '50'),
+                        alert_drop_threshold: Number(document.getElementById('evalAlertDrop')?.value || '10'),
+                    },
+                }),
+            });
+            toast(`Golden eval schedule saved: ${item.name}`);
+            await refreshSyncSchedules();
+        }
+
         async function toggleSyncSchedule(scheduleId) {
             const item = syncSchedules.find((schedule) => Number(schedule.id) === Number(scheduleId));
             if (!item) return;
@@ -3912,6 +4410,7 @@
                 ['analytics', refreshFeedback],
                 ['analytics', refreshAnalytics],
                 ['analytics', refreshAgentEvalRuns],
+                ['analytics', refreshGoldenDataset],
             ]);
             await refreshIfAllowed('knowledge', refreshLibrary);
             renderJobSummary();
@@ -4211,6 +4710,118 @@
             await modalAlert('KB File Diff', body);
         }
 
+        async function showFileActionMenu(fileId) {
+            const choice = await modalPrompt('File actions', `Choose action for file ${fileId}: versions, diff, replace, rollback, ingest, detach`, 'versions');
+            if (choice === null) return;
+            const action = String(choice || '').trim().toLowerCase();
+            if (action === 'versions' || action === 'version') return showFileVersions(fileId);
+            if (action === 'diff' || action === 'v-diff') return showFileVersionDiff(fileId);
+            if (action === 'replace') return replaceFileContent(fileId);
+            if (action === 'rollback') return rollbackFileVersion(fileId);
+            if (action === 'ingest' || action === 'reindex') return ingestOne(fileId);
+            if (action === 'detach') return detachFile(fileId);
+            return modalAlert('File actions', 'Unknown action. Use versions, diff, replace, rollback, ingest, or detach.');
+        }
+
+        function versionLine(version) {
+            return [
+                `v${version.version_number}`,
+                version.is_current ? 'current' : '',
+                version.is_active ? 'active' : '',
+                version.has_snapshot ? 'snapshot' : 'no snapshot',
+                `${version.file_size} bytes`,
+                version.created_at || '-',
+                version.change_summary || '',
+            ].filter(Boolean).join(' | ');
+        }
+
+        async function showFileVersions(fileId) {
+            const data = await fetchJson(`/api/files/${fileId}/versions`);
+            const lines = [
+                `File ID: ${data.file_id}`,
+                `Current version: ${data.current_version || '-'}`,
+                '',
+                ...(data.versions || []).map(versionLine),
+            ];
+            await modalAlert('File Version History', lines.join('\n') || 'No versions found.');
+        }
+
+        async function replaceFileContent(fileId) {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.style.display = 'none';
+            document.body.appendChild(input);
+            const picked = await new Promise((resolve) => {
+                input.addEventListener('change', () => resolve(input.files && input.files[0] ? input.files[0] : null), { once: true });
+                input.click();
+            });
+            input.remove();
+            if (!picked) return;
+            if (!await modalConfirm('Replace file content', `Replace file ${fileId} with "${picked.name}" and create a new version?`, { confirmLabel: 'Replace' })) return;
+            const body = new FormData();
+            body.append('file', picked);
+            const updated = await fetchJson(`/api/files/${fileId}/content`, { method: 'POST', body });
+            toast(`Created new version for ${updated.file.original_name}`);
+            await refreshAll(selectedKbId());
+        }
+
+        async function rollbackFileVersion(fileId) {
+            const data = await fetchJson(`/api/files/${fileId}/versions`);
+            const versions = data.versions || [];
+            if (!versions.length) return modalAlert('Rollback version', 'No versions found for this file.');
+            const defaultVersion = versions.find((item) => !item.is_current && item.has_snapshot)?.version_number || versions[versions.length - 1].version_number;
+            const entered = await modalPrompt(
+                'Rollback version',
+                `Enter version number to restore for file ${fileId}.\nAvailable: ${versions.map((item) => `v${item.version_number}`).join(', ')}`,
+                String(defaultVersion || ''),
+            );
+            if (!entered) return;
+            const versionNumber = Number(entered);
+            if (!Number.isInteger(versionNumber)) return modalAlert('Rollback version', 'Version number must be an integer.');
+            if (!await modalConfirm('Confirm rollback', `Rollback file ${fileId} to version ${versionNumber}? This creates a new current version.`, { danger: true, confirmLabel: 'Rollback' })) return;
+            const result = await fetchJson(`/api/files/${fileId}/versions/${versionNumber}/rollback`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    reingest: true,
+                    kb_id: selectedKbId(),
+                    reason: 'rollback from admin UI',
+                }),
+            });
+            (result.jobs || []).forEach((job) => pollJob(job.job_id));
+            toast(result.message || `Rolled back file ${fileId}`);
+            await refreshAll(selectedKbId());
+        }
+
+        async function showFileVersionDiff(fileId) {
+            const data = await fetchJson(`/api/files/${fileId}/versions`);
+            const versions = data.versions || [];
+            if (versions.length < 2) return modalAlert('Version Diff', 'Need at least two versions to compare.');
+            const sorted = [...versions].sort((a, b) => a.version_number - b.version_number);
+            const defaultPair = `${sorted[0].version_number},${sorted[sorted.length - 1].version_number}`;
+            const entered = await modalPrompt(
+                'Version Diff',
+                `Enter versions as from,to.\nAvailable: ${versions.map((item) => `v${item.version_number}`).join(', ')}`,
+                defaultPair,
+            );
+            if (!entered) return;
+            const [fromVersion, toVersion] = String(entered).split(',').map((value) => Number(value.trim()));
+            if (!Number.isInteger(fromVersion) || !Number.isInteger(toVersion)) return modalAlert('Version Diff', 'Use format: 1,2');
+            const diff = await fetchJson(`/api/files/${fileId}/versions/${fromVersion}/diff/${toVersion}`);
+            const body = [
+                `File ID: ${diff.file_id}`,
+                `From: v${diff.from_version.version_number}`,
+                `To: v${diff.to_version.version_number}`,
+                `Changed: ${diff.changed ? 'yes' : 'no'}`,
+                `Additions: ${diff.additions}`,
+                `Deletions: ${diff.deletions}`,
+                `Truncated: ${diff.truncated ? 'yes' : 'no'}`,
+                '',
+                ...(diff.diff_lines || []),
+            ].join('\n');
+            await modalAlert('Version Diff', body);
+        }
+
         async function deleteFile(fileId) {
             if (!await modalConfirm('Delete source file', 'Delete this source file? It will fail if still attached to multiple KBs.', { danger: true, confirmLabel: 'Delete file' })) return;
             await fetchJson(`/api/files/${fileId}`, { method:'DELETE' });
@@ -4253,6 +4864,10 @@
         document.getElementById('btnKnowledgeIngest').addEventListener('click', () => ingestKb().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnKnowledgeReindex').addEventListener('click', () => reindexKb().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnKnowledgeDriveRefresh').addEventListener('click', () => refreshDriveSources().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnViewAllKbFiles').addEventListener('click', () => openFileBrowser('kb'));
+        document.getElementById('btnViewAllLibraryFiles').addEventListener('click', () => openFileBrowser('library'));
+        document.getElementById('btnFileBrowserBack').addEventListener('click', () => activateTab('view-knowledge-workspace'));
+        document.getElementById('fileBrowserSearch').addEventListener('input', renderFileBrowser);
         document.getElementById('knowledgeReviewQueueFilter').addEventListener('change', () => refreshKnowledgeReviewQueue().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnKnowledgeReviewQueueRefresh').addEventListener('click', () => refreshKnowledgeReviewQueue().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnClearCache').addEventListener('click', () => clearCache().catch((e) => toast(explainAuthError(e), false)));
@@ -4271,8 +4886,24 @@
         document.getElementById('btnRefreshAnalytics').addEventListener('click', () => refreshAnalytics().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('analyticsDays').addEventListener('change', () => refreshAnalytics().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('analyticsScope').addEventListener('change', () => refreshAnalytics().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnRefreshKnowledgeGaps').addEventListener('click', () => refreshKnowledgeGaps().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnScheduleKnowledgeGapReport').addEventListener('click', () => createKnowledgeGapReportSchedule().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('knowledgeGapStatus').addEventListener('change', () => refreshKnowledgeGaps().catch((e) => toast(explainAuthError(e), false)));
+        document.querySelector('#knowledgeGapsTable tbody').addEventListener('click', (event) => {
+            const suggestBtn = event.target.closest('[data-gap-suggest]');
+            if (suggestBtn) {
+                return suggestKnowledgeGapFaq(suggestBtn.dataset.gapSuggest, suggestBtn.dataset.gapKb).catch((e) => toast(explainAuthError(e), false));
+            }
+            const btn = event.target.closest('[data-gap-status]');
+            if (!btn) return;
+            updateKnowledgeGapStatus(btn.dataset.gapStatus, btn.dataset.gapNext, btn.dataset.gapKb).catch((e) => toast(explainAuthError(e), false));
+        });
         document.getElementById('btnRunAgentEval').addEventListener('click', () => runAgentEvaluation().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnRefreshAgentEvals').addEventListener('click', () => refreshAgentEvalRuns().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnCreateGoldenItem').addEventListener('click', () => createGoldenDatasetItem().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnUploadGoldenCsv').addEventListener('click', () => uploadGoldenDatasetCsv().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnRefreshGoldenDataset').addEventListener('click', () => refreshGoldenDataset().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnScheduleGoldenEval').addEventListener('click', () => createGoldenEvalSchedule().catch((e) => toast(explainAuthError(e), false)));
         document.querySelector('#agentEvalRunsTable tbody').addEventListener('click', (e) => {
             const btn = e.target.closest('button');
             if (!btn?.dataset.evalRunView) return;
@@ -4320,6 +4951,8 @@
         document.getElementById('operationsNotificationStatus').addEventListener('change', () => refreshNotifications().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('operationsWebhookStatus').addEventListener('change', () => refreshWebhookDeliveries().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnOperationsRefreshNotifications').addEventListener('click', () => refreshNotifications().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnOperationsScheduleGoldenEval').addEventListener('click', () => createGoldenEvalSchedule().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnOperationsRefreshSchedules').addEventListener('click', () => refreshSyncSchedules().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnOperationsMarkAllNotificationsRead').addEventListener('click', () => markAllNotificationsRead().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnOperationsTestNotification').addEventListener('click', () => createTestNotification().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnSaveWebhookSubscription').addEventListener('click', () => saveWebhookSubscription().catch((e) => toast(explainAuthError(e), false)));
@@ -4361,6 +4994,14 @@
         document.querySelector('#kbFilesTable tbody').addEventListener('click', (event) => {
             const ingestBtn = event.target.closest('[data-kb-ingest]');
             if (ingestBtn) return ingestOne(Number(ingestBtn.dataset.kbIngest)).catch((e) => toast(explainAuthError(e), false));
+            const versionsBtn = event.target.closest('[data-file-versions]');
+            if (versionsBtn) return showFileVersions(Number(versionsBtn.dataset.fileVersions)).catch((e) => toast(explainAuthError(e), false));
+            const versionDiffBtn = event.target.closest('[data-file-version-diff]');
+            if (versionDiffBtn) return showFileVersionDiff(Number(versionDiffBtn.dataset.fileVersionDiff)).catch((e) => toast(explainAuthError(e), false));
+            const replaceBtn = event.target.closest('[data-file-replace]');
+            if (replaceBtn) return replaceFileContent(Number(replaceBtn.dataset.fileReplace)).catch((e) => toast(explainAuthError(e), false));
+            const rollbackBtn = event.target.closest('[data-file-rollback]');
+            if (rollbackBtn) return rollbackFileVersion(Number(rollbackBtn.dataset.fileRollback)).catch((e) => toast(explainAuthError(e), false));
             const detachBtn = event.target.closest('[data-detach]');
             if (detachBtn) return detachFile(Number(detachBtn.dataset.detach)).catch((e) => toast(explainAuthError(e), false));
         });
@@ -4368,6 +5009,14 @@
         document.querySelector('#libraryTable tbody').addEventListener('click', (event) => {
             const attachBtn = event.target.closest('[data-attach]');
             if (attachBtn) return attachFile(Number(attachBtn.dataset.attach)).catch((e) => toast(explainAuthError(e), false));
+            const versionsBtn = event.target.closest('[data-file-versions]');
+            if (versionsBtn) return showFileVersions(Number(versionsBtn.dataset.fileVersions)).catch((e) => toast(explainAuthError(e), false));
+            const versionDiffBtn = event.target.closest('[data-file-version-diff]');
+            if (versionDiffBtn) return showFileVersionDiff(Number(versionDiffBtn.dataset.fileVersionDiff)).catch((e) => toast(explainAuthError(e), false));
+            const replaceBtn = event.target.closest('[data-file-replace]');
+            if (replaceBtn) return replaceFileContent(Number(replaceBtn.dataset.fileReplace)).catch((e) => toast(explainAuthError(e), false));
+            const rollbackBtn = event.target.closest('[data-file-rollback]');
+            if (rollbackBtn) return rollbackFileVersion(Number(rollbackBtn.dataset.fileRollback)).catch((e) => toast(explainAuthError(e), false));
             const delBtn = event.target.closest('[data-del]');
             if (delBtn) return deleteFile(Number(delBtn.dataset.del)).catch((e) => toast(explainAuthError(e), false));
         });
@@ -4383,8 +5032,18 @@
             if (deleteBtn) return deleteDriveSource(Number(deleteBtn.dataset.driveDelete)).catch((e) => toast(explainAuthError(e), false));
         });
         document.querySelector('#knowledgeWorkspaceKbFilesTable tbody').addEventListener('click', (event) => {
+            const menuBtn = event.target.closest('[data-file-menu]');
+            if (menuBtn) return toggleActionMenu(menuBtn);
             const ingestBtn = event.target.closest('[data-kb-ingest]');
             if (ingestBtn) return ingestOne(Number(ingestBtn.dataset.kbIngest)).catch((e) => toast(explainAuthError(e), false));
+            const versionsBtn = event.target.closest('[data-file-versions]');
+            if (versionsBtn) return showFileVersions(Number(versionsBtn.dataset.fileVersions)).catch((e) => toast(explainAuthError(e), false));
+            const versionDiffBtn = event.target.closest('[data-file-version-diff]');
+            if (versionDiffBtn) return showFileVersionDiff(Number(versionDiffBtn.dataset.fileVersionDiff)).catch((e) => toast(explainAuthError(e), false));
+            const replaceBtn = event.target.closest('[data-file-replace]');
+            if (replaceBtn) return replaceFileContent(Number(replaceBtn.dataset.fileReplace)).catch((e) => toast(explainAuthError(e), false));
+            const rollbackBtn = event.target.closest('[data-file-rollback]');
+            if (rollbackBtn) return rollbackFileVersion(Number(rollbackBtn.dataset.fileRollback)).catch((e) => toast(explainAuthError(e), false));
             const detachBtn = event.target.closest('[data-detach]');
             if (detachBtn) return detachFile(Number(detachBtn.dataset.detach)).catch((e) => toast(explainAuthError(e), false));
         });
@@ -4413,8 +5072,36 @@
             if (diffBtn) return showKbFileDiff(Number(diffBtn.dataset.kbDiff)).catch((e) => toast(explainAuthError(e), false));
         });
         document.querySelector('#knowledgeWorkspaceLibraryTable tbody').addEventListener('click', (event) => {
+            const menuBtn = event.target.closest('[data-file-menu]');
+            if (menuBtn) return toggleActionMenu(menuBtn);
             const attachBtn = event.target.closest('[data-attach]');
             if (attachBtn) return attachFile(Number(attachBtn.dataset.attach)).catch((e) => toast(explainAuthError(e), false));
+            const versionsBtn = event.target.closest('[data-file-versions]');
+            if (versionsBtn) return showFileVersions(Number(versionsBtn.dataset.fileVersions)).catch((e) => toast(explainAuthError(e), false));
+            const versionDiffBtn = event.target.closest('[data-file-version-diff]');
+            if (versionDiffBtn) return showFileVersionDiff(Number(versionDiffBtn.dataset.fileVersionDiff)).catch((e) => toast(explainAuthError(e), false));
+            const replaceBtn = event.target.closest('[data-file-replace]');
+            if (replaceBtn) return replaceFileContent(Number(replaceBtn.dataset.fileReplace)).catch((e) => toast(explainAuthError(e), false));
+            const rollbackBtn = event.target.closest('[data-file-rollback]');
+            if (rollbackBtn) return rollbackFileVersion(Number(rollbackBtn.dataset.fileRollback)).catch((e) => toast(explainAuthError(e), false));
+            const delBtn = event.target.closest('[data-del]');
+            if (delBtn) return deleteFile(Number(delBtn.dataset.del)).catch((e) => toast(explainAuthError(e), false));
+        });
+        document.querySelector('#fileBrowserTable tbody').addEventListener('click', (event) => {
+            const ingestBtn = event.target.closest('[data-kb-ingest]');
+            if (ingestBtn) return ingestOne(Number(ingestBtn.dataset.kbIngest)).catch((e) => toast(explainAuthError(e), false));
+            const attachBtn = event.target.closest('[data-attach]');
+            if (attachBtn) return attachFile(Number(attachBtn.dataset.attach)).catch((e) => toast(explainAuthError(e), false));
+            const detachBtn = event.target.closest('[data-detach]');
+            if (detachBtn) return detachFile(Number(detachBtn.dataset.detach)).catch((e) => toast(explainAuthError(e), false));
+            const versionsBtn = event.target.closest('[data-file-versions]');
+            if (versionsBtn) return showFileVersions(Number(versionsBtn.dataset.fileVersions)).catch((e) => toast(explainAuthError(e), false));
+            const versionDiffBtn = event.target.closest('[data-file-version-diff]');
+            if (versionDiffBtn) return showFileVersionDiff(Number(versionDiffBtn.dataset.fileVersionDiff)).catch((e) => toast(explainAuthError(e), false));
+            const replaceBtn = event.target.closest('[data-file-replace]');
+            if (replaceBtn) return replaceFileContent(Number(replaceBtn.dataset.fileReplace)).catch((e) => toast(explainAuthError(e), false));
+            const rollbackBtn = event.target.closest('[data-file-rollback]');
+            if (rollbackBtn) return rollbackFileVersion(Number(rollbackBtn.dataset.fileRollback)).catch((e) => toast(explainAuthError(e), false));
             const delBtn = event.target.closest('[data-del]');
             if (delBtn) return deleteFile(Number(delBtn.dataset.del)).catch((e) => toast(explainAuthError(e), false));
         });
@@ -4582,7 +5269,13 @@
         document.querySelectorAll('.tab-btn').forEach((btn) => {
             btn.addEventListener('click', () => {
                 activateTab(btn.dataset.target);
+                requestAnimationFrame(syncKnowledgeCardHeights);
+                requestAnimationFrame(syncOperationsCardHeights);
             });
+        });
+        window.addEventListener('resize', () => {
+            requestAnimationFrame(syncKnowledgeCardHeights);
+            requestAnimationFrame(syncOperationsCardHeights);
         });
         document.getElementById('btnAccessFirstModule').addEventListener('click', () => activateTab(firstVisibleTarget()));
 

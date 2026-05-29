@@ -67,6 +67,7 @@ def configure_test_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, expec
     paths = {
         "data_dir": data_dir,
         "raw_upload_dir": data_dir / "raw",
+        "file_versioning_snapshot_dir": data_dir / "raw" / "versions",
         "processed_dir": data_dir / "processed",
         "vectordb_dir": data_dir / "vectordb",
         "chroma_dir": data_dir / "vectordb" / "chroma",

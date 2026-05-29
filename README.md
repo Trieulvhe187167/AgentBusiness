@@ -125,6 +125,7 @@ Important dependency notes:
 - Image uploads use Pillow validation, OCR through `pytesseract`, and OpenCV cleanup for detected table/document regions.
 - Legacy `.xls` parsing requires `pandas` plus `xlrd`.
 - `.docx` parsing uses `python-docx`.
+- File versioning keeps immutable metadata and binary snapshots for uploaded-file updates.
 
 ## Supported uploads
 
@@ -140,6 +141,48 @@ Implementation notes:
 - `.xlsx` works from the core install via `openpyxl`.
 - `.xls` needs the richer fallback parser from `requirements-rag.txt`.
 - JSON and JSONL are treated as structured text records; see `docs/parser-support.md` for the exact expectations.
+
+### File versioning
+
+Each upload creates an initial file version. Updating an existing file record snapshots the previous binary before overwriting it, then creates the next version record for the new content. Version history is available at:
+
+```http
+GET /api/files/{file_id}/versions
+```
+
+Rollback restores a retained snapshot as a new current version and can queue re-ingest for affected KBs:
+
+```http
+POST /api/files/{file_id}/versions/{version_number}/rollback
+```
+
+Version diff compares two retained snapshots and returns a unified text diff:
+
+```http
+GET /api/files/{file_id}/versions/{from_version}/diff/{to_version}
+```
+
+The admin Knowledge Workspace exposes the same workflow with `Versions`, `Replace`, `Rollback`, and `V-Diff` actions. `Replace` uses `POST /api/files/{file_id}/content` to create the next version for an existing source file.
+
+Relevant settings:
+
+```dotenv
+RAG_FILE_VERSIONING_KEEP_SNAPSHOTS=true
+RAG_FILE_VERSIONING_SNAPSHOT_DIR=data/raw/versions
+RAG_FILE_VERSIONING_RETENTION_COUNT=5
+```
+
+### Continuous RAG evaluation
+
+Admins can store golden Q&A pairs and run regression evaluation against the live RAG pipeline:
+
+```http
+POST /api/admin/evaluations/golden-dataset
+POST /api/admin/evaluations/golden-dataset/upload
+POST /api/admin/evaluations/runs
+```
+
+Use `source=golden_dataset` in eval runs. Golden eval records `answer_similarity`, `recall_at_k`, and `citation_accuracy`; if the average score drops beyond `alert_drop_threshold`, the app creates an `evaluation.quality_drop` notification. Scheduled runs use `schedule_type=agent_eval_run` through the existing sync schedule API; set `interval_seconds=86400` and `next_run_at` to the next 2AM timestamp for nightly regression.
 
 ### OCR for scanned documents and images
 

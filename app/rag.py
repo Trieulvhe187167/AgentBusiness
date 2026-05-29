@@ -24,6 +24,7 @@ from app.conversation_memory import build_conversation_context, load_recent_turn
 from app.database import execute_sync, fetch_all_sync, fetch_one_sync, utcnow_iso
 from app.embeddings import embed_query, using_hashing_fallback
 from app.kb_service import ensure_kb_access, normalize_kb_key
+from app.knowledge_gaps import record_knowledge_gap
 from app.lang import detect_language
 from app.llm_client import active_provider_name, generate_stream, is_llm_ready
 from app.models import Citation, RequestContext
@@ -514,10 +515,10 @@ def _log_chat(
     latency_ms: int,
     llm_provider: str,
     request_context: RequestContext | dict[str, Any] | None = None,
-):
+) -> int | None:
     context = _coerce_request_context(request_context)
     auth = context.get("auth") or {}
-    execute_sync(
+    return execute_sync(
         """
         INSERT INTO chat_logs (
             session_id, request_id, user_id, roles_json, channel, tenant_id, org_id,
@@ -799,7 +800,7 @@ def rag_stream(
             yield {"event": "citations", "data": {"items": citations}}
 
         latency_ms = int((time.perf_counter() - start_time) * 1000)
-        _log_chat(
+        chat_log_id = _log_chat(
             session_id=scoped_sid,
             user_message=user_query,
             merged_query=merged_query,
@@ -811,6 +812,17 @@ def rag_stream(
             llm_provider=llm_provider,
             request_context=context,
         )
+        try:
+            record_knowledge_gap(
+                chat_log_id=chat_log_id,
+                query=user_query,
+                mode=mode,
+                top_score=top_score,
+                session_id=scoped_sid,
+                context=context,
+            )
+        except Exception:
+            logger.exception("Failed to record knowledge gap")
         yield {"event": "done", "data": {"ok": True, "latency_ms": latency_ms}}
 
     except Exception as err:

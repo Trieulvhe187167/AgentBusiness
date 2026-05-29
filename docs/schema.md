@@ -19,17 +19,21 @@
 | Phase 35 | extra fields on `support_tickets` | Support case lifecycle, classification, SLA, action plan, and escalation package |
 | Phase 36 | `support_ticket_notes`, extra fields on `support_tickets` | End-to-end support operations: notes, assignment, SLA breach tracking, and workflow jobs |
 | Phase 38 | `chat_feedback` | User/admin 👍/👎 feedback for chat answers |
+| Phase 51 | `file_versions`, `file_version_ingests` | Uploaded-file version history, binary snapshots, and active ingest tracking |
+| Phase 52 | `file_versions`, `file_version_ingests`, `kb_files` | Snapshot rollback, vector invalidation, and rollback re-ingest activation |
+| Phase 53 | `file_versions` snapshots | Read-only version compare API with unified text diff |
+| Phase 54 | `eval_golden_dataset`, extra fields on `agent_eval_results` | Golden Q&A regression evaluation and quality-drop alerting |
 
 ## Ownership view
 
-- Upload domain: `uploaded_files`, `kb_files`, `ingest_jobs`
+- Upload domain: `uploaded_files`, `kb_files`, `ingest_jobs`, `file_versions`, `file_version_ingests`
 - KB domain: `knowledge_bases`, `kb_files`
 - Chat domain: `chat_sessions`, `chat_logs`
 - Tooling domain: `tool_audit_logs`, `support_tickets`, `support_ticket_notes`
 - Integration domain: `order_status_cache`, `game_online_cache`
 - Sync/job domain: `google_drive_sources`, `google_drive_files`, `google_drive_sync_runs`, `support_email_messages`, `support_email_sync_runs`, `background_jobs`, `sync_schedules`
 - Safety domain: `pending_actions`
-- Feedback domain: `chat_feedback`
+- Feedback/evaluation domain: `chat_feedback`, `agent_eval_runs`, `agent_eval_results`, `eval_golden_dataset`
 
 ## Recommendation
 
@@ -65,3 +69,25 @@ Support workflows can run synchronously through admin APIs or asynchronously thr
 - `request_id`: copied from the target chat log for API lookup and analytics.
 
 Non-admin users can only feedback their own `chat_logs.user_id`; admin can feedback any chat log, including anonymous logs.
+
+## File versioning
+
+`file_versions` stores immutable metadata for each uploaded-file content version:
+
+- `file_id`, `version_number`, `file_hash`, `file_size`, `filename`, `original_name`, `file_type`, `parser_type`.
+- `snapshot_path`: optional binary snapshot path under `RAG_FILE_VERSIONING_SNAPSHOT_DIR`.
+- `pages_or_rows`, `chunk_count`, `ingest_signature`: filled as upload/ingest progresses.
+- `created_by_user_id`, `created_at`, `change_summary`.
+
+`file_version_ingests` records which version was activated for each `(kb_id, file_id)` ingest. Phase 51 exposes history through `GET /api/files/{file_id}/versions`. Phase 52 adds `POST /api/files/{file_id}/versions/{version_number}/rollback`, which restores a retained snapshot as a new current version, invalidates existing vectors for attached KBs, and can queue re-ingest. Phase 53 adds `GET /api/files/{file_id}/versions/{from_version}/diff/{to_version}` for read-only snapshot comparison.
+
+## Golden evaluation
+
+`eval_golden_dataset` stores benchmark Q&A rows for continuous RAG quality checks:
+
+- `kb_id`, `question`, `expected_answer`.
+- Optional `expected_source_file_id` for retrieval/citation validation.
+- Optional `expected_keywords_json` and `tags_json`.
+- `active`, actor context, tenant/org scope, and timestamps.
+
+Golden runs reuse `agent_eval_runs` with `source='golden_dataset'`. `agent_eval_results` includes nullable golden metrics: `golden_item_id`, `expected_answer`, `answer_similarity`, `recall_at_k`, and `citation_accuracy`.

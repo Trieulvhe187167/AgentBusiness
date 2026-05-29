@@ -43,6 +43,9 @@ class Settings(BaseSettings):
         ".txt", ".md", ".docx", ".json", ".jsonl", ".ndjson", ".tsv", ".xml",
         ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".webp", ".bmp",
     ]
+    file_versioning_keep_snapshots: bool = True
+    file_versioning_snapshot_dir: Path = BASE_DIR / "data" / "raw" / "versions"
+    file_versioning_retention_count: int = 5
 
     # ------------------------------------------------------------------
     # Parsing
@@ -84,6 +87,10 @@ class Settings(BaseSettings):
     threshold_good: float = 0.60
     threshold_low: float = 0.40
     min_similarity_threshold: float = 0.30
+    knowledge_gap_score_threshold: float = 0.40
+    knowledge_gap_alert_repeat_count: int = 5
+    knowledge_gap_semantic_clustering_enabled: bool = True
+    knowledge_gap_semantic_similarity_threshold: float = 0.78
 
     # Hashing fallback thresholds
     hashing_threshold_good: float = 0.32
@@ -358,6 +365,7 @@ class Settings(BaseSettings):
             self.chroma_dir,
             self.cache_dir,
             self.models_dir,
+            self.file_versioning_snapshot_dir,
         ]:
             directory.mkdir(parents=True, exist_ok=True)
 

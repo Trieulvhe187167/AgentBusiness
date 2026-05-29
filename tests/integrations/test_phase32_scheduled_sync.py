@@ -112,3 +112,57 @@ def test_list_sync_schedules_service(tmp_path, monkeypatch):
     assert schedules["total"] == 1
     assert schedules["items"][0]["schedule_type"] == "support_email_sync"
     assert schedules["items"][0]["payload"] == {"limit": 10, "unread_only": True}
+
+
+def test_agent_eval_schedule_enqueues_golden_eval_job(tmp_path, monkeypatch):
+    configure_test_env(tmp_path, monkeypatch)
+    schedule = upsert_sync_schedule(
+        UpsertSyncScheduleInput(
+            schedule_type="agent_eval_run",
+            target_id=1,
+            interval_seconds=86400,
+            payload={"limit": 25, "alert_drop_threshold": 12},
+        ),
+        auth=_admin_auth(),
+    )
+    database.execute_sync(
+        "UPDATE sync_schedules SET next_run_at = '2000-01-01T00:00:00+00:00' WHERE id = ?",
+        (schedule["id"],),
+    )
+
+    assert run_due_sync_schedules_once() == 1
+    job = database.fetch_one_sync(
+        "SELECT job_type, payload_json, status FROM background_jobs WHERE job_type = 'agent_eval_run'"
+    )
+    assert job is not None
+    assert job["status"] == "queued"
+    assert '"source": "golden_dataset"' in job["payload_json"]
+    assert '"kb_id": 1' in job["payload_json"]
+    assert '"limit": 25' in job["payload_json"]
+
+
+def test_knowledge_gap_report_schedule_enqueues_weekly_job(tmp_path, monkeypatch):
+    configure_test_env(tmp_path, monkeypatch)
+    schedule = upsert_sync_schedule(
+        UpsertSyncScheduleInput(
+            schedule_type="knowledge_gap_report",
+            target_id=1,
+            interval_seconds=604800,
+            payload={"days": 7, "limit": 20},
+        ),
+        auth=_admin_auth(),
+    )
+    database.execute_sync(
+        "UPDATE sync_schedules SET next_run_at = '2000-01-01T00:00:00+00:00' WHERE id = ?",
+        (schedule["id"],),
+    )
+
+    assert run_due_sync_schedules_once() == 1
+    job = database.fetch_one_sync(
+        "SELECT job_type, payload_json, status FROM background_jobs WHERE job_type = 'knowledge_gap_report'"
+    )
+    assert job is not None
+    assert job["status"] == "queued"
+    assert '"days": 7' in job["payload_json"]
+    assert '"kb_id": 1' in job["payload_json"]
+    assert '"limit": 20' in job["payload_json"]

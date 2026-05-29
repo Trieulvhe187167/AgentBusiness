@@ -12,7 +12,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import AppStatus, EventSourceResponse
@@ -55,11 +55,19 @@ from app.background_jobs import (
 from app.case_timeline import CaseTimelineOutput, build_case_timeline
 from app.config import settings
 from app.database import fetch_all, fetch_one, init_db
-from app.evaluations import create_agent_eval_run, get_agent_eval_run, list_agent_eval_runs
+from app.evaluations import (
+    create_agent_eval_run,
+    create_golden_dataset_item,
+    get_agent_eval_run,
+    list_agent_eval_runs,
+    list_golden_dataset,
+    upload_golden_dataset_csv,
+)
 from app.feedback import feedback_summary, list_chat_feedback, submit_chat_feedback
 from app.ingest import router as ingest_router
 from app.kb import router as kb_router
 from app.kb_service import list_accessible_kbs, open_db, resolve_kb_scope
+from app.knowledge_gaps import list_knowledge_gap_clusters, suggest_faq_pending_action, update_gap_cluster_status
 from app.models import (
     AnalyticsDashboardOutput,
     AgentEvalRunDetail,
@@ -69,19 +77,25 @@ from app.models import (
     ChatLogItem,
     ChatRequest,
     CreateAgentEvalRunInput,
+    CreateGoldenDatasetItemInput,
     CurrentUserProfile,
     DocumentSummary,
     FeedbackSummaryOutput,
+    GoldenDatasetItem,
+    GoldenDatasetUploadOutput,
     HealthResponse,
     KnowledgeBaseSummary,
     KBSource,
     KBStats,
+    ListKnowledgeGapClustersOutput,
     ListAgentEvalRunsOutput,
     ListChatFeedbackOutput,
+    ListGoldenDatasetOutput,
     RequestContext,
     SubmitChatFeedbackInput,
     SystemRuntime,
     ToolAuditLogItem,
+    UpdateKnowledgeGapStatusInput,
 )
 from app.mcp_server import build_mcp_status, handle_mcp_request
 from app.notifications import (
@@ -966,12 +980,82 @@ async def admin_analytics_dashboard(
     return await build_analytics_dashboard(days=days, kb_id=kb_id)
 
 
+@app.get("/api/admin/knowledge-gaps", response_model=ListKnowledgeGapClustersOutput)
+async def admin_knowledge_gaps(
+    days: int = Query(default=7, ge=1, le=90),
+    kb_id: int | None = Query(default=None, ge=1),
+    status: str = Query(default="open"),
+    limit: int = Query(default=20, ge=1, le=100),
+    _=Depends(require_analytics_role),
+):
+    return list_knowledge_gap_clusters(days=days, kb_id=kb_id, status=status, limit=limit)
+
+
+@app.patch("/api/admin/knowledge-gaps/{cluster_key}")
+async def admin_update_knowledge_gap_status(
+    cluster_key: str,
+    payload: UpdateKnowledgeGapStatusInput,
+    kb_id: int | None = Query(default=None, ge=1),
+    _=Depends(require_analytics_role),
+):
+    return update_gap_cluster_status(cluster_key=cluster_key, status=payload.status, kb_id=kb_id)
+
+
+@app.post("/api/admin/knowledge-gaps/{cluster_key}/suggest-faq")
+async def admin_suggest_knowledge_gap_faq(
+    cluster_key: str,
+    request: Request,
+    kb_id: int | None = Query(default=None, ge=1),
+    auth=Depends(require_analytics_role),
+):
+    try:
+        return suggest_faq_pending_action(
+            cluster_key=cluster_key,
+            kb_id=kb_id,
+            context=RequestContext(
+                request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+                kb_id=kb_id,
+                auth=auth,
+            ),
+        )
+    except ValueError as err:
+        raise HTTPException(status_code=404, detail=str(err)) from err
+
+
 @app.post("/api/admin/evaluations/runs", response_model=AgentEvalRunDetail)
 async def admin_create_agent_eval_run(
     payload: CreateAgentEvalRunInput,
     auth=Depends(require_analytics_role),
 ):
     return create_agent_eval_run(payload, auth=auth)
+
+
+@app.get("/api/admin/evaluations/golden-dataset", response_model=ListGoldenDatasetOutput)
+async def admin_list_golden_dataset(
+    kb_id: int | None = Query(default=None, ge=1),
+    active: bool | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    _=Depends(require_analytics_role),
+):
+    return list_golden_dataset(kb_id=kb_id, active=active, limit=limit)
+
+
+@app.post("/api/admin/evaluations/golden-dataset", response_model=GoldenDatasetItem)
+async def admin_create_golden_dataset_item(
+    payload: CreateGoldenDatasetItemInput,
+    auth=Depends(require_analytics_role),
+):
+    return create_golden_dataset_item(payload, auth=auth)
+
+
+@app.post("/api/admin/evaluations/golden-dataset/upload", response_model=GoldenDatasetUploadOutput)
+async def admin_upload_golden_dataset(
+    file: UploadFile = File(...),
+    kb_id: int | None = Query(default=None, ge=1),
+    auth=Depends(require_analytics_role),
+):
+    content = await file.read()
+    return upload_golden_dataset_csv(content=content, default_kb_id=kb_id, auth=auth)
 
 
 @app.get("/api/admin/evaluations/runs", response_model=ListAgentEvalRunsOutput)

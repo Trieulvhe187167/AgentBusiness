@@ -27,10 +27,12 @@ BackgroundJobType = Literal[
     "kb_ingest",
     "kb_reindex",
     "kb_file_ingest",
+    "agent_eval_run",
     "pending_action_execute",
     "support_ticket_workflow",
     "support_email_workflow",
     "support_sla_monitor",
+    "knowledge_gap_report",
 ]
 
 
@@ -660,6 +662,23 @@ async def _dispatch_job(job: dict[str, Any]) -> dict[str, Any]:
 
     if job_type in {"kb_ingest", "kb_reindex", "kb_file_ingest"}:
         return await _dispatch_ingest_job(job_type, payload, job_id=job["job_id"])
+
+    if job_type == "agent_eval_run":
+        from app.evaluations import create_agent_eval_run
+        from app.models import CreateAgentEvalRunInput
+
+        return create_agent_eval_run(CreateAgentEvalRunInput(**payload), auth=context.auth)
+
+    if job_type == "knowledge_gap_report":
+        from app.knowledge_gaps import create_knowledge_gap_report
+
+        return create_knowledge_gap_report(
+            days=int(payload.get("days") or 7),
+            kb_id=payload.get("kb_id"),
+            status=str(payload.get("status") or "open"),
+            limit=int(payload.get("limit") or 20),
+            context=context,
+        )
 
     raise RuntimeError(f"Unsupported background job type: {job_type}")
 

@@ -160,6 +160,9 @@ class NumpyVectorStore:
             "content_preview": chunk.get("content_preview", ""),
         }
         for key in (
+            "file_version_id",
+            "version_number",
+            "version_hash",
             "access_level",
             "tenant_id",
             "org_id",
@@ -366,6 +369,9 @@ class ChromaVectorStore:
             "content_preview": chunk.get("content_preview", ""),
         }
         for key in (
+            "file_version_id",
+            "version_number",
+            "version_hash",
             "access_level",
             "tenant_id",
             "org_id",

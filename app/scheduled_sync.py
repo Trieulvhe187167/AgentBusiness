@@ -19,7 +19,13 @@ from app.models import AuthContext, RequestContext
 
 logger = logging.getLogger(__name__)
 
-ScheduleType = Literal["google_drive_sync", "support_email_sync", "support_sla_monitor"]
+ScheduleType = Literal[
+    "google_drive_sync",
+    "support_email_sync",
+    "support_sla_monitor",
+    "agent_eval_run",
+    "knowledge_gap_report",
+]
 
 
 class SyncScheduleItem(BaseModel):
@@ -52,14 +58,16 @@ class UpsertSyncScheduleInput(BaseModel):
     target_id: int | None = Field(default=None, ge=1)
     name: str | None = Field(default=None, max_length=180)
     enabled: bool = True
-    interval_seconds: int = Field(default=900, ge=60, le=86400)
+    interval_seconds: int = Field(default=900, ge=60, le=604800)
+    next_run_at: str | None = Field(default=None, max_length=80)
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
 class UpdateSyncScheduleInput(BaseModel):
     enabled: bool | None = None
-    interval_seconds: int | None = Field(default=None, ge=60, le=86400)
+    interval_seconds: int | None = Field(default=None, ge=60, le=604800)
     name: str | None = Field(default=None, max_length=180)
+    next_run_at: str | None = Field(default=None, max_length=80)
     payload: dict[str, Any] | None = None
 
 
@@ -114,6 +122,10 @@ def _default_name(schedule_type: str, target_id: int | None) -> str:
         return f"Drive: {row['name']}"
     if schedule_type == "support_sla_monitor":
         return "Support SLA Monitor"
+    if schedule_type == "agent_eval_run":
+        return "Nightly Golden Evaluation"
+    if schedule_type == "knowledge_gap_report":
+        return "Weekly Knowledge Gap Report"
     return "Support Email"
 
 
@@ -130,6 +142,14 @@ def _schedule_scope(schedule_type: str, target_id: int | None, auth: AuthContext
             "tenant_id": row.get("tenant_id") or auth.tenant_id,
             "org_id": row.get("org_id") or auth.org_id,
         }
+    if schedule_type == "agent_eval_run":
+        kb_id = None
+        if target_id is not None:
+            kb_id = int(target_id)
+        return {"kb_id": kb_id, "tenant_id": auth.tenant_id, "org_id": auth.org_id}
+    if schedule_type == "knowledge_gap_report":
+        kb_id = int(target_id) if target_id is not None else None
+        return {"kb_id": kb_id, "tenant_id": auth.tenant_id, "org_id": auth.org_id}
     return {"kb_id": None, "tenant_id": auth.tenant_id, "org_id": auth.org_id}
 
 
@@ -147,6 +167,25 @@ def _normalize_schedule_payload(schedule_type: str, target_id: int | None, paylo
 
     if schedule_type == "support_sla_monitor":
         return {"limit": int(payload.get("limit") or 50)}
+
+    if schedule_type == "agent_eval_run":
+        return {
+            "source": "golden_dataset",
+            "name": str(payload.get("name") or "Scheduled golden dataset eval"),
+            "kb_id": int(payload["kb_id"]) if payload.get("kb_id") is not None else (int(target_id) if target_id is not None else None),
+            "limit": int(payload.get("limit") or 100),
+            "min_pass_score": int(payload.get("min_pass_score") or 75),
+            "min_warn_score": int(payload.get("min_warn_score") or 50),
+            "alert_drop_threshold": float(payload.get("alert_drop_threshold") or 10.0),
+        }
+
+    if schedule_type == "knowledge_gap_report":
+        return {
+            "days": int(payload.get("days") or 7),
+            "kb_id": int(payload["kb_id"]) if payload.get("kb_id") is not None else (int(target_id) if target_id is not None else None),
+            "status": str(payload.get("status") or "open"),
+            "limit": int(payload.get("limit") or 20),
+        }
 
     raise ValueError(f"Unsupported schedule type: {schedule_type}")
 
@@ -202,6 +241,7 @@ def upsert_sync_schedule(payload: UpsertSyncScheduleInput, *, auth: AuthContext)
     name = payload.name or _default_name(payload.schedule_type, payload.target_id)
     scope = _schedule_scope(payload.schedule_type, payload.target_id, auth)
     now = utcnow_iso()
+    next_run_at = payload.next_run_at or _next_run_after(payload.interval_seconds)
 
     existing = fetch_one_sync(
         """
@@ -240,7 +280,7 @@ def upsert_sync_schedule(payload: UpsertSyncScheduleInput, *, auth: AuthContext)
                 scope["tenant_id"],
                 scope["org_id"],
                 scope["kb_id"],
-                _next_run_after(payload.interval_seconds),
+                next_run_at,
                 now,
                 schedule_id,
             ),
@@ -266,7 +306,7 @@ def upsert_sync_schedule(payload: UpsertSyncScheduleInput, *, auth: AuthContext)
             scope["tenant_id"],
             scope["org_id"],
             scope["kb_id"],
-            _next_run_after(payload.interval_seconds),
+            next_run_at,
             now,
             now,
         ),
@@ -281,6 +321,7 @@ def update_sync_schedule(schedule_id: int, payload: UpdateSyncScheduleInput) -> 
     enabled = payload.enabled if payload.enabled is not None else bool(item["enabled"])
     raw_payload = payload.payload if payload.payload is not None else item["payload"]
     normalized_payload = _normalize_schedule_payload(item["schedule_type"], item.get("target_id"), raw_payload)
+    next_run_at = payload.next_run_at or _next_run_after(interval_seconds)
     now = utcnow_iso()
     execute_sync(
         """
@@ -298,7 +339,7 @@ def update_sync_schedule(schedule_id: int, payload: UpdateSyncScheduleInput) -> 
             1 if enabled else 0,
             interval_seconds,
             _json_payload(normalized_payload),
-            _next_run_after(interval_seconds),
+            next_run_at,
             now,
             schedule_id,
         ),

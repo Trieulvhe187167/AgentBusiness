@@ -204,6 +204,61 @@ class FileInfo(BaseModel):
     created_at: str
 
 
+class FileVersionItem(BaseModel):
+    id: int
+    file_id: int
+    version_number: int
+    file_hash: str
+    file_size: int
+    filename: str
+    original_name: str
+    file_type: str
+    parser_type: str | None = None
+    pages_or_rows: int | None = None
+    chunk_count: int | None = None
+    ingest_signature: str | None = None
+    has_snapshot: bool = False
+    change_summary: str | None = None
+    created_by_user_id: str | None = None
+    created_at: str
+    is_current: bool = False
+    is_active: bool = False
+
+
+class ListFileVersionsOutput(BaseModel):
+    file_id: int
+    current_version: int | None = None
+    versions: list[FileVersionItem]
+
+
+class DiffFileVersionsOutput(BaseModel):
+    file_id: int
+    from_version: FileVersionItem
+    to_version: FileVersionItem
+    changed: bool
+    additions: int
+    deletions: int
+    from_line_count: int
+    to_line_count: int
+    diff_lines: list[str] = Field(default_factory=list)
+    truncated: bool = False
+
+
+class RollbackFileVersionInput(BaseModel):
+    reingest: bool = True
+    kb_id: int | None = None
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class RollbackFileVersionOutput(BaseModel):
+    message: str
+    file: FileInfo
+    restored_from: FileVersionItem
+    restored_as: FileVersionItem
+    changed: bool
+    jobs: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class UploadResponse(BaseModel):
     message: str
     file: FileInfo
@@ -486,6 +541,41 @@ class AnalyticsDashboardOutput(BaseModel):
     pending_status: list[AnalyticsBreakdownItem] = Field(default_factory=list)
 
 
+class KnowledgeGapClusterItem(BaseModel):
+    cluster_key: str
+    representative_query: str
+    count: int
+    kb_id: int | None = None
+    kb_key: str | None = None
+    mode: str | None = None
+    min_score: float | None = None
+    avg_score: float | None = None
+    last_seen_at: str
+    first_seen_at: str
+    status: str = "open"
+    suggested_action: str | None = None
+    sample_queries: list[str] = Field(default_factory=list)
+
+
+class ListKnowledgeGapClustersOutput(BaseModel):
+    total: int
+    period_days: int
+    kb_id: int | None = None
+    items: list[KnowledgeGapClusterItem] = Field(default_factory=list)
+
+
+class UpdateKnowledgeGapStatusInput(BaseModel):
+    status: str = Field(..., min_length=1, max_length=40)
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _normalize_gap_status(cls, value):
+        normalized = (_normalize_optional_text(value) or "").lower()
+        if normalized not in {"open", "suggested", "resolved", "ignored"}:
+            raise ValueError("status must be one of: open, suggested, resolved, ignored")
+        return normalized
+
+
 class CreateAgentEvalRunInput(BaseModel):
     name: str | None = Field(default=None, max_length=160)
     days: int = Field(default=7, ge=1, le=90)
@@ -493,11 +583,21 @@ class CreateAgentEvalRunInput(BaseModel):
     limit: int = Field(default=50, ge=1, le=500)
     min_pass_score: int = Field(default=75, ge=0, le=100)
     min_warn_score: int = Field(default=50, ge=0, le=100)
+    source: str = Field(default="chat_logs", max_length=40)
+    alert_drop_threshold: float = Field(default=10.0, ge=0.0, le=100.0)
 
     @field_validator("name", mode="before")
     @classmethod
     def _normalize_eval_name(cls, value):
         return _normalize_optional_text(value)
+
+    @field_validator("source", mode="before")
+    @classmethod
+    def _normalize_eval_source(cls, value):
+        normalized = (_normalize_optional_text(value) or "chat_logs").lower()
+        if normalized not in {"chat_logs", "golden_dataset"}:
+            raise ValueError("source must be 'chat_logs' or 'golden_dataset'")
+        return normalized
 
     @model_validator(mode="after")
     def _validate_thresholds(self):
@@ -516,13 +616,18 @@ class AgentEvalCheck(BaseModel):
 class AgentEvalResultItem(BaseModel):
     id: int
     run_id: int
-    chat_log_id: int
+    chat_log_id: int | None = None
+    golden_item_id: int | None = None
     request_id: str | None = None
     kb_id: int | None = None
     kb_key: str | None = None
     mode: str | None = None
     top_score: float | None = None
     feedback_rating: str | None = None
+    expected_answer: str | None = None
+    answer_similarity: float | None = None
+    recall_at_k: float | None = None
+    citation_accuracy: float | None = None
     verdict: str
     score: float
     checks: list[AgentEvalCheck] = Field(default_factory=list)
@@ -558,6 +663,68 @@ class AgentEvalRunDetail(AgentEvalRunItem):
 class ListAgentEvalRunsOutput(BaseModel):
     total: int
     items: list[AgentEvalRunItem]
+
+
+class GoldenDatasetItem(BaseModel):
+    id: int
+    kb_id: int
+    question: str
+    expected_answer: str
+    expected_source_file_id: int | None = None
+    expected_keywords: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    active: bool = True
+    created_by_user_id: str | None = None
+    tenant_id: str | None = None
+    org_id: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class CreateGoldenDatasetItemInput(BaseModel):
+    kb_id: int = Field(..., ge=1)
+    question: str = Field(..., min_length=1, max_length=3000)
+    expected_answer: str = Field(..., min_length=1, max_length=8000)
+    expected_source_file_id: int | None = Field(default=None, ge=1)
+    expected_keywords: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    active: bool = True
+
+    @field_validator("question", "expected_answer", mode="before")
+    @classmethod
+    def _normalize_required_text(cls, value):
+        normalized = _normalize_optional_text(value)
+        if not normalized:
+            raise ValueError("field is required")
+        return normalized
+
+    @field_validator("expected_keywords", "tags", mode="before")
+    @classmethod
+    def _normalize_text_list(cls, value):
+        if value is None:
+            return []
+        if isinstance(value, str):
+            raw_items = [part.strip() for part in value.split(",")]
+        elif isinstance(value, list):
+            raw_items = value
+        else:
+            raise ValueError("must be a list or comma-separated string")
+        items = []
+        for item in raw_items:
+            normalized = _normalize_optional_text(str(item))
+            if normalized and normalized not in items:
+                items.append(normalized)
+        return items[:50]
+
+
+class ListGoldenDatasetOutput(BaseModel):
+    total: int
+    items: list[GoldenDatasetItem]
+
+
+class GoldenDatasetUploadOutput(BaseModel):
+    created: int
+    items: list[GoldenDatasetItem] = Field(default_factory=list)
 
 
 class ToolAuditLogItem(BaseModel):
