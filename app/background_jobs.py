@@ -121,26 +121,35 @@ def get_background_job(job_id: str) -> dict[str, Any]:
     return _serialize_row(row).model_dump()
 
 
-def list_background_jobs(*, status: str | None = None, limit: int = 50) -> dict[str, Any]:
+def list_background_jobs(
+    *,
+    status: str | None = None,
+    tenant_id: str | None = None,
+    org_id: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    clauses: list[str] = []
+    params: list[Any] = []
     if status:
-        rows = fetch_all_sync(
-            """
-            SELECT * FROM background_jobs
-            WHERE status = ?
-            ORDER BY created_at DESC, id DESC
-            LIMIT ?
-            """,
-            (status, max(1, min(limit, 200))),
-        )
-    else:
-        rows = fetch_all_sync(
-            """
-            SELECT * FROM background_jobs
-            ORDER BY created_at DESC, id DESC
-            LIMIT ?
-            """,
-            (max(1, min(limit, 200)),),
-        )
+        clauses.append("status = ?")
+        params.append(status)
+    if tenant_id:
+        clauses.append("(tenant_id IS NULL OR tenant_id = ?)")
+        params.append(tenant_id)
+    if org_id:
+        clauses.append("(org_id IS NULL OR org_id = ?)")
+        params.append(org_id)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    params.append(max(1, min(limit, 200)))
+    rows = fetch_all_sync(
+        f"""
+        SELECT * FROM background_jobs
+        {where}
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+        """,
+        tuple(params),
+    )
     items = [_serialize_row(row).model_dump() for row in rows]
     return {"total": len(items), "items": items}
 

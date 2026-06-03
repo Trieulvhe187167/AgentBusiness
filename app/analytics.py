@@ -63,7 +63,11 @@ async def build_analytics_dashboard(days: int = 7, kb_id: int | None = None) -> 
             COUNT(*) AS chat_count,
             COUNT(DISTINCT NULLIF(user_id, '')) AS unique_users,
             AVG(latency_ms) AS avg_latency_ms,
-            SUM(CASE WHEN mode = 'fallback' THEN 1 ELSE 0 END) AS fallback_count
+            SUM(CASE WHEN mode = 'fallback' THEN 1 ELSE 0 END) AS fallback_count,
+            SUM(COALESCE(llm_input_tokens, 0)) AS llm_input_tokens,
+            SUM(COALESCE(llm_output_tokens, 0)) AS llm_output_tokens,
+            SUM(COALESCE(llm_total_tokens, 0)) AS llm_total_tokens,
+            SUM(COALESCE(llm_cached_tokens, 0)) AS llm_cached_tokens
         FROM chat_logs cl
         WHERE datetime(cl.created_at) >= datetime('now', ?)
         {chat_kb_sql}
@@ -143,11 +147,18 @@ async def build_analytics_dashboard(days: int = 7, kb_id: int | None = None) -> 
     feedback_up = _row_int(feedback_row, "feedback_up")
     tool_calls = _row_int(tool_row, "tool_calls")
     tool_errors = _row_int(tool_row, "tool_errors")
+    llm_input_tokens = _row_int(chat_row, "llm_input_tokens")
+    llm_cached_tokens = _row_int(chat_row, "llm_cached_tokens")
     summary = AnalyticsSummary(
         chat_count=_row_int(chat_row, "chat_count"),
         unique_users=_row_int(chat_row, "unique_users"),
         avg_latency_ms=_row_float(chat_row, "avg_latency_ms"),
         fallback_count=_row_int(chat_row, "fallback_count"),
+        llm_input_tokens=llm_input_tokens,
+        llm_output_tokens=_row_int(chat_row, "llm_output_tokens"),
+        llm_total_tokens=_row_int(chat_row, "llm_total_tokens"),
+        llm_cached_tokens=llm_cached_tokens,
+        llm_cached_input_rate=_rate(llm_cached_tokens, llm_input_tokens),
         feedback_total=feedback_total,
         feedback_up=feedback_up,
         feedback_down=_row_int(feedback_row, "feedback_down"),

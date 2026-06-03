@@ -1070,6 +1070,112 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_gaps_hash
     ON knowledge_gaps(query_hash, kb_id);
 """
 
+# ---------------------------------------------------------------------------
+# Phase 56 / Golden evaluation quality gate
+# ---------------------------------------------------------------------------
+_PHASE56_EVALUATION_GATE_SCHEMA = """
+ALTER TABLE eval_golden_dataset ADD COLUMN expected_answers_json TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE eval_golden_dataset ADD COLUMN expected_source_file_ids_json TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE eval_golden_dataset ADD COLUMN expected_chunk_ids_json TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE eval_golden_dataset ADD COLUMN expected_categories_json TEXT NOT NULL DEFAULT '[]';
+
+ALTER TABLE agent_eval_results ADD COLUMN mrr REAL;
+ALTER TABLE agent_eval_results ADD COLUMN source_match REAL;
+ALTER TABLE agent_eval_results ADD COLUMN chunk_match REAL;
+ALTER TABLE agent_eval_results ADD COLUMN category_match REAL;
+ALTER TABLE agent_eval_results ADD COLUMN matched_source_rank INTEGER;
+ALTER TABLE agent_eval_results ADD COLUMN retrieved_json TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE agent_eval_results ADD COLUMN citations_json TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE agent_eval_results ADD COLUMN latency_ms INTEGER;
+
+ALTER TABLE agent_eval_runs ADD COLUMN baseline_run_id INTEGER;
+ALTER TABLE agent_eval_runs ADD COLUMN metrics_json TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE agent_eval_runs ADD COLUMN comparison_json TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE agent_eval_runs ADD COLUMN gate_status TEXT NOT NULL DEFAULT 'not_compared';
+"""
+
+# ---------------------------------------------------------------------------
+# Phase 57 / Durable agent orchestration runs
+# ---------------------------------------------------------------------------
+_PHASE57_AGENT_RUNS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS agent_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    request_id TEXT NOT NULL,
+    session_id TEXT,
+    route TEXT,
+    tool_name TEXT,
+    status TEXT NOT NULL DEFAULT 'running',
+    input_json TEXT NOT NULL DEFAULT '{}',
+    state_json TEXT NOT NULL DEFAULT '{}',
+    result_json TEXT,
+    error_message TEXT,
+    blocked_reason TEXT,
+    pending_action_id INTEGER,
+    created_by_user_id TEXT,
+    roles_json TEXT,
+    channel TEXT,
+    tenant_id TEXT,
+    org_id TEXT,
+    kb_id INTEGER,
+    kb_key TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_status_time
+    ON agent_runs(status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_request_id
+    ON agent_runs(request_id);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_session_time
+    ON agent_runs(session_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_pending_action
+    ON agent_runs(pending_action_id);
+
+CREATE TABLE IF NOT EXISTS agent_run_steps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_run_id INTEGER NOT NULL,
+    step_key TEXT NOT NULL,
+    step_type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'done',
+    input_json TEXT NOT NULL DEFAULT '{}',
+    output_json TEXT,
+    error_message TEXT,
+    created_at TEXT NOT NULL,
+    completed_at TEXT,
+    FOREIGN KEY(agent_run_id) REFERENCES agent_runs(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_agent_run_steps_run
+    ON agent_run_steps(agent_run_id, id ASC);
+
+ALTER TABLE pending_actions ADD COLUMN agent_run_id INTEGER;
+CREATE INDEX IF NOT EXISTS idx_pending_actions_agent_run
+    ON pending_actions(agent_run_id);
+"""
+
+# ---------------------------------------------------------------------------
+# Phase 58 / Persisted LLM token usage
+# ---------------------------------------------------------------------------
+_PHASE58_LLM_USAGE_SCHEMA = """
+ALTER TABLE chat_logs ADD COLUMN llm_input_tokens INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE chat_logs ADD COLUMN llm_output_tokens INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE chat_logs ADD COLUMN llm_total_tokens INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE chat_logs ADD COLUMN llm_cached_tokens INTEGER NOT NULL DEFAULT 0;
+"""
+
+# ---------------------------------------------------------------------------
+# Phase 60 / Optional LLM-as-judge evaluation
+# ---------------------------------------------------------------------------
+_PHASE60_LLM_JUDGE_EVALUATIONS_SCHEMA = """
+ALTER TABLE agent_eval_results ADD COLUMN judge_provider TEXT;
+ALTER TABLE agent_eval_results ADD COLUMN judge_model TEXT;
+ALTER TABLE agent_eval_results ADD COLUMN judge_score REAL;
+ALTER TABLE agent_eval_results ADD COLUMN judge_verdict TEXT;
+ALTER TABLE agent_eval_results ADD COLUMN judge_metrics_json TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE agent_eval_results ADD COLUMN judge_reason TEXT;
+ALTER TABLE agent_eval_results ADD COLUMN judge_latency_ms INTEGER;
+ALTER TABLE agent_eval_results ADD COLUMN judge_error TEXT;
+"""
+
 MIGRATIONS: list[tuple[str, str]] = [
     ("001_core_schema", _CORE_SCHEMA),
     ("002_knowledge_bases", _KB_SCHEMA),
@@ -1105,6 +1211,10 @@ MIGRATIONS: list[tuple[str, str]] = [
     ("032_phase51_file_versioning", _PHASE51_FILE_VERSIONING_SCHEMA),
     ("033_phase54_golden_evaluations", _PHASE54_GOLDEN_EVALUATIONS_SCHEMA),
     ("034_phase55_knowledge_gaps", _PHASE55_KNOWLEDGE_GAPS_SCHEMA),
+    ("035_phase56_evaluation_gate", _PHASE56_EVALUATION_GATE_SCHEMA),
+    ("036_phase57_agent_runs", _PHASE57_AGENT_RUNS_SCHEMA),
+    ("037_phase58_llm_usage", _PHASE58_LLM_USAGE_SCHEMA),
+    ("038_phase60_llm_judge_evaluations", _PHASE60_LLM_JUDGE_EVALUATIONS_SCHEMA),
 ]
 
 

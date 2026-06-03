@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import hashlib
+import json
+
 from fastapi.testclient import TestClient
 
+from app.background_jobs import enqueue_background_job
 from app.config import settings
-from app.database import fetch_one_sync
-from tests.conftest import admin_headers, auth_headers, isolated_client
+from app.database import execute_sync, fetch_one_sync, utcnow_iso
+from app.kb import create_knowledge_base
+from app.models import KnowledgeBaseCreate, RequestContext
+from tests.conftest import admin_headers, auth_headers, isolated_client, run
 
 
 def _rpc(
@@ -51,6 +57,60 @@ def test_mcp_initialize_and_ping(isolated_client: TestClient):
     assert ping.json()["result"] == {}
 
 
+def test_mcp_initialize_negotiates_server_version_for_unsupported_client(isolated_client: TestClient):
+    initialize = _rpc(
+        isolated_client,
+        "initialize",
+        {
+            "protocolVersion": "2099-01-01",
+            "capabilities": {},
+            "clientInfo": {"name": "future-client", "version": "1.0"},
+        },
+    )
+
+    assert initialize.status_code == 200, initialize.text
+    assert initialize.json()["result"]["protocolVersion"] == settings.mcp_protocol_version
+
+
+def test_mcp_protocol_version_header_rejects_unsupported_version(isolated_client: TestClient):
+    blocked = _rpc(isolated_client, "ping", headers={"MCP-Protocol-Version": "2099-01-01"})
+    allowed = _rpc(isolated_client, "ping", headers={"MCP-Protocol-Version": settings.mcp_protocol_version})
+
+    assert blocked.status_code == 400, blocked.text
+    assert allowed.status_code == 200, allowed.text
+
+
+def test_mcp_json_rpc_batch_and_request_validation(isolated_client: TestClient):
+    headers = {
+        **admin_headers(),
+        "X-MCP-Client-Id": "pytest-mcp-client",
+        "X-MCP-Scopes": "mcp:*",
+    }
+    batch = isolated_client.post(
+        "/mcp",
+        json=[
+            {"jsonrpc": "2.0", "id": 1, "method": "ping"},
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+        ],
+        headers=headers,
+    )
+    null_id = isolated_client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "id": None, "method": "ping"},
+        headers=headers,
+    )
+    invalid_params = isolated_client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "id": 2, "method": "ping", "params": []},
+        headers=headers,
+    )
+
+    assert batch.status_code == 200, batch.text
+    assert batch.json() == [{"jsonrpc": "2.0", "id": 1, "result": {}}]
+    assert null_id.json()["error"]["code"] == -32600
+    assert invalid_params.json()["error"]["code"] == -32602
+
+
 def test_mcp_tools_list_maps_internal_registry(isolated_client: TestClient):
     response = _rpc(isolated_client, "tools/list")
     assert response.status_code == 200, response.text
@@ -69,6 +129,13 @@ def test_mcp_tools_list_maps_internal_registry(isolated_client: TestClient):
     assert search_kb["inputSchema"]["type"] == "object"
     assert search_kb["annotations"]["scope"] == "kb"
     assert "scope:kb" in search_kb["annotations"]["requiredScopes"]
+
+
+def test_mcp_tools_list_minimizes_exposure_to_granted_tool_scope(isolated_client: TestClient):
+    response = _rpc(isolated_client, "tools/list", headers={"X-MCP-Scopes": "tool:search_kb"})
+
+    assert response.status_code == 200, response.text
+    assert {tool["name"] for tool in response.json()["result"]["tools"]} == {"search_kb"}
 
 
 def test_mcp_tools_call_executes_registry_tool(isolated_client: TestClient):
@@ -173,6 +240,20 @@ def test_mcp_requires_registered_client_token_when_enabled(isolated_client: Test
     assert allowed.json()["result"] == {}
 
 
+def test_mcp_accepts_hashed_registered_client_token(isolated_client: TestClient, monkeypatch):
+    secret = "hashed-secret-token"
+    monkeypatch.setattr(settings, "mcp_require_client_token", True)
+    monkeypatch.setattr(
+        settings,
+        "mcp_client_tokens",
+        f"pytest-mcp-client:sha256:{hashlib.sha256(secret.encode('utf-8')).hexdigest()}",
+    )
+
+    allowed = _rpc(isolated_client, "ping", headers={"X-MCP-Client-Token": secret})
+
+    assert allowed.status_code == 200, allowed.text
+
+
 def test_mcp_tool_quota_blocks_after_client_limit(isolated_client: TestClient, monkeypatch):
     monkeypatch.setattr(settings, "mcp_tool_quotas", "pytest-mcp-client:list_customer_tickets:1")
 
@@ -195,6 +276,19 @@ def test_mcp_tool_quota_blocks_after_client_limit(isolated_client: TestClient, m
     assert payload["error"]["message"] == "Tool blocked by MCP quota policy"
     assert payload["error"]["data"]["reason"] == "tool_quota_exceeded"
     assert payload["error"]["data"]["quota"]["limit"] == 1
+
+
+def test_mcp_tool_quota_isolated_by_client(isolated_client: TestClient, monkeypatch):
+    monkeypatch.setattr(settings, "mcp_tool_quotas", "*:list_customer_tickets:1")
+    params = {"name": "list_customer_tickets", "arguments": {}}
+
+    first_a = _rpc(isolated_client, "tools/call", params, headers={"X-MCP-Client-Id": "client-a"})
+    blocked_a = _rpc(isolated_client, "tools/call", params, request_id=2, headers={"X-MCP-Client-Id": "client-a"})
+    first_b = _rpc(isolated_client, "tools/call", params, request_id=3, headers={"X-MCP-Client-Id": "client-b"})
+
+    assert first_a.json()["result"]["isError"] is False
+    assert blocked_a.json()["error"]["data"]["reason"] == "tool_quota_exceeded"
+    assert first_b.json()["result"]["isError"] is False
 
 
 def test_mcp_risk_preview_reports_policy_and_quota(isolated_client: TestClient, monkeypatch):
@@ -249,6 +343,24 @@ def test_mcp_resources_list_and_read_kb_resources(isolated_client: TestClient):
     assert '"scope": "kb"' in stats.json()["result"]["contents"][0]["text"]
 
 
+def test_mcp_resource_scope_minimizes_discovery_and_reads(isolated_client: TestClient):
+    listed = _rpc(isolated_client, "resources/list", headers={"X-MCP-Scopes": "resource:kb"})
+    blocked = _rpc(
+        isolated_client,
+        "resources/read",
+        {"uri": "audit://recent"},
+        request_id=2,
+        headers={"X-MCP-Scopes": "resource:kb"},
+    )
+
+    assert listed.status_code == 200, listed.text
+    uris = {item["uri"] for item in listed.json()["result"]["resources"]}
+    assert "kb://list" in uris
+    assert "jobs://recent" not in uris
+    assert "audit://recent" not in uris
+    assert blocked.json()["error"]["message"] == "Tool authorization denied"
+
+
 def test_mcp_resource_templates_list(isolated_client: TestClient):
     response = _rpc(isolated_client, "resources/templates/list")
     assert response.status_code == 200, response.text
@@ -290,6 +402,104 @@ def test_mcp_unknown_resource_returns_json_rpc_error(isolated_client: TestClient
     assert payload["error"]["code"] == -32602
 
 
+def test_mcp_resources_and_tools_enforce_tenant_isolation(isolated_client: TestClient):
+    tenant_a = run(
+        create_knowledge_base(
+            KnowledgeBaseCreate(
+                name="Tenant A KB",
+                key="tenant-a-mcp",
+                access_level="internal",
+                tenant_id="tenant-a",
+                org_id="org-a",
+            )
+        )
+    )
+    tenant_b = run(
+        create_knowledge_base(
+            KnowledgeBaseCreate(
+                name="Tenant B KB",
+                key="tenant-b-mcp",
+                access_level="internal",
+                tenant_id="tenant-b",
+                org_id="org-b",
+            )
+        )
+    )
+    scoped_admin = admin_headers(tenant_id="tenant-a", org_id="org-a")
+    listed = _rpc(isolated_client, "resources/list", headers={**scoped_admin, "X-MCP-Scopes": "resource:kb"})
+    denied_resource = _rpc(
+        isolated_client,
+        "resources/read",
+        {"uri": f"kb://{tenant_b.id}/stats"},
+        request_id=2,
+        headers={**scoped_admin, "X-MCP-Scopes": "resource:kb"},
+    )
+    denied_tool = _rpc(
+        isolated_client,
+        "tools/call",
+        {"name": "search_kb", "arguments": {"query": "private", "kb_id": tenant_b.id}},
+        request_id=3,
+        headers={
+            **auth_headers(
+                user_id="tenant-a-user",
+                roles=["employee"],
+                channel="web",
+                tenant_id="tenant-a",
+                org_id="org-a",
+            ),
+            "X-MCP-Scopes": "tool:search_kb",
+        },
+    )
+
+    assert listed.status_code == 200, listed.text
+    uris = {item["uri"] for item in listed.json()["result"]["resources"]}
+    assert f"kb://{tenant_a.id}/stats" in uris
+    assert f"kb://{tenant_b.id}/stats" not in uris
+    assert denied_resource.json()["error"]["message"] == "Tool authorization denied"
+    assert denied_tool.json()["error"]["message"] == "Tool execution failed"
+
+
+def test_mcp_jobs_and_audit_resources_enforce_tenant_isolation(isolated_client: TestClient):
+    context_a = RequestContext(
+        request_id="mcp-tenant-a",
+        auth={"user_id": "admin-a", "roles": ["admin"], "channel": "admin", "tenant_id": "tenant-a", "org_id": "org-a"},
+    )
+    context_b = RequestContext(
+        request_id="mcp-tenant-b",
+        auth={"user_id": "admin-b", "roles": ["admin"], "channel": "admin", "tenant_id": "tenant-b", "org_id": "org-b"},
+    )
+    job_a = enqueue_background_job(job_type="knowledge_gap_report", payload={}, context=context_a)
+    job_b = enqueue_background_job(job_type="knowledge_gap_report", payload={}, context=context_b)
+    now = utcnow_iso()
+    for context in (context_a, context_b):
+        execute_sync(
+            """
+            INSERT INTO tool_audit_logs (
+                tool_call_id, request_id, user_id, roles_json, channel, tenant_id, org_id,
+                tool_name, tool_status, created_at
+            ) VALUES (?, ?, ?, '["admin"]', 'admin', ?, ?, 'search_kb', 'success', ?)
+            """,
+            (
+                f"tool-{context.auth.tenant_id}",
+                context.request_id,
+                context.auth.user_id,
+                context.auth.tenant_id,
+                context.auth.org_id,
+                now,
+            ),
+        )
+
+    headers = {**admin_headers(tenant_id="tenant-a", org_id="org-a"), "X-MCP-Scopes": "resource:*"}
+    jobs = _rpc(isolated_client, "resources/read", {"uri": "jobs://recent"}, headers=headers)
+    audit = _rpc(isolated_client, "resources/read", {"uri": "audit://recent"}, request_id=2, headers=headers)
+
+    jobs_payload = json.loads(jobs.json()["result"]["contents"][0]["text"])
+    audit_payload = json.loads(audit.json()["result"]["contents"][0]["text"])
+    assert job_a["job_id"] in {item["job_id"] for item in jobs_payload["items"]}
+    assert job_b["job_id"] not in {item["job_id"] for item in jobs_payload["items"]}
+    assert {item["request_id"] for item in audit_payload["tool_audit"]} == {"mcp-tenant-a"}
+
+
 def test_admin_mcp_status_endpoint(isolated_client: TestClient):
     response = isolated_client.get("/api/admin/mcp/status", headers=admin_headers())
     assert response.status_code == 200, response.text
@@ -301,6 +511,7 @@ def test_admin_mcp_status_endpoint(isolated_client: TestClient):
     assert payload["capabilities"]["session_audit"] is True
     assert payload["tools"]["registered_count"] >= payload["tools"]["exposed_count"] >= 1
     assert payload["security"]["require_tool_scopes"] is True
+    assert payload["security"]["require_resource_scopes"] is True
     assert payload["security"]["require_client_token"] is False
     assert payload["security"]["default_tool_quota_per_window"] >= 0
     assert payload["security"]["manifest_signature"]["signature"]

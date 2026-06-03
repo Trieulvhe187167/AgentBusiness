@@ -12,6 +12,7 @@ Start with the MVP path unless you explicitly need tool calling or a model serve
 | --- | --- | --- | --- | --- | --- |
 | MVP / easiest local mode | First run, offline-ish local KB chatbot, smoke testing | Windows or Linux | No | No | Upload, ingest, retrieve, extractive answers |
 | Local RAG with Chroma | Larger local datasets, more realistic persistence | Windows or Linux | No | Yes | MVP plus Chroma backend and optional `.xls` support |
+| Qdrant hybrid RAG | Opt-in production-like dense+sparse retrieval rollout | Windows or Linux | No | No | Qdrant dense retrieval plus optional sparse BM25 and RRF fusion |
 | Advanced agent mode | vLLM/OpenAI-compatible server, tool routing, native tool rollout | Windows or Linux | Yes | Optional | RAG plus tool routing, audit logs, session memory, integrations |
 | Website gateway auth | Real website/backend integration | Windows or Linux | Optional | Optional | Advanced mode plus trusted upstream auth |
 
@@ -115,12 +116,14 @@ This is not a password/login system. For production login, keep using JWT or tru
 | --- | --- |
 | `requirements-core.txt` | MVP / easiest local mode |
 | `requirements-rag.txt` | Core plus Chroma and richer tabular parsing |
+| `requirements-qdrant.txt` | RAG profile plus optional Qdrant and FastEmbed sparse inference |
 | `requirements.txt` | Alias to `requirements-rag.txt` for Docker and full local RAG installs |
 | `requirements-dev.txt` | Full local RAG dependencies plus `pytest` |
 
 Important dependency notes:
 
 - `chromadb` is optional for MVP and required only for the Chroma backend.
+- `qdrant-client[fastembed]` is opt-in via `requirements-qdrant.txt`; see `docs/vector-backends.md` before enabling hybrid mode.
 - PDF parsing uses `pdfminer.six` first, extracts structured table rows via `pdfplumber`, and can fall back to local OCR for scanned PDFs via `pdf2image` + `pytesseract`.
 - Image uploads use Pillow validation, OCR through `pytesseract`, and OpenCV cleanup for detected table/document regions.
 - Legacy `.xls` parsing requires `pandas` plus `xlrd`.
@@ -182,7 +185,18 @@ POST /api/admin/evaluations/golden-dataset/upload
 POST /api/admin/evaluations/runs
 ```
 
-Use `source=golden_dataset` in eval runs. Golden eval records `answer_similarity`, `recall_at_k`, and `citation_accuracy`; if the average score drops beyond `alert_drop_threshold`, the app creates an `evaluation.quality_drop` notification. Scheduled runs use `schedule_type=agent_eval_run` through the existing sync schedule API; set `interval_seconds=86400` and `next_run_at` to the next 2AM timestamp for nightly regression.
+Use `source=golden_dataset` in eval runs. Golden eval records `answer_similarity`, `recall_at_k`, `MRR`, `citation_accuracy`, and optional source/chunk/category matches. Each run compares aggregate metrics with the previous matching golden run, exposes `gate_status`, and creates an `evaluation.gate_failed` notification when a metric drops beyond `max_metric_drop`. If the overall average score drops beyond `alert_drop_threshold`, the app also creates an `evaluation.quality_drop` notification. Scheduled runs use `schedule_type=agent_eval_run` through the existing sync schedule API; set `interval_seconds=86400` and `next_run_at` to the next 2AM timestamp for nightly regression.
+
+Golden runs can optionally use an LLM-as-judge layer for semantic quality checks that rule/token metrics cannot reliably catch, such as groundedness, correctness, completeness, citation support, and hallucination risk. It is disabled by default; enable it per request with `llm_judge=true` or globally with:
+
+```dotenv
+RAG_EVAL_LLM_JUDGE_ENABLED=true
+RAG_EVAL_LLM_JUDGE_PROVIDER=openai
+RAG_EVAL_LLM_JUDGE_MODEL=gpt-4.1-mini
+RAG_EVAL_LLM_JUDGE_WEIGHT=0.35
+```
+
+When enabled, judge results are stored alongside deterministic metrics and blended into the final result score by `RAG_EVAL_LLM_JUDGE_WEIGHT`. If the judge provider fails, the evaluation run still completes and records `judge_error` for that item.
 
 ### OCR for scanned documents and images
 
@@ -249,6 +263,8 @@ authenticates the user and forwards trusted headers such as `X-Auth-User-Id`,
 - `docs/parser-support.md`
 - `docs/architecture.md`
 - `docs/vector-backends.md`
+- `docs/cache.md`
+- `docs/openai-responses.md`
 - `docs/schema.md`
 - `docs/windows-setup.md`
 - `docs/external-integrations.md`

@@ -1,0 +1,4 @@
+-r requirements-rag.txt
+
+# Optional Qdrant backend with local BM25 sparse inference for hybrid retrieval.
+qdrant-client[fastembed]>=1.14.2,<2

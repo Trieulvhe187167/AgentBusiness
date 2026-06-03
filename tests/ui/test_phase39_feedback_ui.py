@@ -33,6 +33,8 @@ def test_admin_analytics_dashboard_wires_backend_endpoint():
     assert "/api/admin/analytics" in html
     assert "analyticsTimelineTable" in html
     assert "aHealthScore" in html
+    assert "capProvider" in html
+    assert "LLM Provider Capabilities" in html
     assert "analyticsInsights" in html
     assert "function analyticsHealth" in html
     assert "function renderAnalyticsInsights" in html
@@ -48,10 +50,13 @@ def test_admin_analytics_dashboard_wires_backend_endpoint():
     assert "/api/admin/evaluations/golden-dataset/upload" in html
     assert 'value="golden_dataset"' in html
     assert "payload.alert_drop_threshold" in html
+    assert "evalLlmJudge" in html
+    assert "payload.llm_judge" in html
     assert "agent_eval_run" in html
     assert "answer_similarity" in html
     assert "recall_at_k" in html
     assert "citation_accuracy" in html
+    assert "judge_score" in html
     assert "agentEvalRunsTable" in html
     assert "agentEvalResultsTable" in html
     assert "function runAgentEvaluation" in html

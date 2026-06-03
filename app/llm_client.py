@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Generator
+from contextvars import ContextVar
+from typing import Any, Callable, Generator
 from urllib.parse import urlparse
 
 import httpx
@@ -24,6 +25,7 @@ from app.observability import content_attrs, gen_ai_attrs, trace_span
 logger = logging.getLogger(__name__)
 
 _llama_model = None
+_last_generation_usage: ContextVar[dict[str, int] | None] = ContextVar("last_generation_usage", default=None)
 
 
 class LLMTemporaryFailure(RuntimeError):
@@ -206,6 +208,38 @@ def _extract_openai_text(payload: dict) -> str:
     return "\n".join(chunks).strip()
 
 
+def _extract_openai_usage(payload: dict[str, Any]) -> dict[str, int]:
+    usage = payload.get("usage") or {}
+    input_details = usage.get("input_tokens_details") or {}
+    return {
+        "input_tokens": int(usage.get("input_tokens") or 0),
+        "output_tokens": int(usage.get("output_tokens") or 0),
+        "total_tokens": int(usage.get("total_tokens") or 0),
+        "cached_tokens": int(input_details.get("cached_tokens") or 0),
+    }
+
+
+def _set_usage_span_attrs(span: Any, usage: dict[str, int]) -> None:
+    span.set_attribute("gen_ai.usage.input_tokens", int(usage.get("input_tokens") or 0))
+    span.set_attribute("gen_ai.usage.output_tokens", int(usage.get("output_tokens") or 0))
+    span.set_attribute("gen_ai.usage.total_tokens", int(usage.get("total_tokens") or 0))
+    span.set_attribute("gen_ai.usage.cached_tokens", int(usage.get("cached_tokens") or 0))
+
+
+def reset_last_generation_usage() -> None:
+    _last_generation_usage.set(None)
+
+
+def get_last_generation_usage() -> dict[str, int]:
+    return dict(_last_generation_usage.get() or {})
+
+
+def _record_generation_usage(span: Any, usage: dict[str, int]) -> None:
+    normalized = {key: int(value or 0) for key, value in usage.items()}
+    _last_generation_usage.set(normalized)
+    _set_usage_span_attrs(span, normalized)
+
+
 def _coerce_message_text(content: Any) -> str:
     if isinstance(content, str):
         return content.strip()
@@ -324,6 +358,7 @@ def _openai_stream(
     *,
     timeout_seconds_override: int | None = None,
     max_tokens_override: int | None = None,
+    on_completed: Callable[[dict[str, int]], None] | None = None,
 ) -> Generator[str, None, None]:
     if not settings.openai_api_key:
         raise RuntimeError("RAG_OPENAI_API_KEY is not configured")
@@ -347,20 +382,53 @@ def _openai_stream(
         "top_p": settings.llm_top_p,
         "frequency_penalty": max(0.0, settings.llm_repeat_penalty - 1.0),
         "max_output_tokens": max_tokens_override or settings.llm_max_tokens,
-        "stream": False,
+        "stream": True,
     }
+    prompt_cache_key = settings.openai_prompt_cache_key.strip()
+    if prompt_cache_key:
+        body["prompt_cache_key"] = prompt_cache_key
+    prompt_cache_retention = settings.normalized_openai_prompt_cache_retention
+    if prompt_cache_retention:
+        body["prompt_cache_retention"] = prompt_cache_retention
 
     timeout = httpx.Timeout(timeout_seconds_override or settings.openai_timeout_seconds)
     try:
-        response = httpx.post(url, headers=headers, json=body, timeout=timeout)
+        with httpx.stream("POST", url, headers=headers, json=body, timeout=timeout) as response:
+            response.raise_for_status()
+            for line in response.iter_lines():
+                if not line:
+                    continue
+                line = line.strip()
+                if not line.startswith("data: "):
+                    continue
+                data_str = line[6:]
+                if data_str == "[DONE]":
+                    break
+                try:
+                    event = json.loads(data_str)
+                except json.JSONDecodeError:
+                    logger.debug("Ignored malformed OpenAI Responses SSE event: %s", data_str[:160])
+                    continue
+                event_type = str(event.get("type") or "")
+                if event_type == "response.output_text.delta":
+                    delta = str(event.get("delta") or "")
+                    if delta:
+                        yield delta
+                elif event_type == "response.completed":
+                    usage = _extract_openai_usage(event.get("response") or {})
+                    if on_completed:
+                        on_completed(usage)
+                    logger.info(
+                        "OpenAI Responses usage: input_tokens=%s output_tokens=%s total_tokens=%s cached_tokens=%s",
+                        usage["input_tokens"],
+                        usage["output_tokens"],
+                        usage["total_tokens"],
+                        usage["cached_tokens"],
+                    )
     except Exception as err:
         if _is_transient_httpx_error(err):
             raise _temporary_failure("OpenAI Responses request failed", err) from err
         raise
-    response.raise_for_status()
-    text = _extract_openai_text(response.json())
-    for chunk in _safe_chunk_text(text):
-        yield chunk
 
 
 def _extract_gemini_text(payload: dict) -> str:
@@ -500,6 +568,7 @@ def complete_chat(
     system_prompt: str = "",
     *,
     provider: str | None = None,
+    model: str | None = None,
     tools: list[dict[str, Any]] | None = None,
     tool_choice: str | dict[str, Any] | None = None,
     response_format: dict[str, Any] | None = None,
@@ -507,7 +576,8 @@ def complete_chat(
     max_tokens: int | None = None,
 ) -> LLMChatResult:
     selected = (provider or choose_provider()).lower().strip()
-    request_model = settings.effective_chat_model or None
+    model_override = _normalized_model_name(model)
+    request_model = model_override or settings.effective_chat_model or None
     with trace_span(
         "gen_ai.chat",
         {
@@ -527,7 +597,7 @@ def complete_chat(
             result = _chat_completions_request(
                 base_url=settings.llm_base_url,
                 api_key=settings.llm_api_key,
-                model=_normalized_model_name(settings.llm_model),
+                model=model_override or _normalized_model_name(settings.llm_model),
                 prompt=prompt,
                 system_prompt=system_prompt,
                 tools=tools,
@@ -540,7 +610,7 @@ def complete_chat(
             result = _chat_completions_request(
                 base_url=settings.openai_base_url,
                 api_key=settings.openai_api_key,
-                model=_normalized_model_name(settings.openai_model),
+                model=model_override or _normalized_model_name(settings.openai_model),
                 prompt=prompt,
                 system_prompt=system_prompt,
                 tools=tools,
@@ -604,6 +674,7 @@ def generate_stream(
     max_tokens: int | None = None,
 ) -> Generator[str, None, None]:
     selected = (provider or choose_provider()).lower().strip()
+    reset_last_generation_usage()
     with trace_span(
         "gen_ai.generate_stream",
         {
@@ -622,11 +693,17 @@ def generate_stream(
         text_length = 0
         try:
             if selected == "openai":
+                span.set_attribute("gen_ai.request.prompt_cache_key_configured", bool(settings.openai_prompt_cache_key.strip()))
+                span.set_attribute(
+                    "gen_ai.request.prompt_cache_retention",
+                    settings.normalized_openai_prompt_cache_retention or "api_default",
+                )
                 stream = _openai_stream(
                     prompt,
                     system_prompt,
                     timeout_seconds_override=timeout_seconds,
                     max_tokens_override=max_tokens,
+                    on_completed=lambda usage: _record_generation_usage(span, usage),
                 )
             elif selected == "openai_compatible":
                 stream = _openai_compatible_stream(

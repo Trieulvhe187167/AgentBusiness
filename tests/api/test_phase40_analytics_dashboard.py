@@ -9,7 +9,16 @@ from app.database import execute_sync, utcnow_iso
 from tests.conftest import admin_headers, auth_headers, configure_test_env
 
 
-def _insert_chat(request_id: str, *, kb_id: int = 1, kb_key: str = "default", mode: str = "answer") -> int:
+def _insert_chat(
+    request_id: str,
+    *,
+    kb_id: int = 1,
+    kb_key: str = "default",
+    mode: str = "answer",
+    llm_input_tokens: int = 0,
+    llm_output_tokens: int = 0,
+    llm_cached_tokens: int = 0,
+) -> int:
     now = utcnow_iso()
     return int(
         execute_sync(
@@ -18,8 +27,9 @@ def _insert_chat(request_id: str, *, kb_id: int = 1, kb_key: str = "default", mo
                 session_id, request_id, user_id, roles_json, channel,
                 tenant_id, org_id, kb_id, kb_key, user_message, merged_query,
                 mode, top_score, answer_text, citations_json, latency_ms,
-                llm_provider, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                llm_provider, llm_input_tokens, llm_output_tokens, llm_total_tokens,
+                llm_cached_tokens, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 f"session-{request_id}",
@@ -39,6 +49,10 @@ def _insert_chat(request_id: str, *, kb_id: int = 1, kb_key: str = "default", mo
                 "[]",
                 150,
                 "none",
+                llm_input_tokens,
+                llm_output_tokens,
+                llm_input_tokens + llm_output_tokens,
+                llm_cached_tokens,
                 now,
             ),
         )
@@ -48,7 +62,7 @@ def _insert_chat(request_id: str, *, kb_id: int = 1, kb_key: str = "default", mo
 
 def _seed_analytics_data():
     now = utcnow_iso()
-    chat_id = _insert_chat("analytics-req-1")
+    chat_id = _insert_chat("analytics-req-1", llm_input_tokens=1400, llm_output_tokens=12, llm_cached_tokens=1024)
     _insert_chat("analytics-req-2", mode="fallback")
     execute_sync(
         """
@@ -194,6 +208,11 @@ def test_admin_analytics_dashboard_returns_operational_metrics(tmp_path, monkeyp
     assert payload["kb_id"] == 1
     assert payload["summary"]["chat_count"] == 2
     assert payload["summary"]["fallback_count"] == 1
+    assert payload["summary"]["llm_input_tokens"] == 1400
+    assert payload["summary"]["llm_output_tokens"] == 12
+    assert payload["summary"]["llm_total_tokens"] == 1412
+    assert payload["summary"]["llm_cached_tokens"] == 1024
+    assert payload["summary"]["llm_cached_input_rate"] == 0.7314
     assert payload["summary"]["feedback_up"] == 1
     assert payload["summary"]["tool_calls"] == 1
     assert payload["summary"]["background_jobs_failed"] == 1

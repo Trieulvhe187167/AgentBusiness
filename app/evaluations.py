@@ -18,6 +18,13 @@ from typing import Any
 from fastapi import HTTPException
 
 from app.database import execute_sync, fetch_all_sync, fetch_one_sync, utcnow_iso
+from app.eval_judge import (
+    evaluate_golden_answer,
+    judge_enabled_for_run,
+    judge_weight_for_run,
+    resolved_judge_model,
+    resolved_judge_provider,
+)
 from app.models import (
     AgentEvalCheck,
     AgentEvalResultItem,
@@ -58,6 +65,10 @@ def _serialize_run(row: dict[str, Any]) -> AgentEvalRunItem:
         warn_count=int(row.get("warn_count") or 0),
         fail_count=int(row.get("fail_count") or 0),
         avg_score=round(float(row["avg_score"]), 2) if row.get("avg_score") is not None else None,
+        baseline_run_id=row.get("baseline_run_id"),
+        metrics=_parse_json(row.get("metrics_json"), {}),
+        comparison=_parse_json(row.get("comparison_json"), {}),
+        gate_status=row.get("gate_status") or "not_compared",
         created_by_user_id=row.get("created_by_user_id"),
         created_at=row["created_at"],
         completed_at=row.get("completed_at"),
@@ -90,6 +101,22 @@ def _serialize_result(row: dict[str, Any]) -> AgentEvalResultItem:
         answer_similarity=row.get("answer_similarity"),
         recall_at_k=row.get("recall_at_k"),
         citation_accuracy=row.get("citation_accuracy"),
+        mrr=row.get("mrr"),
+        source_match=row.get("source_match"),
+        chunk_match=row.get("chunk_match"),
+        category_match=row.get("category_match"),
+        matched_source_rank=row.get("matched_source_rank"),
+        retrieved=_parse_json(row.get("retrieved_json"), []),
+        citations=_parse_json(row.get("citations_json"), []),
+        judge_provider=row.get("judge_provider"),
+        judge_model=row.get("judge_model"),
+        judge_score=row.get("judge_score"),
+        judge_verdict=row.get("judge_verdict"),
+        judge_metrics=_parse_json(row.get("judge_metrics_json"), {}),
+        judge_reason=row.get("judge_reason"),
+        judge_latency_ms=row.get("judge_latency_ms"),
+        judge_error=row.get("judge_error"),
+        latency_ms=row.get("latency_ms"),
         verdict=row["verdict"],
         score=round(float(row.get("score") or 0), 2),
         checks=checks,
@@ -111,13 +138,32 @@ def _parse_list(raw: str | None) -> list[str]:
     return [str(item) for item in parsed if str(item).strip()]
 
 
+def _parse_int_list(raw: str | None) -> list[int]:
+    parsed = _parse_json(raw, [])
+    if not isinstance(parsed, list):
+        return []
+    values: list[int] = []
+    for item in parsed:
+        try:
+            value = int(item)
+        except (TypeError, ValueError):
+            continue
+        if value > 0 and value not in values:
+            values.append(value)
+    return values
+
+
 def _serialize_golden_item(row: dict[str, Any]) -> GoldenDatasetItem:
     return GoldenDatasetItem(
         id=int(row["id"]),
         kb_id=int(row["kb_id"]),
         question=row["question"],
         expected_answer=row["expected_answer"],
+        expected_answers=_parse_list(row.get("expected_answers_json")),
         expected_source_file_id=row.get("expected_source_file_id"),
+        expected_source_file_ids=_parse_int_list(row.get("expected_source_file_ids_json")),
+        expected_chunk_ids=_parse_list(row.get("expected_chunk_ids_json")),
+        expected_categories=_parse_list(row.get("expected_categories_json")),
         expected_keywords=_parse_list(row.get("expected_keywords_json")),
         tags=_parse_list(row.get("tags_json")),
         active=bool(row.get("active")),
@@ -215,10 +261,13 @@ def create_golden_dataset_item(payload: CreateGoldenDatasetItemInput, *, auth: A
     kb = fetch_one_sync("SELECT id FROM knowledge_bases WHERE id = ?", (int(payload.kb_id),))
     if not kb:
         raise HTTPException(status_code=404, detail="Knowledge Base not found")
-    if payload.expected_source_file_id is not None:
-        file_row = fetch_one_sync("SELECT id FROM uploaded_files WHERE id = ?", (int(payload.expected_source_file_id),))
+    expected_source_file_ids = list(payload.expected_source_file_ids)
+    if payload.expected_source_file_id is not None and payload.expected_source_file_id not in expected_source_file_ids:
+        expected_source_file_ids.insert(0, payload.expected_source_file_id)
+    for source_file_id in expected_source_file_ids:
+        file_row = fetch_one_sync("SELECT id FROM uploaded_files WHERE id = ?", (int(source_file_id),))
         if not file_row:
-            raise HTTPException(status_code=404, detail="Expected source file not found")
+            raise HTTPException(status_code=404, detail=f"Expected source file not found: {source_file_id}")
 
     now = utcnow_iso()
     item_id = int(
@@ -226,15 +275,21 @@ def create_golden_dataset_item(payload: CreateGoldenDatasetItemInput, *, auth: A
             """
             INSERT INTO eval_golden_dataset (
                 kb_id, question, expected_answer, expected_source_file_id,
+                expected_answers_json, expected_source_file_ids_json,
+                expected_chunk_ids_json, expected_categories_json,
                 expected_keywords_json, tags_json, active,
                 created_by_user_id, tenant_id, org_id, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 int(payload.kb_id),
                 payload.question,
                 payload.expected_answer,
                 payload.expected_source_file_id,
+                json.dumps(payload.expected_answers, ensure_ascii=False),
+                json.dumps(expected_source_file_ids, ensure_ascii=False),
+                json.dumps(payload.expected_chunk_ids, ensure_ascii=False),
+                json.dumps(payload.expected_categories, ensure_ascii=False),
                 json.dumps(payload.expected_keywords, ensure_ascii=False),
                 json.dumps(payload.tags, ensure_ascii=False),
                 1 if payload.active else 0,
@@ -278,6 +333,19 @@ def list_golden_dataset(*, kb_id: int | None = None, active: bool | None = None,
     return ListGoldenDatasetOutput(total=len(items), items=items).model_dump()
 
 
+def _csv_text_list(raw: str | None, *, separator: str = ",") -> list[str]:
+    value = str(raw or "").strip()
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        parsed = [item.strip() for item in value.split(separator)]
+    if not isinstance(parsed, list):
+        return []
+    return [str(item).strip() for item in parsed if str(item).strip()]
+
+
 def upload_golden_dataset_csv(
     *,
     content: bytes,
@@ -302,6 +370,10 @@ def upload_golden_dataset_csv(
             question=question,
             expected_answer=expected_answer,
             expected_source_file_id=int(expected_source) if expected_source else None,
+            expected_answers=_csv_text_list(row.get("expected_answers"), separator="|"),
+            expected_source_file_ids=_csv_text_list(row.get("expected_source_file_ids")),
+            expected_chunk_ids=_csv_text_list(row.get("expected_chunk_ids")),
+            expected_categories=_csv_text_list(row.get("expected_categories")),
             expected_keywords=row.get("expected_keywords") or "",
             tags=row.get("tags") or "",
             active=str(row.get("active") or "true").strip().lower() not in {"0", "false", "no"},
@@ -376,6 +448,112 @@ def _token_f1(actual: str, expected: str) -> float:
     return round((2 * precision * recall) / (precision + recall), 4)
 
 
+def _distinct(values: list[Any]) -> list[Any]:
+    items: list[Any] = []
+    for value in values:
+        if value not in items:
+            items.append(value)
+    return items
+
+
+def _expected_answer_variants(row: dict[str, Any]) -> list[str]:
+    values = [str(row.get("expected_answer") or "").strip(), *_parse_list(row.get("expected_answers_json"))]
+    return [str(item) for item in _distinct(values) if str(item).strip()]
+
+
+def _expected_source_file_ids(row: dict[str, Any]) -> list[int]:
+    values = _parse_int_list(row.get("expected_source_file_ids_json"))
+    legacy = row.get("expected_source_file_id")
+    if legacy is not None:
+        values.insert(0, int(legacy))
+    return [int(item) for item in _distinct(values) if int(item) > 0]
+
+
+def _expected_source_names(source_file_ids: list[int]) -> set[str]:
+    if not source_file_ids:
+        return set()
+    placeholders = ",".join("?" for _ in source_file_ids)
+    rows = fetch_all_sync(
+        f"SELECT filename, original_name FROM uploaded_files WHERE id IN ({placeholders})",
+        tuple(source_file_ids),
+    )
+    return {
+        str(value).strip().lower()
+        for row in rows
+        for value in (row.get("filename"), row.get("original_name"))
+        if str(value or "").strip()
+    }
+
+
+def _retrieval_source_id(item: dict[str, Any]) -> str:
+    return str(item.get("source_id") or item.get("file_id") or "")
+
+
+def _first_source_rank(retrieved: list[dict[str, Any]], expected_source_file_ids: list[int]) -> int | None:
+    expected = {str(item) for item in expected_source_file_ids}
+    if not expected:
+        return None
+    for rank, item in enumerate(retrieved, start=1):
+        if _retrieval_source_id(item) in expected:
+            return rank
+    return None
+
+
+def _match_ratio(actual: list[str], expected: list[str]) -> float | None:
+    normalized_expected = {str(item).strip().lower() for item in expected if str(item).strip()}
+    if not normalized_expected:
+        return None
+    normalized_actual = {str(item).strip().lower() for item in actual if str(item).strip()}
+    return round(len(normalized_expected & normalized_actual) / len(normalized_expected), 4)
+
+
+def _citation_accuracy(
+    *,
+    row: dict[str, Any],
+    rag_result: dict[str, Any],
+    expected_source_file_ids: list[int],
+) -> float | None:
+    citations = rag_result["citations"]
+    components: list[float] = []
+    keywords = _parse_list(row.get("expected_keywords_json"))
+    if keywords:
+        citation_text = " ".join(
+            str(item.get("content_preview") or "") + " " + str(item.get("filename") or "")
+            for item in citations
+        ).lower()
+        answer_text = str(rag_result["answer_text"] or "").lower()
+        matched = sum(1 for keyword in keywords if keyword.lower() in citation_text or keyword.lower() in answer_text)
+        components.append(matched / len(keywords))
+
+    source_names = _expected_source_names(expected_source_file_ids)
+    if source_names:
+        cited_names = {str(item.get("filename") or "").strip().lower() for item in citations}
+        components.append(1.0 if source_names & cited_names else 0.0)
+
+    expected_chunk_ids = _parse_list(row.get("expected_chunk_ids_json"))
+    if expected_chunk_ids:
+        cited_chunk_ids = [str(item.get("chunk_id") or "") for item in citations]
+        chunk_ratio = _match_ratio(cited_chunk_ids, expected_chunk_ids)
+        if chunk_ratio is not None:
+            components.append(chunk_ratio)
+
+    return round(sum(components) / len(components), 4) if components else None
+
+
+def _retrieval_preview(items: list[dict[str, Any]], limit: int = 10) -> list[dict[str, Any]]:
+    return [
+        {
+            "rank": rank,
+            "source_id": item.get("source_id") or item.get("file_id"),
+            "chunk_id": item.get("chunk_id"),
+            "filename": item.get("filename"),
+            "category": item.get("category"),
+            "similarity": round(float(item.get("similarity") or 0.0), 4),
+        }
+        for rank, item in enumerate(items[:limit], start=1)
+    ]
+
+
 def _collect_rag_answer(question: str, *, kb_id: int, auth: AuthContext) -> dict[str, Any]:
     from app.rag import rag_stream, retrieve
 
@@ -425,36 +603,62 @@ def _collect_rag_answer(question: str, *, kb_id: int, auth: AuthContext) -> dict
     }
 
 
-def _score_golden_item(row: dict[str, Any], *, auth: AuthContext, min_pass_score: int, min_warn_score: int) -> dict[str, Any]:
+def _score_golden_item(
+    row: dict[str, Any],
+    *,
+    auth: AuthContext,
+    min_pass_score: int,
+    min_warn_score: int,
+    llm_judge_enabled: bool,
+    llm_judge_weight: float,
+) -> dict[str, Any]:
     rag_result = _collect_rag_answer(row["question"], kb_id=int(row["kb_id"]), auth=auth)
-    expected_answer = str(row.get("expected_answer") or "")
-    answer_similarity = _token_f1(rag_result["answer_text"], expected_answer)
+    expected_answers = _expected_answer_variants(row)
+    answer_similarity = max(
+        (_token_f1(rag_result["answer_text"], expected_answer) for expected_answer in expected_answers),
+        default=0.0,
+    )
 
-    expected_source_file_id = row.get("expected_source_file_id")
+    expected_source_file_ids = _expected_source_file_ids(row)
     recall_at_k: float | None = None
-    if expected_source_file_id is not None:
-        expected_source = str(expected_source_file_id)
-        recall_at_k = 1.0 if any(str(item.get("source_id") or item.get("file_id")) == expected_source for item in rag_result["retrieved"]) else 0.0
+    source_match: float | None = None
+    matched_source_rank = _first_source_rank(rag_result["retrieved"], expected_source_file_ids)
+    mrr: float | None = None
+    if expected_source_file_ids:
+        source_match = 1.0 if matched_source_rank is not None else 0.0
+        recall_at_k = source_match
+        mrr = round(1.0 / matched_source_rank, 4) if matched_source_rank is not None else 0.0
 
-    keywords = _parse_list(row.get("expected_keywords_json"))
-    citation_accuracy: float | None = None
-    if keywords:
-        citation_text = " ".join(
-            str(item.get("content_preview") or "") + " " + str(item.get("filename") or "")
-            for item in rag_result["citations"]
-        ).lower()
-        matched = sum(1 for keyword in keywords if keyword.lower() in citation_text or keyword.lower() in rag_result["answer_text"].lower())
-        citation_accuracy = round(matched / len(keywords), 4)
-    elif expected_source_file_id is not None:
-        citation_accuracy = recall_at_k
+    expected_chunk_ids = _parse_list(row.get("expected_chunk_ids_json"))
+    chunk_match = _match_ratio(
+        [str(item.get("chunk_id") or "") for item in rag_result["retrieved"]],
+        expected_chunk_ids,
+    )
+    expected_categories = _parse_list(row.get("expected_categories_json"))
+    category_match = _match_ratio(
+        [str(item.get("category") or "") for item in rag_result["retrieved"]],
+        expected_categories,
+    )
+    citation_accuracy = _citation_accuracy(
+        row=row,
+        rag_result=rag_result,
+        expected_source_file_ids=expected_source_file_ids,
+    )
 
     weighted: list[tuple[float, float]] = [(answer_similarity, 0.6)]
     if recall_at_k is not None:
-        weighted.append((recall_at_k, 0.25))
+        weighted.append((recall_at_k, 0.15))
+    if mrr is not None:
+        weighted.append((mrr, 0.10))
     if citation_accuracy is not None:
         weighted.append((citation_accuracy, 0.15))
+    if chunk_match is not None:
+        weighted.append((chunk_match, 0.05))
+    if category_match is not None:
+        weighted.append((category_match, 0.05))
     weight_total = sum(weight for _, weight in weighted) or 1.0
-    score = round(sum(value * weight for value, weight in weighted) / weight_total * 100, 2)
+    deterministic_score = round(sum(value * weight for value, weight in weighted) / weight_total * 100, 2)
+    score = deterministic_score
 
     checks: list[dict[str, Any]] = []
     checks.append(
@@ -474,6 +678,15 @@ def _score_golden_item(row: dict[str, Any], *, auth: AuthContext, min_pass_score
                 "Expected source was retrieved." if recall_at_k >= 1.0 else "Expected source was not retrieved.",
             )
         )
+    if mrr is not None:
+        checks.append(
+            _check(
+                "mrr",
+                "pass" if mrr >= 1.0 else "warn" if mrr > 0 else "fail",
+                0,
+                f"MRR {mrr:.2f}; first expected source rank {matched_source_rank or 'not found'}.",
+            )
+        )
     if citation_accuracy is not None:
         checks.append(
             _check(
@@ -483,8 +696,67 @@ def _score_golden_item(row: dict[str, Any], *, auth: AuthContext, min_pass_score
                 f"Citation accuracy {citation_accuracy:.2f}.",
             )
         )
+    if chunk_match is not None:
+        checks.append(
+            _check(
+                "chunk_match",
+                "pass" if chunk_match >= 1.0 else "warn" if chunk_match > 0 else "fail",
+                0,
+                f"Expected chunk match {chunk_match:.2f}.",
+            )
+        )
+    if category_match is not None:
+        checks.append(
+            _check(
+                "category_match",
+                "pass" if category_match >= 1.0 else "warn" if category_match > 0 else "fail",
+                0,
+                f"Expected category match {category_match:.2f}.",
+            )
+        )
     if rag_result["mode"] == "fallback":
         checks.append(_check("routing_mode", "warn", 0, "RAG used fallback mode."))
+
+    judge_result: dict[str, Any] = {
+        "judge_provider": None,
+        "judge_model": None,
+        "judge_score": None,
+        "judge_verdict": None,
+        "judge_metrics": {},
+        "judge_reason": None,
+        "judge_latency_ms": None,
+        "judge_error": None,
+    }
+    if llm_judge_enabled:
+        judge_result = evaluate_golden_answer(
+            question=str(row.get("question") or ""),
+            expected_answer=str(row.get("expected_answer") or ""),
+            expected_answers=expected_answers,
+            actual_answer=str(rag_result.get("answer_text") or ""),
+            retrieved=rag_result["retrieved"],
+            citations=rag_result["citations"],
+        )
+        if judge_result.get("judge_error"):
+            checks.append(
+                _check(
+                    "llm_judge",
+                    "warn",
+                    0,
+                    f"LLM judge unavailable: {judge_result.get('judge_error')}",
+                )
+            )
+        elif judge_result.get("judge_score") is not None:
+            judge_score = float(judge_result["judge_score"])
+            score = round((deterministic_score * (1.0 - llm_judge_weight)) + (judge_score * 100.0 * llm_judge_weight), 2)
+            judge_verdict = str(judge_result.get("judge_verdict") or "warn")
+            checks.append(
+                _check(
+                    "llm_judge",
+                    judge_verdict,
+                    0,
+                    f"LLM judge score {judge_score:.2f}: {judge_result.get('judge_reason') or 'No judge reason provided.'}",
+                )
+            )
 
     if score >= min_pass_score:
         verdict = "pass"
@@ -499,9 +771,136 @@ def _score_golden_item(row: dict[str, Any], *, auth: AuthContext, min_pass_score
         "verdict": verdict,
         "checks": checks,
         "reason": failing[0] if failing else "Golden dataset checks passed.",
+        "deterministic_score": deterministic_score,
         "answer_similarity": answer_similarity,
         "recall_at_k": recall_at_k,
         "citation_accuracy": citation_accuracy,
+        "mrr": mrr,
+        "source_match": source_match,
+        "chunk_match": chunk_match,
+        "category_match": category_match,
+        "matched_source_rank": matched_source_rank,
+        "retrieved_preview": _retrieval_preview(rag_result["retrieved"]),
+        **judge_result,
+    }
+
+
+_GOLDEN_METRICS = (
+    "answer_similarity",
+    "recall_at_k",
+    "citation_accuracy",
+    "mrr",
+    "source_match",
+    "chunk_match",
+    "category_match",
+    "judge_score",
+)
+
+_JUDGE_METRIC_NAMES = (
+    "correctness",
+    "groundedness",
+    "completeness",
+    "citation_support",
+    "hallucination_risk",
+)
+
+
+def _avg_metric(rows: list[dict[str, Any]], name: str) -> float | None:
+    values = [float(row[name]) for row in rows if row.get(name) is not None]
+    return round(sum(values) / len(values), 4) if values else None
+
+
+def _golden_run_metrics(scored_rows: list[dict[str, Any]], avg_score: float | None) -> dict[str, float | None]:
+    metrics: dict[str, float | None] = {
+        "score_ratio": round(float(avg_score) / 100.0, 4) if avg_score is not None else None,
+    }
+    for name in _GOLDEN_METRICS:
+        metrics[name] = _avg_metric(scored_rows, name)
+    for name in _JUDGE_METRIC_NAMES:
+        values = [
+            float((row.get("judge_metrics") or {}).get(name))
+            for row in scored_rows
+            if (row.get("judge_metrics") or {}).get(name) is not None
+        ]
+        metrics[f"judge_{name}"] = round(sum(values) / len(values), 4) if values else None
+    return metrics
+
+
+def _resolve_baseline_run(
+    *,
+    run_id: int,
+    kb_id: int | None,
+    explicit_baseline_run_id: int | None,
+) -> dict[str, Any] | None:
+    if explicit_baseline_run_id is not None:
+        row = fetch_one_sync(
+            """
+            SELECT id, kb_id, metrics_json
+            FROM agent_eval_runs
+            WHERE id = ? AND source = 'golden_dataset'
+            """,
+            (int(explicit_baseline_run_id),),
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Golden evaluation baseline run not found")
+        if row.get("kb_id") != kb_id:
+            raise HTTPException(status_code=400, detail="Golden evaluation baseline must use the same KB scope")
+        return row
+
+    return fetch_one_sync(
+        """
+        SELECT id, kb_id, metrics_json
+        FROM agent_eval_runs
+        WHERE source = 'golden_dataset'
+          AND id <> ?
+          AND ((kb_id IS NULL AND ? IS NULL) OR kb_id = ?)
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        """,
+        (int(run_id), kb_id, kb_id),
+    )
+
+
+def _compare_golden_metrics(
+    *,
+    metrics: dict[str, float | None],
+    baseline: dict[str, Any] | None,
+    max_metric_drop: float,
+) -> tuple[int | None, str, dict[str, Any]]:
+    if baseline is None:
+        return None, "baseline_missing", {
+            "max_metric_drop": float(max_metric_drop),
+            "regressions": [],
+            "deltas": {},
+        }
+
+    baseline_metrics = _parse_json(baseline.get("metrics_json"), {})
+    deltas: dict[str, float] = {}
+    regressions: list[dict[str, Any]] = []
+    comparable_count = 0
+    for name, current_value in metrics.items():
+        baseline_value = baseline_metrics.get(name)
+        if current_value is None or baseline_value is None:
+            continue
+        comparable_count += 1
+        delta = round(float(current_value) - float(baseline_value), 4)
+        deltas[name] = delta
+        if delta < -float(max_metric_drop):
+            regressions.append(
+                {
+                    "metric": name,
+                    "baseline": round(float(baseline_value), 4),
+                    "current": round(float(current_value), 4),
+                    "delta": delta,
+                }
+            )
+
+    gate_status = "baseline_missing" if comparable_count == 0 else "failed" if regressions else "passed"
+    return int(baseline["id"]), gate_status, {
+        "max_metric_drop": float(max_metric_drop),
+        "comparable_metric_count": comparable_count,
+        "regressions": regressions,
+        "deltas": deltas,
     }
 
 
@@ -550,9 +949,50 @@ def _maybe_create_quality_alert(run_id: int, *, kb_id: int | None, avg_score: fl
         pass
 
 
+def _maybe_create_gate_alert(
+    *,
+    run_id: int,
+    kb_id: int | None,
+    baseline_run_id: int | None,
+    gate_status: str,
+    comparison: dict[str, Any],
+) -> None:
+    if gate_status != "failed":
+        return
+    regressions = comparison.get("regressions") or []
+    labels = ", ".join(str(item.get("metric") or "unknown") for item in regressions[:5])
+    try:
+        from app.notifications import create_notification
+
+        create_notification(
+            event_type="evaluation.gate_failed",
+            severity="critical",
+            title="RAG evaluation gate failed",
+            message=f"Golden evaluation run {run_id} regressed against baseline {baseline_run_id}: {labels}.",
+            entity_type="agent_eval_run",
+            entity_id=str(run_id),
+            payload={
+                "run_id": run_id,
+                "baseline_run_id": baseline_run_id,
+                "comparison": comparison,
+            },
+            context=RequestContext(
+                request_id=f"eval-gate-{run_id}",
+                kb_id=kb_id,
+                auth={"user_id": "evaluation-monitor", "roles": ["admin"], "channel": "scheduler"},
+            ),
+        )
+    except Exception:
+        pass
+
+
 def _create_golden_eval_run(payload: CreateAgentEvalRunInput, *, auth: AuthContext) -> dict[str, Any]:
     rows = _select_golden_candidates(payload)
     now = utcnow_iso()
+    llm_judge_enabled = judge_enabled_for_run(payload.llm_judge)
+    llm_judge_weight = judge_weight_for_run(payload.llm_judge_weight)
+    judge_provider = resolved_judge_provider() if llm_judge_enabled else None
+    judge_model = resolved_judge_model(judge_provider) if judge_provider else None
     kb_key = None
     if payload.kb_id is not None:
         kb_row = fetch_one_sync("SELECT key FROM knowledge_bases WHERE id = ?", (int(payload.kb_id),))
@@ -563,8 +1003,28 @@ def _create_golden_eval_run(payload: CreateAgentEvalRunInput, *, auth: AuthConte
         "min_pass_score": payload.min_pass_score,
         "min_warn_score": payload.min_warn_score,
         "alert_drop_threshold": payload.alert_drop_threshold,
-        "scorer": "golden_rule_v1",
-        "metrics": ["answer_similarity", "recall_at_k", "citation_accuracy"],
+        "baseline_run_id": payload.baseline_run_id,
+        "max_metric_drop": payload.max_metric_drop,
+        "scorer": "golden_rule_v2",
+        "llm_judge_enabled": llm_judge_enabled,
+        "llm_judge_provider": judge_provider,
+        "llm_judge_model": judge_model,
+        "llm_judge_weight": llm_judge_weight,
+        "metrics": [
+            "answer_similarity",
+            "recall_at_k",
+            "citation_accuracy",
+            "mrr",
+            "source_match",
+            "chunk_match",
+            "category_match",
+            "judge_score",
+            "judge_correctness",
+            "judge_groundedness",
+            "judge_completeness",
+            "judge_citation_support",
+            "judge_hallucination_risk",
+        ],
     }
     run_name = payload.name or "Golden dataset regression eval"
     run_id = int(
@@ -593,25 +1053,33 @@ def _create_golden_eval_run(payload: CreateAgentEvalRunInput, *, auth: AuthConte
 
     pass_count = warn_count = fail_count = 0
     total_score = 0.0
+    scored_rows: list[dict[str, Any]] = []
     for row in rows:
         scored = _score_golden_item(
             row,
             auth=auth,
             min_pass_score=payload.min_pass_score,
             min_warn_score=payload.min_warn_score,
+            llm_judge_enabled=llm_judge_enabled,
+            llm_judge_weight=llm_judge_weight,
         )
         verdict = scored["verdict"]
         pass_count += 1 if verdict == "pass" else 0
         warn_count += 1 if verdict == "warn" else 0
         fail_count += 1 if verdict == "fail" else 0
         total_score += float(scored["score"])
+        scored_rows.append(scored)
         execute_sync(
             """
             INSERT INTO agent_eval_results (
                 run_id, chat_log_id, golden_item_id, request_id, kb_id, kb_key, mode, top_score,
                 feedback_rating, expected_answer, answer_similarity, recall_at_k, citation_accuracy,
+                mrr, source_match, chunk_match, category_match, matched_source_rank,
+                retrieved_json, citations_json,
+                judge_provider, judge_model, judge_score, judge_verdict, judge_metrics_json,
+                judge_reason, judge_latency_ms, judge_error, latency_ms,
                 verdict, score, checks_json, reason, user_message, answer_text, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_id,
@@ -626,6 +1094,22 @@ def _create_golden_eval_run(payload: CreateAgentEvalRunInput, *, auth: AuthConte
                 scored.get("answer_similarity"),
                 scored.get("recall_at_k"),
                 scored.get("citation_accuracy"),
+                scored.get("mrr"),
+                scored.get("source_match"),
+                scored.get("chunk_match"),
+                scored.get("category_match"),
+                scored.get("matched_source_rank"),
+                json.dumps(scored.get("retrieved_preview") or [], ensure_ascii=False),
+                json.dumps(scored.get("citations") or [], ensure_ascii=False),
+                scored.get("judge_provider"),
+                scored.get("judge_model"),
+                scored.get("judge_score"),
+                scored.get("judge_verdict"),
+                json.dumps(scored.get("judge_metrics") or {}, ensure_ascii=False),
+                scored.get("judge_reason"),
+                scored.get("judge_latency_ms"),
+                scored.get("judge_error"),
+                scored.get("latency_ms"),
                 verdict,
                 scored["score"],
                 json.dumps(scored["checks"], ensure_ascii=False),
@@ -637,19 +1121,48 @@ def _create_golden_eval_run(payload: CreateAgentEvalRunInput, *, auth: AuthConte
         )
 
     avg_score = round(total_score / len(rows), 2) if rows else None
+    metrics = _golden_run_metrics(scored_rows, avg_score)
+    baseline = _resolve_baseline_run(
+        run_id=run_id,
+        kb_id=payload.kb_id,
+        explicit_baseline_run_id=payload.baseline_run_id,
+    )
+    baseline_run_id, gate_status, comparison = _compare_golden_metrics(
+        metrics=metrics,
+        baseline=baseline,
+        max_metric_drop=payload.max_metric_drop,
+    )
     execute_sync(
         """
         UPDATE agent_eval_runs
-        SET pass_count = ?, warn_count = ?, fail_count = ?, avg_score = ?
+        SET pass_count = ?, warn_count = ?, fail_count = ?, avg_score = ?,
+            baseline_run_id = ?, metrics_json = ?, comparison_json = ?, gate_status = ?
         WHERE id = ?
         """,
-        (pass_count, warn_count, fail_count, avg_score, run_id),
+        (
+            pass_count,
+            warn_count,
+            fail_count,
+            avg_score,
+            baseline_run_id,
+            json.dumps(metrics, ensure_ascii=False, sort_keys=True),
+            json.dumps(comparison, ensure_ascii=False, sort_keys=True),
+            gate_status,
+            run_id,
+        ),
     )
     _maybe_create_quality_alert(
         run_id,
         kb_id=payload.kb_id,
         avg_score=avg_score,
         threshold=payload.alert_drop_threshold,
+    )
+    _maybe_create_gate_alert(
+        run_id=run_id,
+        kb_id=payload.kb_id,
+        baseline_run_id=baseline_run_id,
+        gate_status=gate_status,
+        comparison=comparison,
     )
     return get_agent_eval_run(run_id)
 

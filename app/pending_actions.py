@@ -40,6 +40,7 @@ class PendingActionItem(BaseModel):
     org_id: str | None = None
     kb_id: int | None = None
     kb_key: str | None = None
+    agent_run_id: int | None = None
     created_at: str
     updated_at: str
     approved_at: str | None = None
@@ -89,6 +90,7 @@ def _serialize_row(row: dict[str, Any]) -> PendingActionItem:
         org_id=row.get("org_id"),
         kb_id=row.get("kb_id"),
         kb_key=row.get("kb_key"),
+        agent_run_id=row.get("agent_run_id"),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         approved_at=row.get("approved_at"),
@@ -196,6 +198,12 @@ def approve_pending_action(action_id: int, *, auth: AuthContext) -> dict[str, An
         """,
         (auth.user_id, now, now, action_id),
     )
+    try:
+        from app.agent_runs import record_agent_run_approval
+
+        record_agent_run_approval(action_id, auth=auth)
+    except Exception:
+        pass
     return get_pending_action(action_id).model_dump()
 
 
@@ -226,6 +234,11 @@ def reject_pending_action(action_id: int, *, auth: AuthContext, note: str | None
         )
         _auto_resume_from_pending_action(
             get_pending_action(action_id),
+            context=RequestContext(request_id=f"pending-action-{action_id}", auth=auth),
+            trigger_status="rejected",
+        )
+        _auto_resume_agent_run_from_pending_action(
+            action_id,
             context=RequestContext(request_id=f"pending-action-{action_id}", auth=auth),
             trigger_status="rejected",
         )
@@ -263,6 +276,7 @@ async def execute_pending_action(action_id: int, *, context: RequestContext) -> 
                 """,
                 (str(err), context.auth.user_id, now, now, action_id),
             )
+            _auto_resume_agent_run_from_pending_action(action_id, context=context, trigger_status="failed")
             span.set_attribute("pending_action.status", "failed")
             raise
 
@@ -281,6 +295,11 @@ async def execute_pending_action(action_id: int, *, context: RequestContext) -> 
         )
         updated = get_pending_action(action_id)
         resumed = _auto_resume_from_pending_action(updated, context=context, trigger_status="executed")
+        resumed_agent_run = _auto_resume_agent_run_from_pending_action(
+            action_id,
+            context=context,
+            trigger_status="executed",
+        )
         if resumed:
             result = {
                 **result,
@@ -291,6 +310,16 @@ async def execute_pending_action(action_id: int, *, context: RequestContext) -> 
                 (json.dumps(result, ensure_ascii=False, sort_keys=True), utcnow_iso(), action_id),
             )
             span.set_attribute("workflow.auto_resumed_count", len(resumed))
+        if resumed_agent_run:
+            result = {
+                **result,
+                "auto_resumed_agent_run_ids": [resumed_agent_run["id"]],
+            }
+            execute_sync(
+                "UPDATE pending_actions SET result_json = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(result, ensure_ascii=False, sort_keys=True), utcnow_iso(), action_id),
+            )
+            span.set_attribute("agent_run.auto_resumed", True)
         span.set_attribute("pending_action.status", "executed")
         return get_pending_action(action_id).model_dump()
 
@@ -317,6 +346,24 @@ def _auto_resume_from_pending_action(
         )
     except Exception:
         return []
+
+
+def _auto_resume_agent_run_from_pending_action(
+    action_id: int,
+    *,
+    context: RequestContext,
+    trigger_status: str,
+) -> dict[str, Any] | None:
+    try:
+        from app.agent_runs import auto_resume_agent_run_for_pending_action
+
+        return auto_resume_agent_run_for_pending_action(
+            action_id,
+            context=context,
+            trigger_status=trigger_status,
+        )
+    except Exception:
+        return None
 
 
 async def _dispatch_pending_action(item: PendingActionItem, *, context: RequestContext) -> dict[str, Any]:

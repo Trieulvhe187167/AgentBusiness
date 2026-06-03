@@ -772,6 +772,7 @@
                         <div class="stat"><div class="value" id="aOpenTickets">-</div><div class="label">Open Tickets</div></div>
                         <div class="stat"><div class="value" id="aFailedJobs">-</div><div class="label">Failed Jobs</div></div>
                         <div class="stat"><div class="value" id="aPendingActions">-</div><div class="label">Open Approvals</div></div>
+                        <div class="stat"><div class="value" id="aCachedTokens">-</div><div class="label">Cached Input Tokens</div></div>
                     </div>
                     <div class="analytics-insights" id="analyticsInsights">
                         <div class="insight"><strong>No insights yet</strong><small class="note">Refresh analytics to generate operating signals.</small></div>
@@ -836,6 +837,7 @@
                         </select>
                         <input id="evalLimit" type="number" min="1" max="500" value="50" title="Maximum chat logs to evaluate.">
                         <input id="evalAlertDrop" type="number" min="0" max="100" value="10" title="Golden eval alert threshold in score points.">
+                        <label class="note" title="Use the configured LLM provider as an optional judge for golden dataset answer quality."><input id="evalLlmJudge" type="checkbox"> LLM judge</label>
                         <button class="btn-main" id="btnRunAgentEval" title="Create a new evaluation run from recent chat logs.">Run Evaluation</button>
                         <button class="btn-muted" id="btnRefreshAgentEvals" title="Reload evaluation runs.">Refresh Runs</button>
                         <span class="note" id="agentEvalSummary">No evaluation run loaded.</span>
@@ -845,9 +847,15 @@
                         <div class="row" style="margin-bottom:8px;">
                             <input id="goldenQuestion" placeholder="Question" title="Benchmark question to ask the RAG pipeline.">
                             <input id="goldenExpectedAnswer" placeholder="Expected answer" title="Reference answer for similarity scoring.">
+                            <input id="goldenAnswerVariants" placeholder="Alternative answers, separated by |" title="Optional accepted answer variants.">
                         </div>
                         <div class="row" style="margin-bottom:8px;">
                             <input id="goldenSourceFileId" type="number" min="1" placeholder="Expected file ID" title="Optional source file expected in retrieval results.">
+                            <input id="goldenSourceFileIds" placeholder="Additional file IDs" title="Optional additional expected source file IDs, comma-separated.">
+                            <input id="goldenChunkIds" placeholder="Expected chunk IDs" title="Optional expected chunk IDs, comma-separated.">
+                            <input id="goldenCategories" placeholder="Expected categories" title="Optional expected retrieval categories, comma-separated.">
+                        </div>
+                        <div class="row" style="margin-bottom:8px;">
                             <input id="goldenKeywords" placeholder="Expected keywords, comma-separated" title="Optional keywords expected in answer/citations.">
                             <input id="goldenTags" placeholder="Tags, comma-separated" title="Optional dataset tags.">
                         </div>
@@ -928,7 +936,7 @@
                     </div>
                     <div class="scroll">
                         <table class="table" id="logsTable">
-                            <thead><tr><th>Time</th><th>Mode</th><th>Score</th><th>Latency</th><th>Feedback</th><th>Question</th></tr></thead>
+                            <thead><tr><th>Time</th><th>Mode</th><th>Score</th><th>Latency</th><th>LLM Tokens</th><th>Feedback</th><th>Question</th></tr></thead>
                             <tbody></tbody>
                         </table>
                     </div>
@@ -1524,6 +1532,23 @@
 
         <div id="view-system" class="view">
             <div class="grid">
+                <section class="card span-12">
+                    <div class="section-head">
+                        <h2>LLM Provider Capabilities</h2>
+                        <p>Resolved feature support for the active provider and model.</p>
+                    </div>
+                    <div class="stats">
+                        <div class="stat"><div class="value" id="capProvider">-</div><div class="label">Provider</div></div>
+                        <div class="stat"><div class="value" id="capSurface">-</div><div class="label">Generation API</div></div>
+                        <div class="stat"><div class="value" id="capStreaming">-</div><div class="label">Streaming</div></div>
+                        <div class="stat"><div class="value" id="capTools">-</div><div class="label">Native Tools</div></div>
+                        <div class="stat"><div class="value" id="capUsage">-</div><div class="label">Usage Metrics</div></div>
+                        <div class="stat"><div class="value" id="capPromptCache">-</div><div class="label">Prompt Cache</div></div>
+                    </div>
+                    <div class="insight-list" id="capabilityWarnings" style="margin-top:10px;">
+                        <div class="insight"><strong>No capability warnings loaded.</strong></div>
+                    </div>
+                </section>
                 <section class="card span-12">
                     <div class="section-head">
                         <h2>Runtime System</h2>
@@ -2627,7 +2652,21 @@
             document.getElementById('s-vectors').textContent = kbStats.total_vectors;
             document.getElementById('s-cache').textContent = cache.size_mb;
             document.getElementById('s-provider').textContent = system.llm_provider_active || '-';
+            renderProviderCapabilities(system.llm_capabilities || {});
             document.getElementById('systemDump').textContent = JSON.stringify({ selected_kb: freshKb, runtime: system }, null, 2);
+        }
+
+        function renderProviderCapabilities(cap) {
+            document.getElementById('capProvider').textContent = cap.provider_active ? `${cap.provider_active}${cap.model ? ` / ${cap.model}` : ''}` : '-';
+            document.getElementById('capSurface').textContent = cap.generation_api_surface || '-';
+            document.getElementById('capStreaming').textContent = cap.streaming ? (cap.streaming_type || 'yes') : 'no';
+            document.getElementById('capTools').textContent = cap.native_tool_calling_ready ? 'ready' : cap.native_tool_calling_supported ? 'supported' : 'no';
+            document.getElementById('capUsage').textContent = cap.usage_reporting || '-';
+            document.getElementById('capPromptCache').textContent = cap.prompt_cache_controls ? (cap.prompt_cache_key_configured ? 'key set' : 'available') : 'no';
+            const warnings = cap.warnings || [];
+            document.getElementById('capabilityWarnings').innerHTML = warnings.length
+                ? warnings.map((warning) => `<div class="insight"><strong>Warning</strong><small class="note">${escapeHtml(warning)}</small></div>`).join('')
+                : '<div class="insight"><strong>No capability warnings.</strong><small class="note">The active provider configuration is internally consistent.</small></div>';
         }
 
         async function refreshMcpStatus() {
@@ -3031,6 +3070,7 @@
             document.getElementById('aOpenTickets').textContent = summary.support_tickets_open || 0;
             document.getElementById('aFailedJobs').textContent = summary.background_jobs_failed || 0;
             document.getElementById('aPendingActions').textContent = summary.pending_actions_open || 0;
+            document.getElementById('aCachedTokens').textContent = summary.llm_cached_tokens || 0;
             document.getElementById('aUsers').textContent = summary.unique_users || 0;
             document.getElementById('aLatency').textContent = summary.avg_latency_ms === null || summary.avg_latency_ms === undefined ? '-' : `${Math.round(summary.avg_latency_ms)} ms`;
             const health = analyticsHealth(summary);
@@ -3091,9 +3131,9 @@
             return results.map((item) => `
                 <tr>
                     <td><span class="status ${item.verdict === 'pass' ? 'done' : item.verdict === 'warn' ? 'queued' : 'failed'}">${escapeHtml(item.verdict || '-')}</span><br><small class="note">${escapeHtml(item.mode || '-')} | ${escapeHtml(item.feedback_rating || 'no feedback')}</small></td>
-                    <td><strong>${item.score ?? '-'}</strong><br><small class="note">top ${item.top_score ?? '-'}</small>${item.answer_similarity !== null && item.answer_similarity !== undefined ? `<br><small class="note">sim ${item.answer_similarity}, recall ${item.recall_at_k ?? '-'}, cite ${item.citation_accuracy ?? '-'}</small>` : ''}</td>
+                    <td><strong>${item.score ?? '-'}</strong><br><small class="note">top ${item.top_score ?? '-'}</small>${item.answer_similarity !== null && item.answer_similarity !== undefined ? `<br><small class="note">sim ${item.answer_similarity}, recall ${item.recall_at_k ?? '-'}, MRR ${item.mrr ?? '-'}, cite ${item.citation_accuracy ?? '-'}</small>` : ''}${item.judge_score !== null && item.judge_score !== undefined ? `<br><small class="note">judge ${item.judge_score} (${escapeHtml(item.judge_verdict || '-')})</small>` : ''}</td>
                     <td><strong>${escapeHtml(item.user_message || '-')}</strong><br><small class="note">${escapeHtml(item.answer_text || '-')}</small></td>
-                    <td>${escapeHtml(item.reason || '-')}<br><small class="note">${(item.checks || []).map((check) => `${escapeHtml(check.name)}: ${escapeHtml(check.status)}`).join(', ')}</small></td>
+                    <td>${escapeHtml(item.reason || '-')}<br><small class="note">${item.judge_reason ? `Judge: ${escapeHtml(item.judge_reason)}<br>` : ''}${item.judge_error ? `Judge error: ${escapeHtml(item.judge_error)}<br>` : ''}${(item.checks || []).map((check) => `${escapeHtml(check.name)}: ${escapeHtml(check.status)}`).join(', ')}</small></td>
                 </tr>
             `).join('');
         }
@@ -3104,8 +3144,8 @@
                 <tr>
                     <td>${item.id}<br><span class="status ${item.active ? 'active' : 'paused'}">${item.active ? 'active' : 'paused'}</span></td>
                     <td><strong>${escapeHtml(item.question || '-')}</strong><br><small class="note">${(item.tags || []).map(escapeHtml).join(', ') || '-'}</small></td>
-                    <td>${escapeHtml(item.expected_answer || '-')}<br><small class="note">keywords: ${(item.expected_keywords || []).map(escapeHtml).join(', ') || '-'}</small></td>
-                    <td>KB ${item.kb_id}<br><small class="note">source file: ${item.expected_source_file_id || '-'}</small></td>
+                    <td>${escapeHtml(item.expected_answer || '-')}<br><small class="note">variants: ${(item.expected_answers || []).map(escapeHtml).join(' | ') || '-'}<br>keywords: ${(item.expected_keywords || []).map(escapeHtml).join(', ') || '-'}</small></td>
+                    <td>KB ${item.kb_id}<br><small class="note">sources: ${(item.expected_source_file_ids || []).join(', ') || item.expected_source_file_id || '-'}<br>chunks: ${(item.expected_chunk_ids || []).map(escapeHtml).join(', ') || '-'}<br>categories: ${(item.expected_categories || []).map(escapeHtml).join(', ') || '-'}</small></td>
                 </tr>
             `).join('');
         }
@@ -3114,7 +3154,7 @@
             selectedAgentEvalRun = run || null;
             const results = (run?.results || []).filter((item) => item.verdict !== 'pass');
             document.getElementById('agentEvalSummary').textContent = run
-                ? `${run.name} | ${run.sample_size || 0} sample(s) | created ${run.created_at || '-'}`
+                ? `${run.name} | ${run.sample_size || 0} sample(s) | gate ${run.gate_status || 'not_compared'} | created ${run.created_at || '-'}`
                 : 'No evaluation run loaded.';
             document.getElementById('evalAvgScore').textContent = run?.avg_score ?? '-';
             document.getElementById('evalPassCount').textContent = run?.pass_count ?? '-';
@@ -3154,7 +3194,11 @@
                 kb_id: selectedKbId(),
                 question,
                 expected_answer: expected,
+                expected_answers: document.getElementById('goldenAnswerVariants').value.split('|').map((item) => item.trim()).filter(Boolean),
                 expected_source_file_id: sourceRaw ? Number(sourceRaw) : null,
+                expected_source_file_ids: parseCommaList(document.getElementById('goldenSourceFileIds').value).map(Number).filter((item) => Number.isInteger(item) && item > 0),
+                expected_chunk_ids: parseCommaList(document.getElementById('goldenChunkIds').value),
+                expected_categories: parseCommaList(document.getElementById('goldenCategories').value),
                 expected_keywords: parseCommaList(document.getElementById('goldenKeywords').value),
                 tags: parseCommaList(document.getElementById('goldenTags').value),
                 active: true,
@@ -3164,7 +3208,7 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload),
             });
-            ['goldenQuestion', 'goldenExpectedAnswer', 'goldenSourceFileId', 'goldenKeywords', 'goldenTags'].forEach((id) => { document.getElementById(id).value = ''; });
+            ['goldenQuestion', 'goldenExpectedAnswer', 'goldenAnswerVariants', 'goldenSourceFileId', 'goldenSourceFileIds', 'goldenChunkIds', 'goldenCategories', 'goldenKeywords', 'goldenTags'].forEach((id) => { document.getElementById(id).value = ''; });
             toast('Golden item added.');
             await refreshGoldenDataset();
         }
@@ -3203,7 +3247,10 @@
                 limit: Number(document.getElementById('evalLimit').value || '50'),
                 source,
             };
-            if (source === 'golden_dataset') payload.alert_drop_threshold = Number(document.getElementById('evalAlertDrop').value || '10');
+            if (source === 'golden_dataset') {
+                payload.alert_drop_threshold = Number(document.getElementById('evalAlertDrop').value || '10');
+                payload.llm_judge = Boolean(document.getElementById('evalLlmJudge')?.checked);
+            }
             if (selectedOnly && selectedKbId()) payload.kb_id = selectedKbId();
             const run = await fetchJson('/api/admin/evaluations/runs', {
                 method: 'POST',
@@ -3535,7 +3582,7 @@
         }
 
         function chatLogRowsHtml(items, compact = false) {
-            if (!items.length) return `<tr><td colspan="${compact ? 4 : 6}">No chat logs yet.</td></tr>`;
+            if (!items.length) return `<tr><td colspan="${compact ? 4 : 7}">No chat logs yet.</td></tr>`;
             return items.map((log) => compact ? `
                 <tr>
                     <td>${log.created_at || '-'}</td>
@@ -3549,6 +3596,7 @@
                     <td><span class="status ${log.mode}">${log.mode}</span></td>
                     <td>${log.top_score ?? '-'}</td>
                     <td>${log.latency_ms ?? '-'} ms</td>
+                    <td>${log.llm_total_tokens || 0}<br><small class="note">${log.llm_cached_tokens || 0} cached</small></td>
                     <td><span class="status done">${log.feedback_up || 0} up</span> <span class="status failed">${log.feedback_down || 0} down</span></td>
                     <td>${escapeHtml((log.user_message || '').slice(0, 110))}</td>
                 </tr>

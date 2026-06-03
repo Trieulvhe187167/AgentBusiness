@@ -74,14 +74,27 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     # Vector store
     # MVP required: yes
-    # Advanced options: Chroma HTTP / persistent server
+    # Advanced options: Chroma HTTP / persistent server, Qdrant dense/hybrid
     # ------------------------------------------------------------------
-    vector_backend: str = "numpy"  # chroma | numpy
+    vector_backend: str = "numpy"  # chroma | numpy | qdrant
     top_k: int = 10
     chroma_collection_name: str = "kb_chunks"
     chroma_http_url: str = ""
     chroma_tenant: str = "default_tenant"
     chroma_database: str = "default_database"
+    qdrant_url: str = ""
+    qdrant_api_key: str = ""
+    qdrant_path: str = ""
+    qdrant_collection_name: str = "kb_chunks"
+    qdrant_timeout_seconds: int = 10
+    qdrant_hybrid_enabled: bool = False
+    qdrant_sparse_model: str = "Qdrant/bm25"
+    qdrant_dense_vector_name: str = "dense"
+    qdrant_sparse_vector_name: str = "sparse"
+    qdrant_hybrid_prefetch_k: int = 30
+    qdrant_hybrid_threshold_good: float = 0.35
+    qdrant_hybrid_threshold_low: float = 0.20
+    qdrant_hybrid_min_similarity_threshold: float = 0.10
 
     # Retrieval thresholds
     threshold_good: float = 0.60
@@ -144,6 +157,18 @@ class Settings(BaseSettings):
     agent_followup_reaction_llm_max_tokens: int = 96
 
     # ------------------------------------------------------------------
+    # Evaluation
+    # Optional LLM-as-judge for golden dataset runs. Deterministic metrics
+    # stay the default path so local/CI evaluation remains cheap and stable.
+    # ------------------------------------------------------------------
+    eval_llm_judge_enabled: bool = False
+    eval_llm_judge_provider: str = ""
+    eval_llm_judge_model: str = ""
+    eval_llm_judge_timeout_seconds: int = 20
+    eval_llm_judge_max_tokens: int = 512
+    eval_llm_judge_weight: float = 0.35
+
+    # ------------------------------------------------------------------
     # MCP server
     # MVP required: no
     # Exposes the internal ToolRegistry over a JSON-RPC MCP endpoint.
@@ -156,6 +181,7 @@ class Settings(BaseSettings):
     mcp_validate_origin: bool = True
     mcp_allowed_origins: str = ""
     mcp_require_tool_scopes: bool = True
+    mcp_require_resource_scopes: bool = True
     mcp_high_risk_tool_allowlist: str = ""
     mcp_manifest_signing_secret: str = ""
     mcp_require_client_token: bool = False
@@ -187,6 +213,8 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     openai_base_url: str = "https://api.openai.com/v1"
     openai_timeout_seconds: int = 60
+    openai_prompt_cache_key: str = ""
+    openai_prompt_cache_retention: str = ""
 
     # Gemini
     gemini_api_key: str = ""
@@ -331,6 +359,11 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     cache_ttl_seconds: int = 3600
     cache_max_size_mb: int = 500
+    semantic_retrieval_cache_enabled: bool = False
+    response_cache_enabled: bool = False
+    semantic_response_cache_enabled: bool = False
+    semantic_cache_threshold: float = 0.96
+    semantic_cache_max_entries_per_scope: int = 500
 
     # ------------------------------------------------------------------
     # Background worker
@@ -399,7 +432,7 @@ class Settings(BaseSettings):
     @property
     def normalized_vector_backend(self) -> str:
         backend = self.vector_backend.strip().lower()
-        return backend if backend in {"chroma", "numpy"} else "chroma"
+        return backend if backend in {"chroma", "numpy", "qdrant"} else "chroma"
 
     @property
     def normalized_answer_mode(self) -> str:
@@ -411,6 +444,29 @@ class Settings(BaseSettings):
         provider = self.llm_provider.strip().lower()
         valid = {"auto", "openai", "gemini", "ollama", "llama_cpp", "openai_compatible", "none"}
         return provider if provider in valid else "auto"
+
+    @property
+    def normalized_openai_prompt_cache_retention(self) -> str:
+        retention = self.openai_prompt_cache_retention.strip().lower()
+        return retention if retention in {"in-memory", "24h"} else ""
+
+    @property
+    def normalized_eval_llm_judge_provider(self) -> str:
+        provider = self.eval_llm_judge_provider.strip().lower()
+        valid = {"auto", "openai", "gemini", "ollama", "llama_cpp", "openai_compatible"}
+        return provider if provider in valid else ""
+
+    @property
+    def effective_eval_llm_judge_weight(self) -> float:
+        return max(0.0, min(float(self.eval_llm_judge_weight), 1.0))
+
+    @property
+    def effective_eval_llm_judge_timeout_seconds(self) -> int:
+        return max(1, int(self.eval_llm_judge_timeout_seconds))
+
+    @property
+    def effective_eval_llm_judge_max_tokens(self) -> int:
+        return max(64, int(self.eval_llm_judge_max_tokens))
 
     @property
     def normalized_agent_serving_stack(self) -> str:

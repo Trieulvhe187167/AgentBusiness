@@ -23,6 +23,8 @@ draft -> approved -> executed
 
 All routes require admin auth. Execution enqueues a `pending_action_execute` background job. The worker dispatches to the existing internal action functions, stores the result in `pending_actions.result_json`, and marks the action as `executed` or `failed`.
 
+When a pending action was drafted by an agent tool route, `pending_actions.agent_run_id` links it to the durable orchestration ledger. Execution completes the paused agent run, rejection cancels it, and execution failure marks it failed. See `docs/agent-runs.md`.
+
 ## Database
 
 `pending_actions` stores:
@@ -31,5 +33,6 @@ All routes require admin auth. Execution enqueues a `pending_action_execute` bac
 - draft payload
 - approval/execution users and timestamps
 - result or error message
+- optional linked `agent_run_id`
 
 This keeps destructive or outbound operations reviewable before they happen.

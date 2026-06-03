@@ -3,6 +3,7 @@ Pluggable vector store.
 
 Backends:
 - Chroma (persistent or HTTP server)
+- Qdrant (server or local path, optional dense+sparse hybrid)
 - Numpy (local fallback)
 """
 
@@ -12,13 +13,14 @@ import json
 import logging
 import os
 import threading
+import uuid
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 import numpy as np
 
-from app.config import settings
+from app.config import BASE_DIR, settings
 
 logger = logging.getLogger(__name__)
 
@@ -217,7 +219,13 @@ class NumpyVectorStore:
         if deleted:
             logger.info("Deleted numpy vectors where=%s", where)
 
-    def query(self, query_embedding: list[float], top_k: int | None = None, where: dict | None = None) -> list[dict[str, Any]]:
+    def query(
+        self,
+        query_embedding: list[float],
+        top_k: int | None = None,
+        where: dict | None = None,
+        query_text: str | None = None,
+    ) -> list[dict[str, Any]]:
         k = top_k or settings.top_k
 
         with self._lock:
@@ -430,7 +438,13 @@ class ChromaVectorStore:
             self._collection.delete(where=self._normalize_where(where))
         logger.info("Deleted Chroma vectors where=%s", where)
 
-    def query(self, query_embedding: list[float], top_k: int | None = None, where: dict | None = None) -> list[dict[str, Any]]:
+    def query(
+        self,
+        query_embedding: list[float],
+        top_k: int | None = None,
+        where: dict | None = None,
+        query_text: str | None = None,
+    ) -> list[dict[str, Any]]:
         k = top_k or settings.top_k
         with self._lock:
             payload = self._collection.query(
@@ -533,6 +547,294 @@ class ChromaVectorStore:
         return sorted(out, key=lambda x: x["filename"])
 
 
+class QdrantVectorStore:
+    """Qdrant backend with optional dense+sparse reciprocal-rank fusion."""
+
+    def __init__(self):
+        self._client = None
+        self._models = None
+        self._dimension: int | None = None
+        self._lock = threading.Lock()
+
+    @property
+    def retrieval_mode(self) -> str:
+        return "hybrid_rrf" if settings.qdrant_hybrid_enabled else "dense"
+
+    def initialize(self, expected_dim: int | None = None):
+        try:
+            from qdrant_client import QdrantClient, models
+        except ImportError as err:
+            raise RuntimeError("qdrant-client is not installed") from err
+
+        self._dimension = expected_dim
+        self._models = models
+        if settings.qdrant_url:
+            self._client = QdrantClient(
+                url=settings.qdrant_url,
+                api_key=settings.qdrant_api_key or None,
+                timeout=settings.qdrant_timeout_seconds,
+            )
+            logger.info("Using Qdrant server backend at %s", settings.qdrant_url)
+        elif settings.qdrant_path:
+            path = Path(settings.qdrant_path)
+            if not path.is_absolute():
+                path = BASE_DIR / path
+            path.mkdir(parents=True, exist_ok=True)
+            self._client = QdrantClient(path=str(path))
+            logger.info("Using Qdrant local backend at %s", path)
+        else:
+            raise RuntimeError("RAG_QDRANT_URL or RAG_QDRANT_PATH is required")
+
+        if not self._client.collection_exists(settings.qdrant_collection_name):
+            if not expected_dim:
+                raise RuntimeError("Qdrant collection creation requires an embedding dimension")
+            sparse_vectors_config = None
+            if settings.qdrant_hybrid_enabled:
+                sparse_vectors_config = {
+                    settings.qdrant_sparse_vector_name: models.SparseVectorParams(
+                        modifier=models.Modifier.IDF,
+                    )
+                }
+            self._client.create_collection(
+                collection_name=settings.qdrant_collection_name,
+                vectors_config={
+                    settings.qdrant_dense_vector_name: models.VectorParams(
+                        size=expected_dim,
+                        distance=models.Distance.COSINE,
+                    )
+                },
+                sparse_vectors_config=sparse_vectors_config,
+            )
+            logger.info(
+                "Created Qdrant collection=%s retrieval_mode=%s",
+                settings.qdrant_collection_name,
+                self.retrieval_mode,
+            )
+
+    @staticmethod
+    def _point_id(chunk_id: str) -> str:
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, f"agent-for-business:{chunk_id}"))
+
+    @staticmethod
+    def _chunk_metadata(chunk: dict[str, Any]) -> dict[str, Any]:
+        metadata = {
+            "chunk_id": chunk["chunk_id"],
+            "kb_id": int(chunk["kb_id"]),
+            "source_id": str(chunk["source_id"]),
+            "file_id": int(chunk.get("file_id", chunk["source_id"])),
+            "filename": chunk["filename"],
+            "file_type": chunk["file_type"],
+            "kb_version": chunk["kb_version"],
+            "ingest_signature": chunk.get("ingest_signature", ""),
+            "content_preview": chunk.get("content_preview", ""),
+            "text": chunk["text"],
+        }
+        for key in (
+            "file_version_id",
+            "version_number",
+            "version_hash",
+            "access_level",
+            "tenant_id",
+            "org_id",
+            "owner_user_id",
+            "title",
+            "heading",
+            "page_num",
+            "sheet_name",
+            "table_idx",
+            "row_num",
+            "category",
+            "keywords",
+            "image_format",
+            "image_width",
+            "image_height",
+            "ocr_region_idx",
+            "ocr_extraction",
+            "lang",
+        ):
+            value = chunk.get(key)
+            if value is not None:
+                metadata[key] = value
+        return metadata
+
+    def _filter(self, where: dict[str, Any] | None):
+        if not where:
+            return None
+        return self._models.Filter(
+            must=[
+                self._models.FieldCondition(key=key, match=self._models.MatchValue(value=value))
+                for key, value in where.items()
+            ]
+        )
+
+    def add_chunks(self, chunks: list[dict[str, Any]], embeddings: list[list[float]]):
+        if not chunks:
+            return
+
+        points = []
+        for chunk, embedding in zip(chunks, embeddings, strict=True):
+            vectors: dict[str, Any] = {settings.qdrant_dense_vector_name: embedding}
+            if settings.qdrant_hybrid_enabled:
+                vectors[settings.qdrant_sparse_vector_name] = self._models.Document(
+                    text=chunk["text"],
+                    model=settings.qdrant_sparse_model,
+                )
+            points.append(
+                self._models.PointStruct(
+                    id=self._point_id(chunk["chunk_id"]),
+                    vector=vectors,
+                    payload=self._chunk_metadata(chunk),
+                )
+            )
+
+        with self._lock:
+            self._client.upsert(
+                collection_name=settings.qdrant_collection_name,
+                points=points,
+                wait=True,
+            )
+        logger.info("Qdrant upserted %s chunks retrieval_mode=%s", len(points), self.retrieval_mode)
+
+    def delete_by_source(self, source_id: str):
+        self.delete_by_where({"source_id": str(source_id)})
+
+    def delete_by_where(self, where: dict[str, Any]):
+        with self._lock:
+            self._client.delete(
+                collection_name=settings.qdrant_collection_name,
+                points_selector=self._models.FilterSelector(filter=self._filter(where)),
+                wait=True,
+            )
+        logger.info("Deleted Qdrant vectors where=%s", where)
+
+    def query(
+        self,
+        query_embedding: list[float],
+        top_k: int | None = None,
+        where: dict | None = None,
+        query_text: str | None = None,
+    ) -> list[dict[str, Any]]:
+        k = top_k or settings.top_k
+        kwargs: dict[str, Any] = {
+            "collection_name": settings.qdrant_collection_name,
+            "limit": k,
+            "with_payload": True,
+            "query_filter": self._filter(where),
+        }
+        if settings.qdrant_hybrid_enabled and query_text:
+            prefetch_k = max(k, settings.qdrant_hybrid_prefetch_k)
+            kwargs["prefetch"] = [
+                self._models.Prefetch(
+                    query=self._models.Document(text=query_text, model=settings.qdrant_sparse_model),
+                    using=settings.qdrant_sparse_vector_name,
+                    limit=prefetch_k,
+                ),
+                self._models.Prefetch(
+                    query=query_embedding,
+                    using=settings.qdrant_dense_vector_name,
+                    limit=prefetch_k,
+                ),
+            ]
+            kwargs["query"] = self._models.FusionQuery(fusion=self._models.Fusion.RRF)
+        else:
+            kwargs["query"] = query_embedding
+            kwargs["using"] = settings.qdrant_dense_vector_name
+
+        with self._lock:
+            response = self._client.query_points(**kwargs)
+
+        out: list[dict[str, Any]] = []
+        for point in response.points:
+            metadata = dict(point.payload or {})
+            score = float(point.score)
+            out.append(
+                {
+                    "chunk_id": metadata.get("chunk_id", str(point.id)),
+                    "text": metadata.pop("text", ""),
+                    "distance": float(1.0 - score),
+                    "similarity": score,
+                    "qdrant_score": score,
+                    "retrieval_mode": self.retrieval_mode,
+                    **metadata,
+                }
+            )
+        return out
+
+    def get_stats(self) -> dict[str, Any]:
+        return {
+            "backend": "qdrant",
+            "retrieval_mode": self.retrieval_mode,
+            "total_vectors": self.count_by_where(),
+            "dimension": self._dimension or 0,
+            "collection_name": settings.qdrant_collection_name,
+        }
+
+    def healthcheck(self) -> dict[str, Any]:
+        if self._client is None:
+            return {"status": "unavailable", **self.get_stats()}
+        self._client.get_collection(settings.qdrant_collection_name)
+        return {"status": "ok", **self.get_stats()}
+
+    def count_by_where(self, where: dict[str, Any] | None = None) -> int:
+        if self._client is None:
+            return 0
+        response = self._client.count(
+            collection_name=settings.qdrant_collection_name,
+            count_filter=self._filter(where),
+            exact=True,
+        )
+        return int(response.count)
+
+    def _scroll_metadatas(self, where: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        if self._client is None:
+            return []
+
+        metadatas: list[dict[str, Any]] = []
+        offset = None
+        while True:
+            records, offset = self._client.scroll(
+                collection_name=settings.qdrant_collection_name,
+                scroll_filter=self._filter(where),
+                limit=256,
+                with_payload=True,
+                with_vectors=False,
+                offset=offset,
+            )
+            metadatas.extend(dict(record.payload or {}) for record in records)
+            if offset is None:
+                return metadatas
+
+    def get_sources(self, where: dict[str, Any] | None = None) -> list[str]:
+        return sorted(
+            {
+                meta.get("filename")
+                for meta in self._scroll_metadatas(where)
+                if meta.get("filename")
+            }
+        )
+
+    def get_source_stats(self, where: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        stats = {}
+        for meta in self._scroll_metadatas(where):
+            src = meta.get("filename")
+            if not src:
+                continue
+            if src not in stats:
+                stats[src] = {"filename": src, "chunks": 0, "vi": 0, "en": 0, "other": 0}
+            stats[src]["chunks"] += 1
+            lang = meta.get("lang", "")
+            stats[src][lang if lang in {"vi", "en"} else "other"] += 1
+
+        out = []
+        for source_stats in stats.values():
+            total = source_stats["chunks"]
+            source_stats["vi_pct"] = round(source_stats["vi"] / total * 100) if total else 0
+            source_stats["en_pct"] = round(source_stats["en"] / total * 100) if total else 0
+            source_stats["other_pct"] = round(source_stats["other"] / total * 100) if total else 0
+            out.append(source_stats)
+        return sorted(out, key=lambda item: item["filename"])
+
+
 class VectorStoreFacade:
     """Facade that switches backend based on settings."""
 
@@ -542,6 +844,17 @@ class VectorStoreFacade:
 
     def initialize(self, expected_dim: int | None = None):
         preferred = settings.normalized_vector_backend
+
+        if preferred == "qdrant":
+            try:
+                backend = QdrantVectorStore()
+                backend.initialize(expected_dim=expected_dim)
+                self._backend = backend
+                self._backend_name = "qdrant"
+                logger.info("Vector backend active: qdrant mode=%s", backend.retrieval_mode)
+                return
+            except Exception as err:
+                logger.warning("Qdrant init failed, fallback to numpy: %s", err)
 
         if preferred == "chroma":
             try:
@@ -564,6 +877,10 @@ class VectorStoreFacade:
     def backend_name(self) -> str:
         return self._backend_name
 
+    @property
+    def retrieval_mode(self) -> str:
+        return str(getattr(self._backend, "retrieval_mode", self._backend_name))
+
     def add_chunks(self, chunks: list[dict[str, Any]], embeddings: list[list[float]]):
         self._backend.add_chunks(chunks, embeddings)
 
@@ -579,8 +896,14 @@ class VectorStoreFacade:
     def delete_by_kb_and_file(self, kb_id: int, file_id: int):
         self.delete_by_where({"kb_id": int(kb_id), "file_id": int(file_id)})
 
-    def query(self, query_embedding: list[float], top_k: int | None = None, where: dict | None = None) -> list[dict[str, Any]]:
-        return self._backend.query(query_embedding, top_k=top_k, where=where)
+    def query(
+        self,
+        query_embedding: list[float],
+        top_k: int | None = None,
+        where: dict | None = None,
+        query_text: str | None = None,
+    ) -> list[dict[str, Any]]:
+        return self._backend.query(query_embedding, top_k=top_k, where=where, query_text=query_text)
 
     def get_stats(self) -> dict[str, Any]:
         stats = self._backend.get_stats()

@@ -6,6 +6,7 @@ query expansion, BM25 reranking, numeric guardrail, and conversational memory.
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import re
 import time
@@ -15,9 +16,15 @@ from typing import Any, Generator
 
 from app.cache import (
     get_cached_embedding,
+    get_cached_response_payload,
     get_cached_retrieval,
+    get_semantic_cached_response,
+    get_semantic_cached_retrieval,
     set_cached_embedding,
+    set_cached_response_payload,
     set_cached_retrieval,
+    set_semantic_cached_response,
+    set_semantic_cached_retrieval,
 )
 from app.config import settings
 from app.conversation_memory import build_conversation_context, load_recent_turns, resolve_followup_query
@@ -26,7 +33,13 @@ from app.embeddings import embed_query, using_hashing_fallback
 from app.kb_service import ensure_kb_access, normalize_kb_key
 from app.knowledge_gaps import record_knowledge_gap
 from app.lang import detect_language
-from app.llm_client import active_provider_name, generate_stream, is_llm_ready
+from app.llm_client import (
+    active_provider_name,
+    generate_stream,
+    get_last_generation_usage,
+    is_llm_ready,
+    reset_last_generation_usage,
+)
 from app.models import Citation, RequestContext
 from app.observability import retrieval_trace_attrs, trace_span
 from app.query_expander import expand_query
@@ -216,6 +229,35 @@ def _normalize_query(query: str) -> str:
     return " ".join(query.strip().split())
 
 
+def _embedding_for_query(query: str) -> list[float]:
+    normalized = _normalize_query(query)
+    cached_emb = get_cached_embedding(normalized)
+    query_embedding = cached_emb if cached_emb is not None else embed_query(normalized)
+    if cached_emb is None:
+        set_cached_embedding(normalized, query_embedding)
+    return query_embedding
+
+
+def _semantic_cache_available() -> bool:
+    return not using_hashing_fallback()
+
+
+def _build_auth_cache_scope(auth_context: dict[str, Any] | None) -> str:
+    auth = auth_context or {}
+    roles = sorted(str(role).strip().lower() for role in (auth.get("roles") or []) if str(role).strip())
+    parts = [
+        f"channel:{auth.get('channel') or 'web'}",
+        f"roles:{','.join(roles)}",
+        f"tenant:{auth.get('tenant_id') or ''}",
+        f"org:{auth.get('org_id') or ''}",
+    ]
+    return "|".join(parts)
+
+
+def _hash_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+
+
 def _deduplicate(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
     seen = set()
     unique = []
@@ -312,8 +354,9 @@ def _stream_llm_with_extract_fallback(
     full_prompt: str,
     results: list[dict[str, Any]],
     lang: str,
-) -> tuple[str, bool]:
+) -> tuple[str, bool, dict[str, int]]:
     generated_parts: list[str] = []
+    reset_last_generation_usage()
     try:
         for token in generate_stream(full_prompt, system_prompt=SYSTEM_PROMPT):
             generated_parts.append(token)
@@ -324,17 +367,18 @@ def _stream_llm_with_extract_fallback(
         if generated_parts:
             fallback_text = _llm_failure_note(lang) + "\n" + extractive
             yield {"event": "token", "data": {"text": fallback_text}}
-            return "".join(generated_parts).strip() + fallback_text, False
+            return "".join(generated_parts).strip() + fallback_text, False, get_last_generation_usage()
         yield {"event": "token", "data": {"text": extractive}}
-        return extractive, False
+        return extractive, False, get_last_generation_usage()
 
     answer_text = "".join(generated_parts).strip()
+    llm_usage = get_last_generation_usage()
     if _answer_has_hallucinated_numbers(answer_text, _context_for_llm(results)):
         logger.warning("Guardrail triggered: falling back to extractive answer")
         corrected = _extractive_answer(results, lang)
         yield {"event": "token", "data": {"text": "\n[corrected]\n" + corrected}}
-        return corrected, False
-    return answer_text, True
+        return corrected, False, llm_usage
+    return answer_text, True, llm_usage
 
 
 def _fallback_text(results: list[dict[str, Any]], lang: str) -> str:
@@ -435,6 +479,9 @@ def decide_mode(top_score: float) -> str:
     """
     threshold_good = settings.threshold_good
     threshold_low = settings.threshold_low
+    if vector_store.backend_name == "qdrant" and settings.qdrant_hybrid_enabled:
+        threshold_good = settings.qdrant_hybrid_threshold_good
+        threshold_low = settings.qdrant_hybrid_threshold_low
     if using_hashing_fallback():
         threshold_good = min(threshold_good, settings.hashing_threshold_good)
         threshold_low = min(threshold_low, settings.hashing_threshold_low)
@@ -515,16 +562,20 @@ def _log_chat(
     latency_ms: int,
     llm_provider: str,
     request_context: RequestContext | dict[str, Any] | None = None,
+    llm_usage: dict[str, int] | None = None,
 ) -> int | None:
     context = _coerce_request_context(request_context)
     auth = context.get("auth") or {}
+    usage = llm_usage or {}
     return execute_sync(
         """
         INSERT INTO chat_logs (
             session_id, request_id, user_id, roles_json, channel, tenant_id, org_id,
             kb_id, kb_key, user_message, merged_query, mode, top_score,
-            answer_text, citations_json, latency_ms, llm_provider, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            answer_text, citations_json, latency_ms, llm_provider,
+            llm_input_tokens, llm_output_tokens, llm_total_tokens, llm_cached_tokens,
+            created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             session_id,
@@ -541,14 +592,25 @@ def _log_chat(
             mode,
             float(top_score), answer_text,
             json.dumps(citations, ensure_ascii=False),
-            latency_ms, llm_provider, utcnow_iso(),
+            latency_ms,
+            llm_provider,
+            int(usage.get("input_tokens") or 0),
+            int(usage.get("output_tokens") or 0),
+            int(usage.get("total_tokens") or 0),
+            int(usage.get("cached_tokens") or 0),
+            utcnow_iso(),
         ),
     )
 
 
 # ── Core retrieve ─────────────────────────────────────────────────────────────
 
-def _build_retrieval_scope(kb_scope: dict[str, Any], top_k: int, where: dict[str, Any] | None = None) -> str:
+def _build_retrieval_scope(
+    kb_scope: dict[str, Any],
+    top_k: int,
+    where: dict[str, Any] | None = None,
+    auth_scope: str = "",
+) -> str:
     where_parts: list[str] = []
     if where:
         where_parts = [f"{key}={where[key]}" for key in sorted(where)]
@@ -558,26 +620,106 @@ def _build_retrieval_scope(kb_scope: dict[str, Any], top_k: int, where: dict[str
             f"v:{kb_scope['kb_version']}",
             f"k:{top_k}",
             f"backend:{vector_store.backend_name}",
+            f"retrieval_mode:{vector_store.retrieval_mode}",
+            f"embedding:{settings.effective_embedding_model_id}",
+            f"auth:{auth_scope}",
             f"where:{'|'.join(where_parts)}",
         ]
     )
 
 
+def _build_response_cache_scope(
+    *,
+    kb_scope: dict[str, Any],
+    lang: str,
+    context: dict[str, Any],
+    llm_provider: str,
+) -> str:
+    return ":".join(
+        [
+            "response:v1",
+            f"kb:{kb_scope['id']}",
+            f"v:{kb_scope['kb_version']}",
+            f"access:{kb_scope['access_level']}",
+            f"tenant:{kb_scope.get('tenant_id') or ''}",
+            f"org:{kb_scope.get('org_id') or ''}",
+            f"auth:{_build_auth_cache_scope(context.get('auth') or {})}",
+            f"lang:{lang}",
+            f"answer_mode:{settings.normalized_answer_mode}",
+            f"provider:{llm_provider}",
+            f"model:{settings.effective_chat_model or ''}",
+            f"embedding:{settings.effective_embedding_model_id}",
+            f"backend:{vector_store.backend_name}",
+            f"retrieval_mode:{vector_store.retrieval_mode}",
+            f"top_k:{settings.top_k}",
+            f"max_answer_chunks:{settings.max_answer_chunks}",
+            f"system:{_hash_text(SYSTEM_PROMPT)}",
+        ]
+    )
+
+
+def _response_cache_allowed(*, followup: bool, recent_turns: list[dict[str, Any]]) -> bool:
+    if not settings.response_cache_enabled:
+        return False
+    if followup or recent_turns:
+        return False
+    if settings.debug_show_retrieval:
+        return False
+    return True
+
+
+def _get_response_cache_hit(query: str, scope: str) -> dict[str, Any] | None:
+    payload = get_cached_response_payload(query, scope)
+    if payload is not None:
+        return {"type": "exact", "payload": payload}
+
+    if not settings.semantic_response_cache_enabled or not _semantic_cache_available():
+        return None
+    query_embedding = _embedding_for_query(query)
+    hit = get_semantic_cached_response(query_embedding, scope)
+    if hit is None:
+        return None
+    return {
+        "type": "semantic",
+        "payload": hit["payload"],
+        "score": hit.get("score"),
+        "query": hit.get("query"),
+    }
+
+
+def _set_response_cache(query: str, scope: str, payload: dict[str, Any]):
+    set_cached_response_payload(query, scope, payload)
+    if settings.semantic_response_cache_enabled and _semantic_cache_available():
+        query_embedding = _embedding_for_query(query)
+        set_semantic_cached_response(query, query_embedding, scope, payload)
+
+
 def _retrieve_single(query: str, top_k: int, where: dict[str, Any], cache_scope: str) -> list[dict[str, Any]]:
     """Retrieve for a single query string (with embedding cache)."""
     normalized = _normalize_query(query)
-    cached_emb = get_cached_embedding(normalized)
-    query_embedding = cached_emb if cached_emb is not None else embed_query(normalized)
-    if cached_emb is None:
-        set_cached_embedding(normalized, query_embedding)
+    query_embedding = _embedding_for_query(normalized)
 
     cached_results = get_cached_retrieval(normalized, cache_scope)
     if cached_results is not None:
+        logger.debug("Retrieval cache hit: type=exact scope=%s query=%s", cache_scope, normalized)
         return cached_results
 
-    raw = vector_store.query(query_embedding, top_k=top_k, where=where)
-    set_cached_retrieval(normalized, cache_scope, raw)
-    return raw or []
+    if settings.semantic_retrieval_cache_enabled and _semantic_cache_available():
+        semantic_hit = get_semantic_cached_retrieval(query_embedding, cache_scope)
+        if semantic_hit is not None:
+            logger.debug(
+                "Retrieval cache hit: type=semantic score=%.4f cached_query=%s",
+                float(semantic_hit.get("score") or 0.0),
+                semantic_hit.get("query"),
+            )
+            return semantic_hit["results"]
+
+    raw = vector_store.query(query_embedding, top_k=top_k, where=where, query_text=normalized)
+    results = raw or []
+    set_cached_retrieval(normalized, cache_scope, results)
+    if settings.semantic_retrieval_cache_enabled and _semantic_cache_available():
+        set_semantic_cached_retrieval(normalized, query_embedding, cache_scope, results)
+    return results
 
 
 def retrieve(
@@ -608,15 +750,23 @@ def retrieve(
             where["tenant_id"] = kb_scope["tenant_id"]
         if kb_scope.get("org_id"):
             where["org_id"] = kb_scope["org_id"]
-        cache_scope = _build_retrieval_scope(kb_scope, k, where=where)
+        cache_scope = _build_retrieval_scope(
+            kb_scope,
+            k,
+            where=where,
+            auth_scope=_build_auth_cache_scope(auth_context),
+        )
         variants = expand_query(query)
         span.set_attribute("rag.query_variant_count", len(variants))
+        span.set_attribute("rag.cache.semantic_retrieval_enabled", bool(settings.semantic_retrieval_cache_enabled))
 
         all_raw: list[dict[str, Any]] = []
         for variant in variants:
             all_raw.extend(_retrieve_single(variant, k, where=where, cache_scope=cache_scope))
 
         floor = settings.min_similarity_threshold
+        if vector_store.backend_name == "qdrant" and settings.qdrant_hybrid_enabled:
+            floor = settings.qdrant_hybrid_min_similarity_threshold
         if using_hashing_fallback():
             floor = min(floor, settings.hashing_min_similarity_threshold)
 
@@ -678,6 +828,7 @@ def rag_stream(
     top_score = 0.0
     answer_text = ""
     citations: list[dict[str, Any]] = []
+    llm_usage: dict[str, int] = {}
 
     try:
         kb_scope = _resolve_kb_scope(kb_id=kb_id, kb_key=kb_key, auth_context=context.get("auth"))
@@ -694,6 +845,70 @@ def rag_stream(
             merged_query, resolution_reason = resolve_followup_query(user_query, recent_turns)
             if resolution_reason:
                 logger.debug("Resolved follow-up query for session %s using recent history", scoped_sid)
+
+        response_cache_scope = _build_response_cache_scope(
+            kb_scope=kb_scope,
+            lang=resolved_lang,
+            context=context,
+            llm_provider=llm_provider,
+        )
+        response_cache_enabled_for_request = _response_cache_allowed(
+            followup=followup,
+            recent_turns=recent_turns,
+        )
+        if response_cache_enabled_for_request:
+            response_cache_hit = _get_response_cache_hit(merged_query, response_cache_scope)
+            if response_cache_hit is not None:
+                payload = response_cache_hit.get("payload") or {}
+                cached_answer = str(payload.get("answer_text") or "")
+                cached_citations = payload.get("citations") or []
+                if cached_answer and isinstance(cached_citations, list):
+                    mode = "answer"
+                    top_score = float(payload.get("top_score") or 0.0)
+                    answer_text = cached_answer
+                    citations = cached_citations
+                    cache_data = {
+                        "response": response_cache_hit.get("type"),
+                        "semantic_score": response_cache_hit.get("score"),
+                        "cached_query": response_cache_hit.get("query"),
+                    }
+                    yield {
+                        "event": "start",
+                        "data": {
+                            "query": user_query,
+                            "mode": mode,
+                            "score": round(top_score, 4),
+                            "request_id": context.get("request_id"),
+                            "session_id": sid,
+                            "llm_provider": llm_provider,
+                            "lang": resolved_lang,
+                            "kb_id": kb_scope["id"],
+                            "kb_key": kb_scope["key"],
+                            "kb_name": kb_scope["name"],
+                            "kb_version": kb_scope["kb_version"],
+                            "cache": cache_data,
+                        },
+                    }
+                    yield {"event": "token", "data": {"text": answer_text}}
+                    yield {"event": "citations", "data": {"items": citations}}
+                    latency_ms = int((time.perf_counter() - start_time) * 1000)
+                    _log_chat(
+                        session_id=scoped_sid,
+                        user_message=user_query,
+                        merged_query=merged_query,
+                        mode=mode,
+                        top_score=top_score,
+                        answer_text=answer_text,
+                        citations=citations,
+                        latency_ms=latency_ms,
+                        llm_provider=llm_provider,
+                        request_context=context,
+                    )
+                    yield {
+                        "event": "done",
+                        "data": {"ok": True, "latency_ms": latency_ms, "cache": cache_data},
+                    }
+                    return
 
         results = retrieve(merged_query, kb_id=kb_scope["id"], auth_context=context.get("auth"))
         results = _apply_lang_boost(results, resolved_lang)
@@ -717,6 +932,9 @@ def rag_stream(
                 "kb_key": kb_scope["key"],
                 "kb_name": kb_scope["name"],
                 "kb_version": kb_scope["kb_version"],
+                "cache": {
+                    "response": "miss" if response_cache_enabled_for_request else "disabled",
+                },
             },
         }
 
@@ -734,7 +952,7 @@ def rag_stream(
                     if memory
                     else CONTEXT_TEMPLATE.format(context=llm_context, question=prompt_query)
                 )
-                answer_text, use_llm = yield from _stream_llm_with_extract_fallback(
+                answer_text, use_llm, llm_usage = yield from _stream_llm_with_extract_fallback(
                     full_prompt=full_prompt,
                     results=results,
                     lang=resolved_lang,
@@ -762,7 +980,7 @@ def rag_stream(
                     if memory
                     else CONTEXT_TEMPLATE.format(context=_context_for_llm(results), question=prompt_query)
                 )
-                answer_text, use_llm = yield from _stream_llm_with_extract_fallback(
+                answer_text, use_llm, llm_usage = yield from _stream_llm_with_extract_fallback(
                     full_prompt=full_prompt,
                     results=results,
                     lang=resolved_lang,
@@ -799,6 +1017,31 @@ def rag_stream(
             citations = _build_citations(results) if results else []
             yield {"event": "citations", "data": {"items": citations}}
 
+        response_cache_store = "skipped"
+        if (
+            mode == "answer"
+            and response_cache_enabled_for_request
+            and answer_text
+            and citations
+        ):
+            _set_response_cache(
+                merged_query,
+                response_cache_scope,
+                {
+                    "mode": mode,
+                    "answer_text": answer_text,
+                    "citations": citations,
+                    "top_score": top_score,
+                    "lang": resolved_lang,
+                    "llm_provider": llm_provider,
+                    "kb_id": kb_scope["id"],
+                    "kb_key": kb_scope["key"],
+                    "kb_version": kb_scope["kb_version"],
+                    "cached_at": utcnow_iso(),
+                },
+            )
+            response_cache_store = "stored"
+
         latency_ms = int((time.perf_counter() - start_time) * 1000)
         chat_log_id = _log_chat(
             session_id=scoped_sid,
@@ -811,6 +1054,7 @@ def rag_stream(
             latency_ms=latency_ms,
             llm_provider=llm_provider,
             request_context=context,
+            llm_usage=llm_usage,
         )
         try:
             record_knowledge_gap(
@@ -823,7 +1067,17 @@ def rag_stream(
             )
         except Exception:
             logger.exception("Failed to record knowledge gap")
-        yield {"event": "done", "data": {"ok": True, "latency_ms": latency_ms}}
+        yield {
+            "event": "done",
+            "data": {
+                "ok": True,
+                "latency_ms": latency_ms,
+                "cache": {
+                    "response_store": response_cache_store,
+                    "response_cache_enabled": response_cache_enabled_for_request,
+                },
+            },
+        }
 
     except Exception as err:
         logger.error("RAG pipeline error: %s", err, exc_info=True)
@@ -840,6 +1094,7 @@ def rag_stream(
                 latency_ms=latency_ms,
                 llm_provider=llm_provider,
                 request_context=context,
+                llm_usage=llm_usage,
             )
         except Exception:
             logger.exception("Failed to store error log")

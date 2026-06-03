@@ -15,6 +15,14 @@ from typing import Any, AsyncGenerator, Literal
 from pydantic import BaseModel, Field
 
 import app.rag as rag
+from app.agent_runs import (
+    complete_agent_run,
+    create_agent_run,
+    fail_agent_run,
+    pause_agent_run_for_pending_action,
+    record_agent_route,
+    record_agent_run_step,
+)
 from app.config import settings
 from app.conversation_memory import (
     build_conversation_context,
@@ -1430,6 +1438,15 @@ def _resolve_query_with_history(query: str, request_context: RequestContext) -> 
     return resolved_query
 
 
+def _pending_action_id_from_tool_output(output: dict[str, Any]) -> int | None:
+    action_id = output.get("id")
+    action_type = output.get("action_type")
+    if not action_id or not action_type or output.get("status") not in {"draft", "approved"}:
+        return None
+    row = fetch_one_sync("SELECT id, action_type FROM pending_actions WHERE id = ?", (int(action_id),))
+    return int(row["id"]) if row and row["action_type"] == action_type else None
+
+
 def _ai_first_route(query: str, request_context: RequestContext, lang: str) -> AgentDecision | None:
     if settings.agent_native_tool_ready:
         native = _native_tool_route(query, request_context, lang)
@@ -1468,6 +1485,13 @@ async def agent_stream(
         context.kb_key = kb_key
 
     decision = decide_route(normalized_query, request_context=context, lang=resolved_lang)
+    agent_run_id = create_agent_run(query=normalized_query, context=context)
+    record_agent_route(
+        agent_run_id,
+        route=decision.route,
+        tool_name=decision.tool_name,
+        reason=decision.reason,
+    )
     yield {
         "event": "route",
         "data": {
@@ -1475,6 +1499,7 @@ async def agent_stream(
             "tool_name": decision.tool_name,
             "arguments": decision.arguments,
             "request_id": context.request_id,
+            "agent_run_id": agent_run_id,
             "reason": decision.reason,
         },
     }
@@ -1496,6 +1521,10 @@ async def agent_stream(
             if event["event"] == "start":
                 event["data"]["route"] = "rag"
                 event["data"]["reason"] = decision.reason
+                event["data"]["agent_run_id"] = agent_run_id
+            if event["event"] == "done":
+                event["data"]["agent_run_id"] = agent_run_id
+                complete_agent_run(agent_run_id, result={"route": "rag"})
             yield event
         return
 
@@ -1527,7 +1556,8 @@ async def agent_stream(
             request_context=context,
             latency_ms=latency_ms,
         )
-        yield {"event": "done", "data": {"ok": True, "latency_ms": latency_ms}}
+        complete_agent_run(agent_run_id, result={"route": "clarify"})
+        yield {"event": "done", "data": {"ok": True, "latency_ms": latency_ms, "agent_run_id": agent_run_id}}
         return
 
     if decision.route == "memory":
@@ -1553,7 +1583,8 @@ async def agent_stream(
             request_context=context,
             latency_ms=latency_ms,
         )
-        yield {"event": "done", "data": {"ok": True, "latency_ms": latency_ms}}
+        complete_agent_run(agent_run_id, result={"route": "memory"})
+        yield {"event": "done", "data": {"ok": True, "latency_ms": latency_ms, "agent_run_id": agent_run_id}}
         return
 
     if decision.route == "fallback":
@@ -1579,7 +1610,8 @@ async def agent_stream(
             request_context=context,
             latency_ms=latency_ms,
         )
-        yield {"event": "done", "data": {"ok": True, "latency_ms": latency_ms}}
+        complete_agent_run(agent_run_id, result={"route": "fallback"})
+        yield {"event": "done", "data": {"ok": True, "latency_ms": latency_ms, "agent_run_id": agent_run_id}}
         return
 
     tool_name = decision.tool_name or ""
@@ -1594,8 +1626,15 @@ async def agent_stream(
         reason=decision.reason,
     )
     yield {"event": "tool_call", "data": {"tool_name": tool_name, "arguments": decision.arguments}}
+    record_agent_run_step(
+        agent_run_id,
+        step_key="tool_call",
+        step_type="tool",
+        input_payload={"tool_name": tool_name, "arguments": decision.arguments},
+    )
 
     done_ok = True
+    agent_run_status = "completed"
     tool_result_payload: dict[str, Any]
     answer_text: str
     chat_mode: str
@@ -1611,6 +1650,15 @@ async def agent_stream(
             "status": "failed",
             "summary": "permission_denied",
         }
+        record_agent_run_step(
+            agent_run_id,
+            step_key="tool_result",
+            step_type="tool",
+            status="failed",
+            error_message="permission_denied",
+        )
+        fail_agent_run(agent_run_id, error_message="permission_denied", result=tool_result_payload)
+        agent_run_status = "failed"
     except ToolValidationError as err:
         answer_text = decision.message or (str(err) if str(err) else _ticket_contact_clarify(resolved_lang))
         chat_mode = "clarify"
@@ -1619,6 +1667,14 @@ async def agent_stream(
             "status": "clarify",
             "summary": str(err) or "validation_error",
         }
+        record_agent_run_step(
+            agent_run_id,
+            step_key="tool_result",
+            step_type="tool",
+            status="done",
+            output=tool_result_payload,
+        )
+        complete_agent_run(agent_run_id, result=tool_result_payload)
     except (ToolExecutionError, KeyError):
         done_ok = False
         answer_text = _tool_error_message(tool_name, resolved_lang)
@@ -1628,6 +1684,25 @@ async def agent_stream(
             "status": "failed",
             "summary": "execution_error",
         }
+        record_agent_run_step(
+            agent_run_id,
+            step_key="tool_result",
+            step_type="tool",
+            status="failed",
+            error_message="execution_error",
+        )
+        fail_agent_run(agent_run_id, error_message="execution_error", result=tool_result_payload)
+        agent_run_status = "failed"
+    except Exception as err:
+        record_agent_run_step(
+            agent_run_id,
+            step_key="tool_result",
+            step_type="tool",
+            status="failed",
+            error_message=str(err),
+        )
+        fail_agent_run(agent_run_id, error_message=str(err))
+        raise
     else:
         if not context.kb_id and result.output.get("kb_id"):
             context.kb_id = int(result.output["kb_id"])
@@ -1650,6 +1725,25 @@ async def agent_stream(
             "status": "success",
             "summary": _tool_result_summary(tool_name, result.output),
         }
+        record_agent_run_step(
+            agent_run_id,
+            step_key="tool_result",
+            step_type="tool",
+            output=tool_result_payload,
+        )
+        pending_action_id = _pending_action_id_from_tool_output(result.output)
+        if pending_action_id:
+            pause_agent_run_for_pending_action(
+                agent_run_id,
+                pending_action_id=pending_action_id,
+                tool_name=tool_name,
+                tool_call_id=result.tool_call_id,
+            )
+            agent_run_status = "paused"
+            tool_result_payload["pending_action_id"] = pending_action_id
+            tool_result_payload["agent_run_status"] = agent_run_status
+        else:
+            complete_agent_run(agent_run_id, result=tool_result_payload)
 
     latency_ms = int((time.perf_counter() - start_time) * 1000)
     yield {"event": "tool_result", "data": tool_result_payload}
@@ -1664,4 +1758,12 @@ async def agent_stream(
         request_context=context,
         latency_ms=latency_ms,
     )
-    yield {"event": "done", "data": {"ok": done_ok, "latency_ms": latency_ms}}
+    yield {
+        "event": "done",
+        "data": {
+            "ok": done_ok,
+            "latency_ms": latency_ms,
+            "agent_run_id": agent_run_id,
+            "agent_run_status": agent_run_status,
+        },
+    }

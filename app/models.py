@@ -371,6 +371,10 @@ class KBSource(BaseModel):
 class CacheStats(BaseModel):
     total_entries: int
     size_mb: float
+    semantic_retrieval_scopes: int = 0
+    semantic_retrieval_entries: int = 0
+    semantic_response_scopes: int = 0
+    semantic_response_entries: int = 0
 
 
 class HealthResponse(BaseModel):
@@ -412,6 +416,10 @@ class ChatLogItem(BaseModel):
     top_score: float | None = None
     latency_ms: int | None = None
     llm_provider: str | None = None
+    llm_input_tokens: int = 0
+    llm_output_tokens: int = 0
+    llm_total_tokens: int = 0
+    llm_cached_tokens: int = 0
     user_message: str
     answer_text: str
     created_at: str
@@ -494,6 +502,11 @@ class AnalyticsSummary(BaseModel):
     unique_users: int = 0
     avg_latency_ms: float | None = None
     fallback_count: int = 0
+    llm_input_tokens: int = 0
+    llm_output_tokens: int = 0
+    llm_total_tokens: int = 0
+    llm_cached_tokens: int = 0
+    llm_cached_input_rate: float | None = None
     feedback_total: int = 0
     feedback_up: int = 0
     feedback_down: int = 0
@@ -585,6 +598,10 @@ class CreateAgentEvalRunInput(BaseModel):
     min_warn_score: int = Field(default=50, ge=0, le=100)
     source: str = Field(default="chat_logs", max_length=40)
     alert_drop_threshold: float = Field(default=10.0, ge=0.0, le=100.0)
+    baseline_run_id: int | None = Field(default=None, ge=1)
+    max_metric_drop: float = Field(default=0.05, ge=0.0, le=1.0)
+    llm_judge: bool | None = None
+    llm_judge_weight: float | None = Field(default=None, ge=0.0, le=1.0)
 
     @field_validator("name", mode="before")
     @classmethod
@@ -628,6 +645,22 @@ class AgentEvalResultItem(BaseModel):
     answer_similarity: float | None = None
     recall_at_k: float | None = None
     citation_accuracy: float | None = None
+    mrr: float | None = None
+    source_match: float | None = None
+    chunk_match: float | None = None
+    category_match: float | None = None
+    matched_source_rank: int | None = None
+    retrieved: list[dict[str, Any]] = Field(default_factory=list)
+    citations: list[dict[str, Any]] = Field(default_factory=list)
+    judge_provider: str | None = None
+    judge_model: str | None = None
+    judge_score: float | None = None
+    judge_verdict: str | None = None
+    judge_metrics: dict[str, Any] = Field(default_factory=dict)
+    judge_reason: str | None = None
+    judge_latency_ms: int | None = None
+    judge_error: str | None = None
+    latency_ms: int | None = None
     verdict: str
     score: float
     checks: list[AgentEvalCheck] = Field(default_factory=list)
@@ -650,6 +683,10 @@ class AgentEvalRunItem(BaseModel):
     warn_count: int
     fail_count: int
     avg_score: float | None = None
+    baseline_run_id: int | None = None
+    metrics: dict[str, float | None] = Field(default_factory=dict)
+    comparison: dict[str, Any] = Field(default_factory=dict)
+    gate_status: str = "not_compared"
     created_by_user_id: str | None = None
     created_at: str
     completed_at: str | None = None
@@ -670,7 +707,11 @@ class GoldenDatasetItem(BaseModel):
     kb_id: int
     question: str
     expected_answer: str
+    expected_answers: list[str] = Field(default_factory=list)
     expected_source_file_id: int | None = None
+    expected_source_file_ids: list[int] = Field(default_factory=list)
+    expected_chunk_ids: list[str] = Field(default_factory=list)
+    expected_categories: list[str] = Field(default_factory=list)
     expected_keywords: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     active: bool = True
@@ -685,7 +726,11 @@ class CreateGoldenDatasetItemInput(BaseModel):
     kb_id: int = Field(..., ge=1)
     question: str = Field(..., min_length=1, max_length=3000)
     expected_answer: str = Field(..., min_length=1, max_length=8000)
+    expected_answers: list[str] = Field(default_factory=list)
     expected_source_file_id: int | None = Field(default=None, ge=1)
+    expected_source_file_ids: list[int] = Field(default_factory=list)
+    expected_chunk_ids: list[str] = Field(default_factory=list)
+    expected_categories: list[str] = Field(default_factory=list)
     expected_keywords: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     active: bool = True
@@ -698,7 +743,7 @@ class CreateGoldenDatasetItemInput(BaseModel):
             raise ValueError("field is required")
         return normalized
 
-    @field_validator("expected_keywords", "tags", mode="before")
+    @field_validator("expected_answers", "expected_chunk_ids", "expected_categories", "expected_keywords", "tags", mode="before")
     @classmethod
     def _normalize_text_list(cls, value):
         if value is None:
@@ -714,6 +759,28 @@ class CreateGoldenDatasetItemInput(BaseModel):
             normalized = _normalize_optional_text(str(item))
             if normalized and normalized not in items:
                 items.append(normalized)
+        return items[:50]
+
+    @field_validator("expected_source_file_ids", mode="before")
+    @classmethod
+    def _normalize_int_list(cls, value):
+        if value is None:
+            return []
+        if isinstance(value, str):
+            raw_items = [part.strip() for part in value.split(",")]
+        elif isinstance(value, list):
+            raw_items = value
+        else:
+            raise ValueError("must be a list or comma-separated string")
+        items: list[int] = []
+        for item in raw_items:
+            if item in (None, ""):
+                continue
+            parsed = int(item)
+            if parsed < 1:
+                raise ValueError("source file IDs must be positive integers")
+            if parsed not in items:
+                items.append(parsed)
         return items[:50]
 
 
@@ -781,6 +848,7 @@ class SystemRuntime(BaseModel):
     scope: dict[str, str | int | bool | None]
     agent_runtime: dict[str, str | bool | None]
     observability: dict[str, str | bool | None]
+    llm_capabilities: dict[str, Any] = Field(default_factory=dict)
     vector_backend: str
     llm_provider_active: str
     llm_provider_config: str

@@ -29,6 +29,15 @@ from app.access_management import (
     upsert_app_user,
 )
 from app.analytics import build_analytics_dashboard
+from app.agent_runs import (
+    AgentRunDecisionInput,
+    AgentRunDetail,
+    ListAgentRunsOutput,
+    cancel_agent_run,
+    get_agent_run,
+    list_agent_runs,
+    resume_agent_run,
+)
 from app.auth import (
     get_request_auth,
     require_admin,
@@ -918,6 +927,7 @@ async def admin_chat_logs(
         """
         SELECT cl.id, cl.session_id, cl.request_id, cl.user_id, cl.roles_json, cl.channel,
                cl.tenant_id, cl.org_id, cl.kb_id, cl.kb_key, cl.mode, cl.top_score, cl.latency_ms, cl.llm_provider,
+               cl.llm_input_tokens, cl.llm_output_tokens, cl.llm_total_tokens, cl.llm_cached_tokens,
                cl.user_message, cl.answer_text, cl.created_at,
                COALESCE(SUM(CASE WHEN cf.rating = 'up' THEN 1 ELSE 0 END), 0) AS feedback_up,
                COALESCE(SUM(CASE WHEN cf.rating = 'down' THEN 1 ELSE 0 END), 0) AS feedback_down
@@ -946,6 +956,10 @@ async def admin_chat_logs(
             top_score=row.get("top_score"),
             latency_ms=row.get("latency_ms"),
             llm_provider=row.get("llm_provider"),
+            llm_input_tokens=int(row.get("llm_input_tokens") or 0),
+            llm_output_tokens=int(row.get("llm_output_tokens") or 0),
+            llm_total_tokens=int(row.get("llm_total_tokens") or 0),
+            llm_cached_tokens=int(row.get("llm_cached_tokens") or 0),
             user_message=row.get("user_message") or "",
             answer_text=row.get("answer_text") or "",
             created_at=row.get("created_at") or "",
@@ -1625,6 +1639,60 @@ async def admin_list_workflow_runs(
     return list_workflow_runs(status=status, entity_type=entity_type, entity_id=entity_id, limit=limit)
 
 
+@app.get("/api/admin/agent-runs", response_model=ListAgentRunsOutput)
+async def admin_list_agent_runs(
+    status: str | None = Query(default=None),
+    session_id: str | None = Query(default=None),
+    pending_action_id: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=50, ge=1, le=200),
+    _=Depends(require_operations_role),
+):
+    return list_agent_runs(
+        status=status,
+        session_id=session_id,
+        pending_action_id=pending_action_id,
+        limit=limit,
+    )
+
+
+@app.get("/api/admin/agent-runs/{agent_run_id}", response_model=AgentRunDetail)
+async def admin_get_agent_run(agent_run_id: int, _=Depends(require_operations_role)):
+    try:
+        return get_agent_run(agent_run_id)
+    except ValueError as err:
+        raise HTTPException(status_code=404, detail=str(err)) from err
+
+
+@app.post("/api/admin/agent-runs/{agent_run_id}/cancel", response_model=AgentRunDetail)
+async def admin_cancel_agent_run(
+    agent_run_id: int,
+    payload: AgentRunDecisionInput | None = None,
+    auth=Depends(require_operations_role),
+):
+    try:
+        return cancel_agent_run(agent_run_id, reason=payload.reason if payload else None, auth=auth)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+
+
+@app.post("/api/admin/agent-runs/{agent_run_id}/resume", response_model=AgentRunDetail)
+async def admin_resume_agent_run(
+    agent_run_id: int,
+    request: Request,
+    auth=Depends(require_operations_role),
+):
+    try:
+        return resume_agent_run(
+            agent_run_id,
+            context=RequestContext(
+                request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+                auth=auth,
+            ),
+        )
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+
+
 @app.get("/api/admin/workflows/runs/{run_id}", response_model=WorkflowRunDetail)
 async def admin_get_workflow_run(run_id: int, _=Depends(require_operations_role)):
     try:
@@ -1752,12 +1820,14 @@ async def system_info(
     from app.cache import get_stats as get_cache_stats
     from app.llm_client import active_provider_name
     from app.embeddings import using_hashing_fallback, is_embeddings_ready
+    from app.provider_capabilities import provider_capabilities_dict
     from app.vector_store import vector_store
 
     stats = await _build_stats_response(kb_id=kb_id, kb_key=kb_key)
     cache = get_cache_stats()
     vs = vector_store.get_stats()
     hashing = using_hashing_fallback()
+    active_provider = active_provider_name()
 
     effective_threshold_good = settings.threshold_good
     effective_threshold_low = settings.threshold_low
@@ -1790,6 +1860,7 @@ async def system_info(
             "target_model": settings.effective_chat_model or None,
         },
         "observability": tracing_status(),
+        "llm_capabilities": provider_capabilities_dict(active_provider=active_provider),
         "embedding_model": settings.embedding_model,
         "embedding_source": settings.effective_embedding_source,
         "embedding_backend": "hashing" if hashing else "sentence-transformers",
@@ -1812,7 +1883,7 @@ async def system_info(
         "chunk_overlap": settings.chunk_overlap,
         "answer_mode_config": settings.normalized_answer_mode,
         "llm_provider_config": settings.normalized_llm_provider,
-        "llm_provider_active": active_provider_name(),
+        "llm_provider_active": active_provider,
         "llm_model": settings.effective_chat_model,
         "llm_loaded": getattr(request.app.state, "llm_loaded", False),
         "cache_entries": cache.get("total_entries", 0),
