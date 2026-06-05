@@ -13,6 +13,9 @@ RAG_OPENAI_MODEL=gpt-4o-mini
 RAG_OPENAI_BASE_URL=https://api.openai.com/v1
 RAG_OPENAI_PROMPT_CACHE_KEY=
 RAG_OPENAI_PROMPT_CACHE_RETENTION=
+RAG_OPENAI_RESPONSES_TOOL_CONTINUATION_ENABLED=false
+RAG_OPENAI_RESPONSES_TOOL_MAX_STEPS=4
+RAG_OPENAI_RESPONSES_TOOL_OUTPUT_MAX_CHARS=12000
 ```
 
 `RAG_OPENAI_PROMPT_CACHE_KEY` is optional. Set a stable value only when requests
@@ -36,11 +39,25 @@ come from `usage.input_tokens_details.cached_tokens` on the completed response.
 RAG chat turns also persist these totals in `chat_logs` so the admin analytics
 dashboard can report cached-input reuse over time.
 
-## Scope
+## Tool-result continuation
 
-Native OpenAI tool routing still uses the Chat Completions-compatible path.
-Responses API tool execution should be introduced separately after tool-result
-continuation and approval behavior have dedicated regression tests.
+When `RAG_OPENAI_RESPONSES_TOOL_CONTINUATION_ENABLED=true`, the agent can use
+Responses API tool loops:
+
+```text
+Responses call with tools
+-> model emits function_call
+-> ToolRegistry executes the tool
+-> app sends function_call_output with previous_response_id
+-> model returns the final answer
+```
+
+Safety controls:
+
+- `RAG_OPENAI_RESPONSES_TOOL_MAX_STEPS` caps model/tool loop depth.
+- `RAG_OPENAI_RESPONSES_TOOL_OUTPUT_MAX_CHARS` truncates tool output before it is sent back to the model.
+- ToolRegistry authorization, audit logging, and pending-action safety remain the source of truth.
+- Agent run steps record `responses_initial`, `responses_tool_call:*`, `responses_tool_result:*`, and `responses_continuation`.
 
 ## References
 

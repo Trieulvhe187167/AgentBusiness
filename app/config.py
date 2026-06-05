@@ -155,6 +155,9 @@ class Settings(BaseSettings):
     agent_brain_mode: str = "hybrid"  # hybrid|ai_first
     agent_followup_reaction_llm_timeout_seconds: int = 8
     agent_followup_reaction_llm_max_tokens: int = 96
+    openai_responses_tool_continuation_enabled: bool = False
+    openai_responses_tool_max_steps: int = 4
+    openai_responses_tool_output_max_chars: int = 12000
 
     # ------------------------------------------------------------------
     # Evaluation
@@ -588,6 +591,23 @@ class Settings(BaseSettings):
         if self.normalized_agent_serving_stack in {"vllm", "sglang"} and not self.agent_tool_parser.strip():
             return "Set RAG_AGENT_TOOL_PARSER if your serving stack requires an explicit parser for auto tool choice."
         return None
+
+    @property
+    def openai_responses_tool_continuation_ready(self) -> bool:
+        return (
+            bool(self.openai_responses_tool_continuation_enabled)
+            and self.normalized_llm_provider == "openai"
+            and bool(self.openai_api_key.strip())
+            and bool(self.openai_model.strip())
+        )
+
+    @property
+    def effective_openai_responses_tool_max_steps(self) -> int:
+        return max(1, min(int(self.openai_responses_tool_max_steps), 8))
+
+    @property
+    def effective_openai_responses_tool_output_max_chars(self) -> int:
+        return max(1000, min(int(self.openai_responses_tool_output_max_chars), 50000))
 
     def validate_runtime_settings(self) -> None:
         if self.normalized_auth_mode != "gateway":

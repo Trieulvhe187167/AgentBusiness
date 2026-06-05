@@ -1176,6 +1176,21 @@ ALTER TABLE agent_eval_results ADD COLUMN judge_latency_ms INTEGER;
 ALTER TABLE agent_eval_results ADD COLUMN judge_error TEXT;
 """
 
+# ---------------------------------------------------------------------------
+# Phase 61 / Idempotent agent run retry and resume
+# ---------------------------------------------------------------------------
+_PHASE61_AGENT_RUN_IDEMPOTENT_STEPS_SCHEMA = """
+ALTER TABLE agent_run_steps ADD COLUMN idempotency_key TEXT;
+ALTER TABLE agent_run_steps ADD COLUMN side_effect INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE agent_run_steps ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE agent_run_steps ADD COLUMN last_attempt_at TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_run_steps_idempotency_key
+    ON agent_run_steps(idempotency_key)
+    WHERE idempotency_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_agent_run_steps_run_key
+    ON agent_run_steps(agent_run_id, step_key, id DESC);
+"""
+
 MIGRATIONS: list[tuple[str, str]] = [
     ("001_core_schema", _CORE_SCHEMA),
     ("002_knowledge_bases", _KB_SCHEMA),
@@ -1215,6 +1230,7 @@ MIGRATIONS: list[tuple[str, str]] = [
     ("036_phase57_agent_runs", _PHASE57_AGENT_RUNS_SCHEMA),
     ("037_phase58_llm_usage", _PHASE58_LLM_USAGE_SCHEMA),
     ("038_phase60_llm_judge_evaluations", _PHASE60_LLM_JUDGE_EVALUATIONS_SCHEMA),
+    ("039_phase61_agent_run_idempotent_steps", _PHASE61_AGENT_RUN_IDEMPOTENT_STEPS_SCHEMA),
 ]
 
 

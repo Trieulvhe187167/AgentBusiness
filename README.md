@@ -198,6 +198,26 @@ RAG_EVAL_LLM_JUDGE_WEIGHT=0.35
 
 When enabled, judge results are stored alongside deterministic metrics and blended into the final result score by `RAG_EVAL_LLM_JUDGE_WEIGHT`. If the judge provider fails, the evaluation run still completes and records `judge_error` for that item.
 
+### OpenAI Responses tool continuation
+
+OpenAI Responses can optionally run a full tool-result continuation loop:
+
+```text
+model -> tool call -> ToolRegistry execution -> function_call_output -> model final answer
+```
+
+Enable it only when the OpenAI provider is configured:
+
+```dotenv
+RAG_LLM_PROVIDER=openai
+RAG_OPENAI_API_KEY=...
+RAG_OPENAI_RESPONSES_TOOL_CONTINUATION_ENABLED=true
+RAG_OPENAI_RESPONSES_TOOL_MAX_STEPS=4
+RAG_OPENAI_RESPONSES_TOOL_OUTPUT_MAX_CHARS=12000
+```
+
+The loop still uses the internal ToolRegistry, authorization checks, tool audit logs, pending-action boundaries, and agent run steps. High-risk tools create pending approvals instead of executing destructive side effects directly.
+
 ### OCR for scanned documents and images
 
 The OCR path is local-first. For PDFs it only runs when extracted PDF text is too short; for image uploads it runs directly on the image.

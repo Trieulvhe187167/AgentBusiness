@@ -39,6 +39,10 @@ class LLMToolCall(BaseModel):
     raw_arguments: str = ""
 
 
+class LLMResponseToolCall(LLMToolCall):
+    call_id: str
+
+
 class LLMChatResult(BaseModel):
     provider: str
     model: str | None = None
@@ -46,6 +50,16 @@ class LLMChatResult(BaseModel):
     finish_reason: str | None = None
     tool_calls: list[LLMToolCall] = Field(default_factory=list)
     raw_message: dict[str, Any] = Field(default_factory=dict)
+
+
+class LLMResponseResult(BaseModel):
+    provider: str = "openai"
+    model: str | None = None
+    response_id: str | None = None
+    text: str = ""
+    tool_calls: list[LLMResponseToolCall] = Field(default_factory=list)
+    usage: dict[str, int] = Field(default_factory=dict)
+    raw: dict[str, Any] = Field(default_factory=dict)
 
 
 def _normalized_model_name(value: str | None) -> str:
@@ -217,6 +231,14 @@ def _extract_openai_usage(payload: dict[str, Any]) -> dict[str, int]:
         "total_tokens": int(usage.get("total_tokens") or 0),
         "cached_tokens": int(input_details.get("cached_tokens") or 0),
     }
+
+
+def combine_usage(*items: dict[str, int] | None) -> dict[str, int]:
+    combined = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "cached_tokens": 0}
+    for item in items:
+        for key in combined:
+            combined[key] += int((item or {}).get(key) or 0)
+    return combined
 
 
 def _set_usage_span_attrs(span: Any, usage: dict[str, int]) -> None:
@@ -429,6 +451,153 @@ def _openai_stream(
         if _is_transient_httpx_error(err):
             raise _temporary_failure("OpenAI Responses request failed", err) from err
         raise
+
+
+def _parse_response_tool_calls(payload: dict[str, Any]) -> list[LLMResponseToolCall]:
+    parsed: list[LLMResponseToolCall] = []
+    for item in payload.get("output") or []:
+        if not isinstance(item, dict) or item.get("type") != "function_call":
+            continue
+        name = str(item.get("name") or "").strip()
+        call_id = str(item.get("call_id") or item.get("id") or "").strip()
+        raw_arguments = str(item.get("arguments") or "")
+        if not name or not call_id:
+            continue
+        arguments: dict[str, Any] = {}
+        if raw_arguments:
+            try:
+                decoded = json.loads(raw_arguments)
+                if isinstance(decoded, dict):
+                    arguments = decoded
+            except json.JSONDecodeError:
+                logger.warning("Failed to decode Responses tool arguments for %s: %s", name, raw_arguments[:160])
+        parsed.append(
+            LLMResponseToolCall(
+                id=str(item.get("id")) if item.get("id") is not None else None,
+                call_id=call_id,
+                name=name,
+                arguments=arguments,
+                raw_arguments=raw_arguments,
+            )
+        )
+    return parsed
+
+
+def _openai_response_body(
+    *,
+    input_items: list[dict[str, Any]],
+    tools: list[dict[str, Any]] | None = None,
+    previous_response_id: str | None = None,
+    max_tokens: int | None = None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "model": _normalized_model_name(settings.openai_model),
+        "input": input_items,
+        "temperature": settings.llm_temperature,
+        "top_p": settings.llm_top_p,
+        "frequency_penalty": max(0.0, settings.llm_repeat_penalty - 1.0),
+        "max_output_tokens": max_tokens or settings.llm_max_tokens,
+        "stream": False,
+    }
+    if tools:
+        body["tools"] = tools
+        body["tool_choice"] = "auto"
+    if previous_response_id:
+        body["previous_response_id"] = previous_response_id
+    prompt_cache_key = settings.openai_prompt_cache_key.strip()
+    if prompt_cache_key:
+        body["prompt_cache_key"] = prompt_cache_key
+    prompt_cache_retention = settings.normalized_openai_prompt_cache_retention
+    if prompt_cache_retention:
+        body["prompt_cache_retention"] = prompt_cache_retention
+    return body
+
+
+def openai_create_response(
+    *,
+    input_items: list[dict[str, Any]],
+    tools: list[dict[str, Any]] | None = None,
+    previous_response_id: str | None = None,
+    timeout_seconds: int | None = None,
+    max_tokens: int | None = None,
+) -> LLMResponseResult:
+    if not settings.openai_api_key:
+        raise RuntimeError("RAG_OPENAI_API_KEY is not configured")
+
+    base = settings.openai_base_url.rstrip("/")
+    url = f"{base}/responses"
+    headers = {
+        "Authorization": f"Bearer {settings.openai_api_key}",
+        "Content-Type": "application/json",
+    }
+    body = _openai_response_body(
+        input_items=input_items,
+        tools=tools,
+        previous_response_id=previous_response_id,
+        max_tokens=max_tokens,
+    )
+    timeout = httpx.Timeout(timeout_seconds or settings.openai_timeout_seconds)
+    with trace_span(
+        "gen_ai.responses",
+        {
+            **gen_ai_attrs(
+                operation="responses",
+                system="openai",
+                request_model=settings.openai_model,
+                max_tokens=max_tokens or settings.llm_max_tokens,
+                temperature=settings.llm_temperature,
+                top_p=settings.llm_top_p,
+            ),
+            "gen_ai.request.tool_count": len(tools or []),
+            "gen_ai.request.previous_response_id": previous_response_id or "",
+        },
+    ) as span:
+        try:
+            response = httpx.post(url, headers=headers, json=body, timeout=timeout)
+        except Exception as err:
+            if _is_transient_httpx_error(err):
+                raise _temporary_failure("OpenAI Responses request failed", err) from err
+            raise
+        response.raise_for_status()
+        payload = response.json()
+        usage = _extract_openai_usage(payload)
+        _set_usage_span_attrs(span, usage)
+        result = LLMResponseResult(
+            model=payload.get("model") or settings.openai_model,
+            response_id=payload.get("id"),
+            text=_extract_openai_text(payload),
+            tool_calls=_parse_response_tool_calls(payload),
+            usage=usage,
+            raw=payload,
+        )
+        span.set_attribute("gen_ai.response.id", result.response_id or "")
+        span.set_attribute("gen_ai.response.tool_call_count", len(result.tool_calls))
+        span.set_attribute("gen_ai.response.text_length", len(result.text or ""))
+        return result
+
+
+def openai_continue_response_with_tool_outputs(
+    *,
+    previous_response_id: str,
+    tool_outputs: list[dict[str, str]],
+    timeout_seconds: int | None = None,
+    max_tokens: int | None = None,
+) -> LLMResponseResult:
+    input_items = [
+        {
+            "type": "function_call_output",
+            "call_id": str(item["call_id"]),
+            "output": str(item.get("output") or ""),
+        }
+        for item in tool_outputs
+        if item.get("call_id")
+    ]
+    return openai_create_response(
+        input_items=input_items,
+        previous_response_id=previous_response_id,
+        timeout_seconds=timeout_seconds,
+        max_tokens=max_tokens,
+    )
 
 
 def _extract_gemini_text(payload: dict) -> str:

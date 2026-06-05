@@ -28,6 +28,7 @@
 | Phase 57 | `agent_runs`, `agent_run_steps`, `pending_actions.agent_run_id` | Durable agent orchestration checkpoints and approval resume flow |
 | Phase 58 | extra fields on `chat_logs` | Persisted OpenAI input, output, total, and cached token usage |
 | Phase 60 | extra fields on `agent_eval_results` | Optional LLM-as-judge scores and explanations for golden evaluation |
+| Phase 61 | extra fields on `agent_run_steps` | Idempotent retry/resume metadata for side-effect-safe agent steps |
 
 ## Ownership view
 
@@ -110,3 +111,13 @@ Golden runs reuse `agent_eval_runs` with `source='golden_dataset'`. `agent_eval_
 When optional LLM-as-judge is enabled, `agent_eval_results` also stores `judge_provider`, `judge_model`, `judge_score`, `judge_verdict`, `judge_metrics_json`, `judge_reason`, `judge_latency_ms`, and `judge_error`. Judge metrics cover correctness, groundedness, completeness, citation support, and hallucination risk.
 
 Each golden run stores aggregate metrics, an optional baseline run ID, comparison deltas, and `gate_status`. By default, the previous matching golden run is used as baseline. A metric regression beyond `max_metric_drop` marks the gate as failed.
+
+## Agent run idempotency
+
+`agent_run_steps` stores retry/resume metadata for agent orchestration checkpoints:
+
+- `idempotency_key`: stable key for at-most-once side-effect steps such as outbound email, ticket updates, or approval terminal resume.
+- `side_effect`: marks steps that affect external or durable business state.
+- `attempt_count`, `last_attempt_at`: retry accounting for failed or resumed steps.
+
+Completed idempotent steps return their stored `output_json` on retry/resume instead of calling the step implementation again.

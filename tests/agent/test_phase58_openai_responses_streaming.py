@@ -107,3 +107,90 @@ def test_generate_stream_records_openai_usage_on_trace_span(tmp_path, monkeypatc
         "total_tokens": 810,
         "cached_tokens": 0,
     }
+
+
+def test_openai_create_response_parses_function_calls(tmp_path, monkeypatch):
+    configure_test_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(llm_client.settings, "openai_api_key", "test-key")
+    monkeypatch.setattr(llm_client.settings, "openai_model", "gpt-4.1-mini")
+    captured: dict[str, Any] = {}
+
+    class _Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "id": "resp_1",
+                "model": "gpt-4.1-mini",
+                "output": [
+                    {
+                        "type": "function_call",
+                        "id": "fc_1",
+                        "call_id": "call_1",
+                        "name": "list_kbs",
+                        "arguments": "{}",
+                    }
+                ],
+                "usage": {
+                    "input_tokens": 10,
+                    "output_tokens": 2,
+                    "total_tokens": 12,
+                    "input_tokens_details": {"cached_tokens": 4},
+                },
+            }
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured.update({"url": url, "headers": headers, "json": json, "timeout": timeout})
+        return _Response()
+
+    monkeypatch.setattr(llm_client.httpx, "post", fake_post)
+
+    result = llm_client.openai_create_response(
+        input_items=[{"role": "user", "content": [{"type": "input_text", "text": "List KBs"}]}],
+        tools=[{"type": "function", "name": "list_kbs", "parameters": {"type": "object"}}],
+    )
+
+    assert captured["url"].endswith("/responses")
+    assert captured["json"]["stream"] is False
+    assert captured["json"]["tools"][0]["name"] == "list_kbs"
+    assert result.response_id == "resp_1"
+    assert result.tool_calls[0].call_id == "call_1"
+    assert result.tool_calls[0].name == "list_kbs"
+    assert result.usage["cached_tokens"] == 4
+
+
+def test_openai_continue_response_sends_function_call_outputs(tmp_path, monkeypatch):
+    configure_test_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(llm_client.settings, "openai_api_key", "test-key")
+    captured: dict[str, Any] = {}
+
+    class _Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "id": "resp_2",
+                "model": "gpt-4o-mini",
+                "output_text": "There is one KB.",
+                "output": [],
+                "usage": {"input_tokens": 8, "output_tokens": 5, "total_tokens": 13},
+            }
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured.update({"url": url, "headers": headers, "json": json})
+        return _Response()
+
+    monkeypatch.setattr(llm_client.httpx, "post", fake_post)
+
+    result = llm_client.openai_continue_response_with_tool_outputs(
+        previous_response_id="resp_1",
+        tool_outputs=[{"call_id": "call_1", "output": '{"items":[]}'}],
+    )
+
+    assert captured["json"]["previous_response_id"] == "resp_1"
+    assert captured["json"]["input"] == [
+        {"type": "function_call_output", "call_id": "call_1", "output": '{"items":[]}'}
+    ]
+    assert result.text == "There is one KB."

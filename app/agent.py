@@ -32,7 +32,16 @@ from app.conversation_memory import (
 )
 from app.database import fetch_one_sync
 from app.lang import detect_language
-from app.llm_client import LLMTemporaryFailure, active_provider_name, complete_chat, generate_stream, is_llm_ready
+from app.llm_client import (
+    LLMTemporaryFailure,
+    active_provider_name,
+    combine_usage,
+    complete_chat,
+    generate_stream,
+    is_llm_ready,
+    openai_continue_response_with_tool_outputs,
+    openai_create_response,
+)
 from app.models import RequestContext
 from app.session_memory import load_slots, merge_slots
 from app.tools import tool_registry
@@ -1389,6 +1398,7 @@ def _log_agent_chat(
     llm_provider: str,
     request_context: RequestContext,
     latency_ms: int,
+    llm_usage: dict[str, int] | None = None,
 ) -> None:
     rag._log_chat(
         session_id=session_id,
@@ -1401,6 +1411,7 @@ def _log_agent_chat(
         latency_ms=latency_ms,
         llm_provider=llm_provider,
         request_context=request_context,
+        llm_usage=llm_usage,
     )
 
 
@@ -1447,6 +1458,236 @@ def _pending_action_id_from_tool_output(output: dict[str, Any]) -> int | None:
     return int(row["id"]) if row and row["action_type"] == action_type else None
 
 
+def _responses_initial_input(query: str, request_context: RequestContext, lang: str) -> list[dict[str, Any]]:
+    recent_turns, conversation_context = _recent_conversation_payload(request_context)
+    slot_memory = _slot_memory_payload(request_context)
+    system_payload = {
+        "instruction": (
+            "You are an operations-safe business agent. Use tools when current data or actions are needed. "
+            "After tool results are returned, write a concise final answer in the user's language. "
+            "Never claim that a high-risk action was executed when the tool result says approval is pending."
+        ),
+        "lang": lang,
+        "request_context": request_context.model_dump(),
+        "recent_turns": recent_turns,
+        "conversation_context": conversation_context or None,
+        "slot_memory": slot_memory or None,
+    }
+    return [
+        {"role": "system", "content": [{"type": "input_text", "text": json.dumps(system_payload, ensure_ascii=False)}]},
+        {"role": "user", "content": [{"type": "input_text", "text": query}]},
+    ]
+
+
+def _truncate_tool_output(payload: dict[str, Any]) -> str:
+    text = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    max_chars = settings.effective_openai_responses_tool_output_max_chars
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + "...[truncated]"
+
+
+def _record_responses_step(agent_run_id: int, *, key: str, output: Any = None, input_payload: dict[str, Any] | None = None) -> None:
+    record_agent_run_step(
+        agent_run_id,
+        step_key=key,
+        step_type="responses",
+        input_payload=input_payload,
+        output=output,
+    )
+
+
+async def _execute_responses_tool_call(
+    *,
+    agent_run_id: int,
+    tool_call: Any,
+    request_context: RequestContext,
+) -> tuple[dict[str, str], dict[str, Any], int | None]:
+    tool_name = str(tool_call.name)
+    arguments = dict(tool_call.arguments or {})
+    _record_responses_step(
+        agent_run_id,
+        key=f"responses_tool_call:{tool_name}",
+        input_payload={
+            "response_tool_call_id": tool_call.id,
+            "call_id": tool_call.call_id,
+            "tool_name": tool_name,
+            "arguments": arguments,
+        },
+    )
+    pending_action_id: int | None = None
+    try:
+        result = await tool_registry.execute(tool_name, arguments, request_context=request_context)
+        output_payload: dict[str, Any] = {
+            "ok": True,
+            "tool_name": tool_name,
+            "tool_call_id": result.tool_call_id,
+            "latency_ms": result.latency_ms,
+            "output": result.output,
+        }
+        pending_action_id = _pending_action_id_from_tool_output(result.output)
+        if pending_action_id:
+            output_payload["pending_action_id"] = pending_action_id
+            output_payload["agent_run_status"] = "paused"
+    except ToolAuthorizationError as err:
+        output_payload = {"ok": False, "tool_name": tool_name, "error_type": "permission_denied", "error": str(err)}
+    except ToolValidationError as err:
+        output_payload = {"ok": False, "tool_name": tool_name, "error_type": "validation_error", "error": str(err)}
+    except (ToolExecutionError, KeyError) as err:
+        output_payload = {"ok": False, "tool_name": tool_name, "error_type": "execution_error", "error": str(err)}
+
+    _record_responses_step(
+        agent_run_id,
+        key=f"responses_tool_result:{tool_name}",
+        output=output_payload,
+        input_payload={"call_id": tool_call.call_id, "tool_name": tool_name},
+    )
+    return {"call_id": tool_call.call_id, "output": _truncate_tool_output(output_payload)}, output_payload, pending_action_id
+
+
+async def _responses_tool_continuation_stream(
+    *,
+    query: str,
+    session_id: str,
+    lang: str,
+    request_context: RequestContext,
+    agent_run_id: int,
+    start_time: float,
+) -> AsyncGenerator[dict[str, Any], None]:
+    tools = tool_registry.list_openai_responses_tools()
+    response = openai_create_response(
+        input_items=_responses_initial_input(query, request_context, lang),
+        tools=tools,
+    )
+    total_usage = combine_usage(response.usage)
+    _record_responses_step(
+        agent_run_id,
+        key="responses_initial",
+        output={
+            "response_id": response.response_id,
+            "tool_call_count": len(response.tool_calls),
+            "text": response.text,
+            "usage": response.usage,
+        },
+    )
+
+    pending_action_id: int | None = None
+    last_tool_payload: dict[str, Any] | None = None
+    steps = 0
+    while response.tool_calls and steps < settings.effective_openai_responses_tool_max_steps:
+        steps += 1
+        yield {
+            "event": "responses_tool_calls",
+            "data": {
+                "response_id": response.response_id,
+                "count": len(response.tool_calls),
+                "agent_run_id": agent_run_id,
+            },
+        }
+        tool_outputs: list[dict[str, str]] = []
+        for tool_call in response.tool_calls:
+            yield {
+                "event": "tool_call",
+                "data": {
+                    "tool_name": tool_call.name,
+                    "arguments": tool_call.arguments,
+                    "call_id": tool_call.call_id,
+                    "agent_run_id": agent_run_id,
+                },
+            }
+            tool_output, output_payload, action_id = await _execute_responses_tool_call(
+                agent_run_id=agent_run_id,
+                tool_call=tool_call,
+                request_context=request_context,
+            )
+            tool_outputs.append(tool_output)
+            last_tool_payload = output_payload
+            if action_id:
+                pending_action_id = action_id
+                pause_agent_run_for_pending_action(
+                    agent_run_id,
+                    pending_action_id=action_id,
+                    tool_name=str(tool_call.name),
+                    tool_call_id=str(output_payload.get("tool_call_id") or tool_call.call_id),
+                )
+            yield {"event": "tool_result", "data": {**output_payload, "agent_run_id": agent_run_id}}
+
+        if not response.response_id:
+            raise RuntimeError("OpenAI Responses tool continuation missing response_id")
+        response = openai_continue_response_with_tool_outputs(
+            previous_response_id=response.response_id,
+            tool_outputs=tool_outputs,
+        )
+        total_usage = combine_usage(total_usage, response.usage)
+        _record_responses_step(
+            agent_run_id,
+            key="responses_continuation",
+            input_payload={"tool_output_count": len(tool_outputs)},
+            output={
+                "response_id": response.response_id,
+                "tool_call_count": len(response.tool_calls),
+                "text": response.text,
+                "usage": response.usage,
+            },
+        )
+
+    if response.tool_calls:
+        raise RuntimeError("OpenAI Responses tool loop reached max steps")
+
+    answer_text = response.text.strip() or _compose_tool_answer(
+        str((last_tool_payload or {}).get("tool_name") or ""),
+        (last_tool_payload or {}).get("output") or {},
+        lang,
+    )
+    latency_ms = int((time.perf_counter() - start_time) * 1000)
+    yield _emit_start(
+        query=query,
+        mode="responses_tool",
+        route="responses_tool",
+        request_context=request_context,
+        session_id=session_id,
+        lang=lang,
+        reason="openai_responses_tool_continuation",
+    )
+    yield {"event": "token", "data": {"text": answer_text}}
+    yield {"event": "citations", "data": {"items": []}}
+    _log_agent_chat(
+        session_id=_resolved_scoped_session_id(session_id, request_context),
+        query=query,
+        mode="responses_tool",
+        answer_text=answer_text,
+        llm_provider="openai",
+        request_context=request_context,
+        latency_ms=latency_ms,
+        llm_usage=total_usage,
+    )
+    if pending_action_id:
+        yield {
+            "event": "done",
+            "data": {
+                "ok": True,
+                "latency_ms": latency_ms,
+                "agent_run_id": agent_run_id,
+                "agent_run_status": "paused",
+                "pending_action_id": pending_action_id,
+                "usage": total_usage,
+            },
+        }
+        return
+
+    complete_agent_run(agent_run_id, result={"route": "responses_tool", "response_id": response.response_id, "usage": total_usage})
+    yield {
+        "event": "done",
+        "data": {
+            "ok": True,
+            "latency_ms": latency_ms,
+            "agent_run_id": agent_run_id,
+            "agent_run_status": "completed",
+            "usage": total_usage,
+        },
+    }
+
+
 def _ai_first_route(query: str, request_context: RequestContext, lang: str) -> AgentDecision | None:
     if settings.agent_native_tool_ready:
         native = _native_tool_route(query, request_context, lang)
@@ -1483,6 +1724,44 @@ async def agent_stream(
         context.kb_id = kb_id
     if kb_key:
         context.kb_key = kb_key
+
+    if settings.openai_responses_tool_continuation_ready:
+        agent_run_id = create_agent_run(query=normalized_query, context=context)
+        record_agent_route(
+            agent_run_id,
+            route="responses_tool",
+            tool_name=None,
+            reason="openai_responses_tool_continuation",
+        )
+        yield {
+            "event": "route",
+            "data": {
+                "route": "responses_tool",
+                "tool_name": None,
+                "arguments": {},
+                "request_id": context.request_id,
+                "agent_run_id": agent_run_id,
+                "reason": "openai_responses_tool_continuation",
+            },
+        }
+        try:
+            async for event in _responses_tool_continuation_stream(
+                query=normalized_query,
+                session_id=sid,
+                lang=resolved_lang,
+                request_context=context,
+                agent_run_id=agent_run_id,
+                start_time=start_time,
+            ):
+                yield event
+            return
+        except LLMTemporaryFailure as err:
+            logger.warning("OpenAI Responses tool continuation unavailable, falling back to standard agent route: %s", err)
+            fail_agent_run(agent_run_id, error_message=str(err), result={"route": "responses_tool", "fallback": True})
+        except Exception as err:
+            logger.exception("OpenAI Responses tool continuation failed")
+            fail_agent_run(agent_run_id, error_message=str(err), result={"route": "responses_tool"})
+            raise
 
     decision = decide_route(normalized_query, request_context=context, lang=resolved_lang)
     agent_run_id = create_agent_run(query=normalized_query, context=context)

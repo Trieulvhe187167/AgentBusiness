@@ -71,6 +71,10 @@ def test_admin_analytics_dashboard_wires_backend_endpoint():
     assert "btnScheduleKnowledgeGapReport" in html
     assert "data-gap-suggest" in html
     assert "data-gap-status" in html
+    assert "/api/admin/pending-actions/${actionId}/events" in html
+    assert "data-action-events" in html
+    assert "function viewApprovalEvents" in html
+    assert "idempotency_key" in html
 
 
 def test_admin_dev_identity_is_collapsible_and_debug_gated():

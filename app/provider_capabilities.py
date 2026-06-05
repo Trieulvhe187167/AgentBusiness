@@ -33,6 +33,8 @@ class ProviderCapabilities(BaseModel):
     prompt_cache_retention: str
     structured_output_supported: bool
     tool_result_continuation: bool
+    tool_result_continuation_enabled: bool
+    tool_result_continuation_ready: bool
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -101,6 +103,10 @@ def resolve_provider_capabilities(*, active_provider: str | None = None) -> Prov
         warnings.append("Native tool calling is enabled but the active provider does not support the OpenAI tools protocol.")
     if native_enabled and settings.agent_native_tool_status != "ready":
         warnings.append(settings.agent_native_tool_reason)
+    if settings.openai_responses_tool_continuation_enabled and active != "openai":
+        warnings.append("Responses tool-result continuation only runs on the OpenAI Responses provider.")
+    if settings.openai_responses_tool_continuation_enabled and active == "openai" and not settings.openai_responses_tool_continuation_ready:
+        warnings.append("Responses tool-result continuation is enabled but OpenAI credentials/model are not ready.")
     if active != "openai":
         warnings.append("Persisted token and cached-token analytics are only available for the OpenAI Responses provider.")
     if active == "gemini":
@@ -125,7 +131,9 @@ def resolve_provider_capabilities(*, active_provider: str | None = None) -> Prov
         prompt_cache_key_configured=prompt_cache_key_configured,
         prompt_cache_retention=prompt_cache_retention,
         structured_output_supported=active in {"openai", "openai_compatible"},
-        tool_result_continuation=False,
+        tool_result_continuation=active == "openai",
+        tool_result_continuation_enabled=bool(settings.openai_responses_tool_continuation_enabled),
+        tool_result_continuation_ready=bool(active == "openai" and settings.openai_responses_tool_continuation_ready),
         warnings=warnings,
     )
 

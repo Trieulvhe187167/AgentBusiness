@@ -3495,6 +3495,7 @@
                         <td><span class="status ${item.status}">${item.status}</span></td>
                         <td>${escapeHtml(item.summary || '-')}<br><small class="note">By: ${escapeHtml(item.created_by_user_id || '-')}</small></td>
                         <td>
+                            <button class="btn-muted" data-action-events="${item.id}">Events</button>
                             ${canApprove ? `<button class="btn-ok" data-action-approve="${item.id}">Approve</button>` : ''}
                             ${canExecute ? `<button class="btn-main" data-action-execute="${item.id}">Execute</button>` : ''}
                             ${canReject ? `<button class="btn-danger" data-action-reject="${item.id}">Reject</button>` : ''}
@@ -4260,6 +4261,37 @@
             });
             toast(`Rejected action ${item.id}`);
             await refreshPendingActions();
+        }
+
+        function approvalEventLines(payload) {
+            const action = payload.action || {};
+            const lines = [
+                `Approval #${action.id || '-'} - ${action.title || action.action_type || '-'}`,
+                `status: ${action.status || '-'} | risk: ${action.risk_level || '-'} | type: ${action.action_type || '-'}`,
+                `agent_run_id: ${action.agent_run_id || '-'}`,
+                '',
+            ];
+            (payload.events || []).forEach((event) => {
+                const details = event.details || {};
+                lines.push(`[${event.created_at || '-'}] ${event.label || event.event_type || '-'} (${event.status || '-'})`);
+                if (event.actor_user_id) lines.push(`  actor: ${event.actor_user_id}`);
+                if (event.entity_type || event.entity_id) lines.push(`  entity: ${event.entity_type || '-'} #${event.entity_id || '-'}`);
+                if (details.side_effect !== undefined) lines.push(`  side_effect: ${details.side_effect ? 'true' : 'false'}`);
+                if (details.idempotency_key) lines.push(`  idempotency_key: ${details.idempotency_key}`);
+                if (details.attempt_count) lines.push(`  attempts: ${details.attempt_count}`);
+                if (details.error_message) lines.push(`  error: ${details.error_message}`);
+                if (details.reason) lines.push(`  reason: ${details.reason}`);
+                if (details.message) lines.push(`  message: ${details.message}`);
+                if (details.result && Object.keys(details.result || {}).length) lines.push(`  result: ${JSON.stringify(details.result).slice(0, 600)}`);
+                if (details.output && Object.keys(details.output || {}).length) lines.push(`  output: ${JSON.stringify(details.output).slice(0, 600)}`);
+                lines.push('');
+            });
+            return lines;
+        }
+
+        async function viewApprovalEvents(actionId) {
+            const payload = await fetchJson(`/api/admin/pending-actions/${actionId}/events`);
+            await modalAlert('Approval Events', approvalEventLines(payload).join('\n') || 'No approval events found.');
         }
 
         async function refreshSyncSchedules(showLoading = true) {
@@ -5248,6 +5280,8 @@
         });
 
         document.querySelector('#pendingActionsTable tbody').addEventListener('click', (event) => {
+            const eventsBtn = event.target.closest('[data-action-events]');
+            if (eventsBtn) return viewApprovalEvents(Number(eventsBtn.dataset.actionEvents)).catch((e) => toast(explainAuthError(e), false));
             const approveBtn = event.target.closest('[data-action-approve]');
             if (approveBtn) return approvePendingAction(Number(approveBtn.dataset.actionApprove)).catch((e) => toast(explainAuthError(e), false));
             const executeBtn = event.target.closest('[data-action-execute]');
@@ -5256,6 +5290,8 @@
             if (rejectBtn) return rejectPendingAction(Number(rejectBtn.dataset.actionReject)).catch((e) => toast(explainAuthError(e), false));
         });
         document.querySelector('#operationsPendingActionsTable tbody').addEventListener('click', (event) => {
+            const eventsBtn = event.target.closest('[data-action-events]');
+            if (eventsBtn) return viewApprovalEvents(Number(eventsBtn.dataset.actionEvents)).catch((e) => toast(explainAuthError(e), false));
             const approveBtn = event.target.closest('[data-action-approve]');
             if (approveBtn) return approvePendingAction(Number(approveBtn.dataset.actionApprove)).catch((e) => toast(explainAuthError(e), false));
             const executeBtn = event.target.closest('[data-action-execute]');

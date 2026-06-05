@@ -8,7 +8,7 @@ turn, while workflow runs continue to own longer-lived business workflows.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Callable
 
 from pydantic import BaseModel, Field
 
@@ -31,6 +31,10 @@ class AgentRunStepItem(BaseModel):
     input: dict[str, Any] = Field(default_factory=dict)
     output: Any = None
     error_message: str | None = None
+    idempotency_key: str | None = None
+    side_effect: bool = False
+    attempt_count: int = 1
+    last_attempt_at: str | None = None
     created_at: str
     completed_at: str | None = None
 
@@ -142,6 +146,10 @@ def _serialize_step(row: dict[str, Any]) -> AgentRunStepItem:
         input=_parse_json(row.get("input_json"), {}),
         output=_parse_json(row.get("output_json"), None),
         error_message=row.get("error_message"),
+        idempotency_key=row.get("idempotency_key"),
+        side_effect=bool(row.get("side_effect")),
+        attempt_count=int(row.get("attempt_count") or 1),
+        last_attempt_at=row.get("last_attempt_at"),
         created_at=row["created_at"],
         completed_at=row.get("completed_at"),
     )
@@ -186,6 +194,8 @@ def record_agent_run_step(
     input_payload: dict[str, Any] | None = None,
     output: Any = None,
     error_message: str | None = None,
+    idempotency_key: str | None = None,
+    side_effect: bool = False,
 ) -> int:
     now = utcnow_iso()
     return int(
@@ -193,8 +203,9 @@ def record_agent_run_step(
             """
             INSERT INTO agent_run_steps (
                 agent_run_id, step_key, step_type, status, input_json,
-                output_json, error_message, created_at, completed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                output_json, error_message, idempotency_key, side_effect,
+                attempt_count, last_attempt_at, created_at, completed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
             """,
             (
                 int(agent_run_id),
@@ -204,12 +215,151 @@ def record_agent_run_step(
                 _json_dumps(input_payload or {}),
                 _json_dumps(output) if output is not None else None,
                 error_message,
+                idempotency_key,
+                1 if side_effect else 0,
+                now,
                 now,
                 now,
             ),
         )
         or 0
     )
+
+
+def _find_agent_step(
+    agent_run_id: int,
+    *,
+    step_key: str,
+    idempotency_key: str | None = None,
+) -> dict[str, Any] | None:
+    if idempotency_key:
+        return fetch_one_sync(
+            """
+            SELECT *
+            FROM agent_run_steps
+            WHERE idempotency_key = ?
+            LIMIT 1
+            """,
+            (idempotency_key,),
+        )
+    return fetch_one_sync(
+        """
+        SELECT *
+        FROM agent_run_steps
+        WHERE agent_run_id = ? AND step_key = ?
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (int(agent_run_id), step_key),
+    )
+
+
+def run_agent_step_once(
+    agent_run_id: int,
+    *,
+    step_key: str,
+    step_type: str,
+    fn: Callable[[], Any],
+    input_payload: dict[str, Any] | None = None,
+    idempotency_key: str | None = None,
+    side_effect: bool = False,
+    retry_failed_side_effect: bool = False,
+) -> Any:
+    """Run a checkpointed step at most once after it reaches done.
+
+    The key behavior is deliberately small and explicit:
+    - completed steps return their stored output without calling ``fn``;
+    - failed non-side-effect steps can retry and increment ``attempt_count``;
+    - failed side-effect steps require an explicit idempotency key before retry.
+    """
+
+    if side_effect and not idempotency_key:
+        raise ValueError("Side-effect agent run steps require an idempotency_key.")
+
+    now = utcnow_iso()
+    step = _find_agent_step(agent_run_id, step_key=step_key, idempotency_key=idempotency_key)
+    if step and str(step.get("status")) == "done":
+        return _parse_json(step.get("output_json"), None)
+    if step and bool(step.get("side_effect")) and str(step.get("status")) == "failed" and not retry_failed_side_effect:
+        raise RuntimeError(f"Side-effect step '{step_key}' failed previously; manual retry is required.")
+
+    if step:
+        step_id = int(step["id"])
+        attempt_count = int(step.get("attempt_count") or 1) + 1
+        execute_sync(
+            """
+            UPDATE agent_run_steps
+            SET status = 'running',
+                input_json = ?,
+                error_message = NULL,
+                idempotency_key = COALESCE(?, idempotency_key),
+                side_effect = ?,
+                attempt_count = ?,
+                last_attempt_at = ?,
+                completed_at = NULL
+            WHERE id = ?
+            """,
+            (
+                _json_dumps(input_payload or {}),
+                idempotency_key,
+                1 if side_effect else int(step.get("side_effect") or 0),
+                attempt_count,
+                now,
+                step_id,
+            ),
+        )
+    else:
+        step_id = int(
+            execute_sync(
+                """
+                INSERT INTO agent_run_steps (
+                    agent_run_id, step_key, step_type, status, input_json,
+                    idempotency_key, side_effect, attempt_count,
+                    last_attempt_at, created_at
+                ) VALUES (?, ?, ?, 'running', ?, ?, ?, 1, ?, ?)
+                """,
+                (
+                    int(agent_run_id),
+                    step_key,
+                    step_type,
+                    _json_dumps(input_payload or {}),
+                    idempotency_key,
+                    1 if side_effect else 0,
+                    now,
+                    now,
+                ),
+            )
+            or 0
+        )
+
+    execute_sync("UPDATE agent_runs SET updated_at = ? WHERE id = ?", (now, int(agent_run_id)))
+    try:
+        output = fn()
+    except Exception as err:
+        execute_sync(
+            """
+            UPDATE agent_run_steps
+            SET status = 'failed',
+                error_message = ?,
+                completed_at = ?
+            WHERE id = ?
+            """,
+            (str(err), utcnow_iso(), step_id),
+        )
+        raise
+
+    execute_sync(
+        """
+        UPDATE agent_run_steps
+        SET status = 'done',
+            output_json = ?,
+            error_message = NULL,
+            completed_at = ?
+        WHERE id = ?
+        """,
+        (_json_dumps(output) if output is not None else None, utcnow_iso(), step_id),
+    )
+    return output
 
 
 def record_agent_route(agent_run_id: int, *, route: str, tool_name: str | None, reason: str) -> None:
@@ -323,12 +473,13 @@ def record_agent_run_approval(action_id: int, *, auth: AuthContext) -> dict[str,
     if not row or not row.get("agent_run_id"):
         return None
     agent_run_id = int(row["agent_run_id"])
-    record_agent_run_step(
+    run_agent_step_once(
         agent_run_id,
         step_key="approval_granted",
         step_type="approval",
+        fn=lambda: {"approved_by_user_id": auth.user_id},
         input_payload={"pending_action_id": int(action_id)},
-        output={"approved_by_user_id": auth.user_id},
+        idempotency_key=f"agent-run:{agent_run_id}:pending-action:{int(action_id)}:approval-granted",
     )
     return get_agent_run(agent_run_id)
 
@@ -352,12 +503,14 @@ def auto_resume_agent_run_for_pending_action(
         "trigger_status": trigger_status,
         "request_id": context.request_id,
     }
-    record_agent_run_step(
+    output = run_agent_step_once(
         agent_run_id,
         step_key="approval_terminal",
         step_type="resume",
-        status="done" if trigger_status == "executed" else trigger_status,
-        output=output,
+        fn=lambda: output,
+        input_payload={"pending_action_id": int(action_id), "trigger_status": trigger_status},
+        idempotency_key=f"agent-run:{agent_run_id}:pending-action:{int(action_id)}:terminal:{trigger_status}",
+        side_effect=True,
     )
     if trigger_status == "executed":
         complete_agent_run(agent_run_id, result=output)

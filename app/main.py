@@ -29,6 +29,7 @@ from app.access_management import (
     upsert_app_user,
 )
 from app.analytics import build_analytics_dashboard
+from app.approval_events import ApprovalEventsOutput, list_approval_events
 from app.agent_runs import (
     AgentRunDecisionInput,
     AgentRunDetail,
@@ -1598,6 +1599,14 @@ async def admin_list_pending_actions(
     _=Depends(require_operations_role),
 ):
     return list_pending_actions(status=status, limit=limit)
+
+
+@app.get("/api/admin/pending-actions/{action_id}/events", response_model=ApprovalEventsOutput)
+async def admin_list_pending_action_events(action_id: int, _=Depends(require_operations_role)):
+    try:
+        return list_approval_events(action_id)
+    except ValueError as err:
+        raise HTTPException(status_code=404, detail=str(err)) from err
 
 
 @app.get("/api/admin/background-jobs", response_model=ListBackgroundJobsOutput)

@@ -38,7 +38,9 @@ def test_openai_capabilities_report_responses_prompt_cache_and_usage(tmp_path, m
     assert cap.prompt_cache_key_configured is True
     assert cap.prompt_cache_retention == "24h"
     assert cap.structured_output_supported is True
-    assert cap.tool_result_continuation is False
+    assert cap.tool_result_continuation is True
+    assert cap.tool_result_continuation_enabled is False
+    assert cap.tool_result_continuation_ready is False
     assert cap.warnings == []
 
 

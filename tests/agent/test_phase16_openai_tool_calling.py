@@ -6,9 +6,10 @@ import httpx
 
 import app.agent as agent
 import app.llm_client as llm_client
+from app.database import fetch_one_sync
 from app.models import RequestContext
 from app.tools import build_default_tool_registry
-from tests.conftest import configure_test_env
+from tests.conftest import configure_test_env, run
 
 
 class _FakeResponse:
@@ -55,6 +56,12 @@ def test_registry_exports_openai_tool_schemas(tmp_path, monkeypatch):
     assert search_tool["type"] == "function"
     assert search_tool["function"]["parameters"]["type"] == "object"
     assert "query" in search_tool["function"]["parameters"]["properties"]
+
+    responses_tools = registry.list_openai_responses_tools()
+    responses_search = next(item for item in responses_tools if item["name"] == "search_kb")
+    assert responses_search["type"] == "function"
+    assert responses_search["parameters"]["type"] == "object"
+    assert "function" not in responses_search
 
 
 def test_complete_chat_passes_tools_tool_choice_and_response_format(tmp_path, monkeypatch):
@@ -189,3 +196,68 @@ def test_decide_route_maps_native_search_kb_tool_call_to_rag(tmp_path, monkeypat
     assert decision.tool_name == "search_kb"
     assert decision.arguments["query"] == "shipping policy"
     assert decision.arguments["kb_id"] == 1
+
+
+def test_agent_stream_runs_openai_responses_tool_result_continuation(tmp_path, monkeypatch):
+    configure_test_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(agent.settings, "llm_provider", "openai")
+    monkeypatch.setattr(agent.settings, "openai_api_key", "test-key")
+    monkeypatch.setattr(agent.settings, "openai_model", "gpt-4.1-mini")
+    monkeypatch.setattr(agent.settings, "openai_responses_tool_continuation_enabled", True)
+    calls: list[dict[str, Any]] = []
+
+    def fake_create_response(*, input_items, tools=None, previous_response_id=None, **kwargs):
+        calls.append({"input": input_items, "tools": tools, "previous_response_id": previous_response_id})
+        return llm_client.LLMResponseResult(
+            response_id="resp_1",
+            model="gpt-4.1-mini",
+            tool_calls=[
+                llm_client.LLMResponseToolCall(
+                    id="fc_1",
+                    call_id="call_1",
+                    name="list_kbs",
+                    arguments={},
+                    raw_arguments="{}",
+                )
+            ],
+            usage={"input_tokens": 10, "output_tokens": 1, "total_tokens": 11, "cached_tokens": 3},
+        )
+
+    def fake_continue_response(*, previous_response_id, tool_outputs, **kwargs):
+        calls.append({"previous_response_id": previous_response_id, "tool_outputs": tool_outputs})
+        assert previous_response_id == "resp_1"
+        assert tool_outputs[0]["call_id"] == "call_1"
+        assert '"ok": true' in tool_outputs[0]["output"]
+        return llm_client.LLMResponseResult(
+            response_id="resp_2",
+            model="gpt-4.1-mini",
+            text="There is one active KB: default.",
+            usage={"input_tokens": 12, "output_tokens": 7, "total_tokens": 19, "cached_tokens": 0},
+        )
+
+    monkeypatch.setattr(agent, "openai_create_response", fake_create_response)
+    monkeypatch.setattr(agent, "openai_continue_response_with_tool_outputs", fake_continue_response)
+
+    context = RequestContext(
+        request_id="responses-tool-loop",
+        session_id="responses-tool-session",
+        auth={"user_id": "admin-1", "roles": ["admin"], "channel": "admin"},
+    )
+    events = run(_collect_agent_events(agent.agent_stream("List KBs", session_id="responses-tool-session", request_context=context)))
+
+    assert [event["event"] for event in events if event["event"] == "tool_call"]
+    assert any(event["event"] == "tool_result" and event["data"]["ok"] is True for event in events)
+    assert any(event["event"] == "token" and "one active KB" in event["data"]["text"] for event in events)
+    assert calls[0]["tools"][0]["type"] == "function"
+    assert calls[0]["tools"][0]["name"] == "add_ticket_internal_note"
+    chat = fetch_one_sync("SELECT llm_input_tokens, llm_output_tokens, llm_total_tokens, llm_cached_tokens FROM chat_logs WHERE request_id = ?", ("responses-tool-loop",))
+    assert chat == {
+        "llm_input_tokens": 22,
+        "llm_output_tokens": 8,
+        "llm_total_tokens": 30,
+        "llm_cached_tokens": 3,
+    }
+
+
+async def _collect_agent_events(stream):
+    return [event async for event in stream]

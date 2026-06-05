@@ -61,6 +61,14 @@ class ToolDefinitionSummary(BaseModel):
             },
         }
 
+    def to_openai_responses_tool(self) -> dict[str, Any]:
+        return {
+            "type": "function",
+            "name": self.name,
+            "description": self.description,
+            "parameters": self.input_schema,
+        }
+
 
 @dataclass(slots=True)
 class ToolSpec:
@@ -113,6 +121,9 @@ class ToolRegistry:
 
     def list_openai_tools(self) -> list[dict[str, Any]]:
         return [item.to_openai_tool() for item in self.list_definitions()]
+
+    def list_openai_responses_tools(self) -> list[dict[str, Any]]:
+        return [item.to_openai_responses_tool() for item in self.list_definitions()]
 
     async def execute(
         self,

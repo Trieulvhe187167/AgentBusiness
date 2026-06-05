@@ -219,7 +219,7 @@ Implemented baseline:
 
 Tasks:
 
-- Add retry/resume behavior for background workflows.
+- Add retry/resume behavior for background workflows. Agent run steps now carry idempotency metadata so completed side-effect steps return stored outputs on retry/resume.
 - Add human approval UI events to the existing admin/internal surfaces.
 - Evaluate whether LangGraph or OpenAI Agents SDK adds enough value after the internal workflow model is clean.
 
