@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import re
 import uuid
 from io import StringIO
@@ -40,6 +41,108 @@ from app.models import (
     RequestContext,
 )
 from app.observability import trace_span
+
+
+def _safe_vector_store_snapshot() -> dict[str, Any]:
+    try:
+        from app.vector_store import vector_store
+
+        stats = vector_store.get_stats()
+        return {
+            "active_backend": vector_store.backend_name,
+            "retrieval_mode": vector_store.retrieval_mode,
+            "stats": stats,
+        }
+    except Exception as err:
+        return {
+            "active_backend": "unknown",
+            "retrieval_mode": "unknown",
+            "stats_error": f"{err.__class__.__name__}: {str(err)[:160]}",
+        }
+
+
+def _rag_eval_config_snapshot() -> dict[str, Any]:
+    """Capture the RAG knobs that make a golden eval run reproducible."""
+    from app.config import settings
+    from app.runtime_controls import budget_snapshot
+
+    return {
+        "snapshot_version": "phase0_baseline_v1",
+        "embedding": {
+            "provider": settings.normalized_embedding_provider,
+            "model": settings.embedding_model,
+            "model_path": settings.embedding_model_path,
+            "effective_model_id": settings.effective_embedding_model_id,
+            "fingerprint": settings.effective_embedding_fingerprint,
+            "batch_size": settings.embedding_batch_size,
+            "dimension": settings.effective_embedding_dimension,
+            "base_url_configured": bool(settings.embedding_base_url.strip()),
+            "trust_remote_code": settings.embedding_trust_remote_code,
+            "query_prefix": settings.embedding_query_prefix,
+            "passage_prefix": settings.embedding_passage_prefix,
+            "query_instruction": settings.embedding_query_instruction,
+            "document_instruction": settings.embedding_document_instruction,
+        },
+        "chunking": {
+            "chunk_size": settings.chunk_size,
+            "chunk_overlap": settings.chunk_overlap,
+        },
+        "vector_store": {
+            "configured_backend": settings.normalized_vector_backend,
+            "chroma_collection_name": settings.chroma_collection_name,
+            "qdrant_collection_name": settings.qdrant_collection_name,
+            "qdrant_hybrid_enabled": settings.qdrant_hybrid_enabled,
+            "qdrant_sparse_model": settings.qdrant_sparse_model,
+            "qdrant_hybrid_prefetch_k": settings.qdrant_hybrid_prefetch_k,
+            **_safe_vector_store_snapshot(),
+        },
+        "retrieval": {
+            "top_k": settings.top_k,
+            "threshold_good": settings.threshold_good,
+            "threshold_low": settings.threshold_low,
+            "min_similarity_threshold": settings.min_similarity_threshold,
+            "source_diversification_enabled": settings.retrieval_source_diversification_enabled,
+            "source_max_chunks_per_source": settings.effective_retrieval_source_max_chunks_per_source,
+            "corrective_rag_enabled": settings.corrective_rag_enabled,
+            "corrective_rag_max_attempts": settings.effective_corrective_rag_max_attempts,
+            "corrective_rag_min_score": settings.effective_corrective_rag_min_score,
+            "corrective_rag_min_results": settings.effective_corrective_rag_min_results,
+            "corrective_rag_rewrite_timeout_seconds": settings.effective_corrective_rag_rewrite_timeout_seconds,
+            "corrective_rag_rewrite_max_tokens": settings.effective_corrective_rag_rewrite_max_tokens,
+            "qdrant_hybrid_threshold_good": settings.qdrant_hybrid_threshold_good,
+            "qdrant_hybrid_threshold_low": settings.qdrant_hybrid_threshold_low,
+            "qdrant_hybrid_min_similarity_threshold": settings.qdrant_hybrid_min_similarity_threshold,
+            "hashing_threshold_good": settings.hashing_threshold_good,
+            "hashing_threshold_low": settings.hashing_threshold_low,
+            "hashing_min_similarity_threshold": settings.hashing_min_similarity_threshold,
+            "reranker_provider": settings.normalized_reranker_provider,
+            "reranker_model": settings.reranker_model,
+            "reranker_top_n": settings.effective_reranker_top_n,
+            "reranker_batch_size": settings.effective_reranker_batch_size,
+            "reranker_timeout_seconds": settings.effective_reranker_timeout_seconds,
+            "reranker_min_score": settings.reranker_min_score,
+            "reranker_weight": settings.effective_reranker_weight,
+            "bm25_reranker_weight": settings.effective_bm25_reranker_weight,
+        },
+        "answer": {
+            "answer_mode": settings.normalized_answer_mode,
+            "max_answer_chunks": settings.max_answer_chunks,
+            "effective_max_answer_chunks": budget_snapshot()["max_answer_chunks"],
+            "max_citations": settings.max_citations,
+            "max_extractive_chunks": settings.max_extractive_chunks,
+        },
+        "runtime_budget": budget_snapshot(),
+        "llm": {
+            "provider": settings.normalized_llm_provider,
+            "model": settings.effective_chat_model,
+        },
+        "cache": {
+            "semantic_retrieval_cache_enabled": settings.semantic_retrieval_cache_enabled,
+            "response_cache_enabled": settings.response_cache_enabled,
+            "semantic_response_cache_enabled": settings.semantic_response_cache_enabled,
+            "semantic_cache_threshold": settings.semantic_cache_threshold,
+        },
+    }
 
 
 def _parse_json(raw: str | None, fallback: Any) -> Any:
@@ -554,6 +657,21 @@ def _retrieval_preview(items: list[dict[str, Any]], limit: int = 10) -> list[dic
     ]
 
 
+def _percentile(values: list[float], percentile: float) -> float | None:
+    clean = sorted(float(value) for value in values if value is not None)
+    if not clean:
+        return None
+    if len(clean) == 1:
+        return round(clean[0], 2)
+    rank = (len(clean) - 1) * max(0.0, min(percentile, 1.0))
+    lower = math.floor(rank)
+    upper = math.ceil(rank)
+    if lower == upper:
+        return round(clean[int(rank)], 2)
+    weight = rank - lower
+    return round(clean[lower] * (1.0 - weight) + clean[upper] * weight, 2)
+
+
 def _collect_rag_answer(question: str, *, kb_id: int, auth: AuthContext) -> dict[str, Any]:
     from app.rag import rag_stream, retrieve
 
@@ -781,6 +899,7 @@ def _score_golden_item(
         "category_match": category_match,
         "matched_source_rank": matched_source_rank,
         "retrieved_preview": _retrieval_preview(rag_result["retrieved"]),
+        "retrieved_count": len(rag_result["retrieved"]),
         **judge_result,
     }
 
@@ -816,6 +935,16 @@ def _golden_run_metrics(scored_rows: list[dict[str, Any]], avg_score: float | No
     }
     for name in _GOLDEN_METRICS:
         metrics[name] = _avg_metric(scored_rows, name)
+    latency_values = [float(row["latency_ms"]) for row in scored_rows if row.get("latency_ms") is not None]
+    metrics["latency_p50_ms"] = _percentile(latency_values, 0.50)
+    metrics["latency_p95_ms"] = _percentile(latency_values, 0.95)
+    metrics["latency_avg_ms"] = round(sum(latency_values) / len(latency_values), 2) if latency_values else None
+    retrieved_counts = [
+        float(row["retrieved_count"])
+        for row in scored_rows
+        if row.get("retrieved_count") is not None
+    ]
+    metrics["retrieved_count_avg"] = round(sum(retrieved_counts) / len(retrieved_counts), 2) if retrieved_counts else None
     for name in _JUDGE_METRIC_NAMES:
         values = [
             float((row.get("judge_metrics") or {}).get(name))
@@ -1018,6 +1147,10 @@ def _create_golden_eval_run(payload: CreateAgentEvalRunInput, *, auth: AuthConte
             "source_match",
             "chunk_match",
             "category_match",
+            "latency_p50_ms",
+            "latency_p95_ms",
+            "latency_avg_ms",
+            "retrieved_count_avg",
             "judge_score",
             "judge_correctness",
             "judge_groundedness",
@@ -1025,6 +1158,7 @@ def _create_golden_eval_run(payload: CreateAgentEvalRunInput, *, auth: AuthConte
             "judge_citation_support",
             "judge_hallucination_risk",
         ],
+        "rag_config_snapshot": _rag_eval_config_snapshot(),
     }
     run_name = payload.name or "Golden dataset regression eval"
     run_id = int(
@@ -1191,6 +1325,7 @@ def create_agent_eval_run(payload: CreateAgentEvalRunInput, *, auth: AuthContext
             "min_pass_score": payload.min_pass_score,
             "min_warn_score": payload.min_warn_score,
             "scorer": "rule_based_v1",
+            "rag_config_snapshot": _rag_eval_config_snapshot(),
         }
         run_name = payload.name or f"Chat quality eval - last {payload.days} day(s)"
         run_id = int(

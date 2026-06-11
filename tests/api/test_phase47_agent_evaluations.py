@@ -175,6 +175,16 @@ def test_admin_can_manage_golden_dataset_and_run_regression_eval(tmp_path, monke
     assert payload["source"] == "golden_dataset"
     assert payload["sample_size"] == 1
     assert payload["pass_count"] == 1
+    snapshot = payload["config"]["rag_config_snapshot"]
+    assert snapshot["snapshot_version"] == "phase0_baseline_v1"
+    assert snapshot["embedding"]["effective_model_id"] == "models/missing-model"
+    assert snapshot["vector_store"]["configured_backend"] == "numpy"
+    assert snapshot["retrieval"]["top_k"] == 10
+    assert snapshot["retrieval"]["reranker_provider"] == "bm25_lite"
+    assert payload["metrics"]["latency_p50_ms"] == 12.0
+    assert payload["metrics"]["latency_p95_ms"] == 12.0
+    assert payload["metrics"]["latency_avg_ms"] == 12.0
+    assert payload["metrics"]["retrieved_count_avg"] == 1.0
     result = payload["results"][0]
     assert result["golden_item_id"] == created_item.json()["id"]
     assert result["answer_similarity"] > 0

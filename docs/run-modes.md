@@ -7,6 +7,8 @@
 | MVP / easiest local | `requirements-core.txt` | `RAG_VECTOR_BACKEND=numpy`, `RAG_LLM_PROVIDER=none` | First run, demos, local-only validation |
 | Local RAG with Chroma | `requirements-rag.txt` | `RAG_VECTOR_BACKEND=chroma` | Larger KBs, closer-to-prod local retrieval |
 | Advanced agent mode | `requirements-rag.txt` plus model server | `RAG_LLM_PROVIDER=openai_compatible` | Tool routing, runtime contract, audit logs |
+| Local CPU RAG upgrade | `requirements-rag.txt` | `RAG_DEPLOYMENT_PROFILE=local_cpu` | Embedding/reranker experiments on constrained machines |
+| Local GPU or service RAG | `requirements-rag.txt` plus model/embedding services | `RAG_DEPLOYMENT_PROFILE=local_gpu` or `service` | Qwen/BGE embedding and neural reranker with latency budgets |
 | Website gateway auth | same as your app mode | `RAG_AUTH_MODE=gateway` | Integrating the agent behind a website backend or reverse proxy |
 
 ## MVP / easiest local
@@ -63,6 +65,57 @@ RAG_AGENT_NATIVE_TOOL_CALLING=false
 ```
 
 Native tool rollout remains opt-in.
+
+## Deployment Budget Profiles
+
+Use these when enabling heavier embedding or reranker models. `custom` keeps
+explicit env settings unchanged. Named profiles clamp expensive steps so the
+agent remains usable under load.
+
+Local CPU:
+
+```dotenv
+RAG_DEPLOYMENT_PROFILE=local_cpu
+RAG_RERANKER_PROVIDER=bm25_lite
+RAG_RUNTIME_MAX_RERANK_CANDIDATES=20
+RAG_RUNTIME_MAX_ANSWER_CHUNKS=3
+RAG_RUNTIME_RETRIEVAL_LATENCY_BUDGET_MS=2500
+```
+
+Local GPU:
+
+```dotenv
+RAG_DEPLOYMENT_PROFILE=local_gpu
+RAG_RERANKER_PROVIDER=cross_encoder
+RAG_RERANKER_MODEL=Qwen/Qwen3-Reranker-0.6B
+RAG_RUNTIME_MAX_RERANK_CANDIDATES=80
+RAG_RUNTIME_MAX_ANSWER_CHUNKS=5
+```
+
+Service mode:
+
+```dotenv
+RAG_DEPLOYMENT_PROFILE=service
+RAG_EMBEDDING_PROVIDER=tei
+RAG_EMBEDDING_BASE_URL=http://127.0.0.1:8081
+RAG_LLM_PROVIDER=openai_compatible
+RAG_LLM_BASE_URL=http://127.0.0.1:8000/v1
+RAG_RUNTIME_MAX_RERANK_CANDIDATES=120
+RAG_RUNTIME_LLM_LATENCY_BUDGET_MS=15000
+```
+
+Overload controls:
+
+```dotenv
+RAG_RUNTIME_DISABLE_RERANKER=false
+RAG_RUNTIME_DISABLE_NEURAL_RERANKER=false
+RAG_RUNTIME_DISABLE_CORRECTIVE_RAG=false
+```
+
+For one request, `/api/chat` also accepts `disable_reranker` and
+`disable_corrective_rag`. Chat SSE `start` and `done` events include
+`runtime_budget` and `latency_breakdown` with embedding, vector query, reranker,
+LLM, and retrieval cache metadata.
 
 ## Website gateway auth
 

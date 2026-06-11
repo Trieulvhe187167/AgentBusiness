@@ -128,12 +128,12 @@ def _semantic_store(
 
 # ── Layer 1: Query Embeddings ──────────────────────────────
 def get_cached_embedding(query: str) -> list[float] | None:
-    key = _make_key("emb", query, settings.effective_embedding_model_id)
+    key = _make_key("emb", query, settings.effective_embedding_fingerprint)
     return get_cache().get(key)
 
 
 def set_cached_embedding(query: str, embedding: list[float]):
-    key = _make_key("emb", query, settings.effective_embedding_model_id)
+    key = _make_key("emb", query, settings.effective_embedding_fingerprint)
     get_cache().set(key, embedding, expire=settings.cache_ttl_seconds)
 
 

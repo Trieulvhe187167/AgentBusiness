@@ -498,6 +498,10 @@ async def chat(
         kb_id=req.kb_id,
         kb_key=req.kb_key,
         auth=auth,
+        runtime_controls={
+            "disable_reranker": req.disable_reranker,
+            "disable_corrective_rag": req.disable_corrective_rag,
+        },
     )
     AppStatus.should_exit = False
     AppStatus.should_exit_event = None
@@ -1828,8 +1832,9 @@ async def system_info(
 ):
     from app.cache import get_stats as get_cache_stats
     from app.llm_client import active_provider_name
-    from app.embeddings import using_hashing_fallback, is_embeddings_ready
+    from app.embeddings import embedding_backend_name, is_embeddings_ready, using_hashing_fallback
     from app.provider_capabilities import provider_capabilities_dict
+    from app.runtime_controls import budget_snapshot
     from app.vector_store import vector_store
 
     stats = await _build_stats_response(kb_id=kb_id, kb_key=kb_key)
@@ -1870,9 +1875,12 @@ async def system_info(
         },
         "observability": tracing_status(),
         "llm_capabilities": provider_capabilities_dict(active_provider=active_provider),
+        "embedding_provider": settings.normalized_embedding_provider,
         "embedding_model": settings.embedding_model,
         "embedding_source": settings.effective_embedding_source,
-        "embedding_backend": "hashing" if hashing else "sentence-transformers",
+        "embedding_model_fingerprint": settings.effective_embedding_fingerprint,
+        "embedding_dimension": vs.get("dimension") or settings.effective_embedding_dimension,
+        "embedding_backend": embedding_backend_name(),
         "vector_backend": vs.get("backend"),
         "vector_backend_config": settings.normalized_vector_backend,
         "vector_backend_active": vs.get("backend"),
@@ -1885,6 +1893,15 @@ async def system_info(
         "threshold_good": settings.threshold_good,
         "threshold_low": settings.threshold_low,
         "min_similarity_threshold": settings.min_similarity_threshold,
+        "corrective_rag": {
+            "enabled": settings.corrective_rag_enabled,
+            "max_attempts": settings.effective_corrective_rag_max_attempts,
+            "min_score": settings.effective_corrective_rag_min_score,
+            "min_results": settings.effective_corrective_rag_min_results,
+            "rewrite_timeout_seconds": settings.effective_corrective_rag_rewrite_timeout_seconds,
+            "rewrite_max_tokens": settings.effective_corrective_rag_rewrite_max_tokens,
+        },
+        "runtime_budget": budget_snapshot(),
         "effective_threshold_good": effective_threshold_good,
         "effective_threshold_low": effective_threshold_low,
         "effective_min_similarity_threshold": effective_min_similarity,
@@ -1981,6 +1998,24 @@ async def debug_retrieval(
                 "rank": idx + 1,
                 "similarity": round(float(item.get("similarity", 0.0)), 4),
                 "bm25_score": round(float(item.get("bm25_score", 0.0)), 4),
+                "retrieval_score": round(float(item.get("retrieval_score", item.get("similarity", 0.0))), 4),
+                "reranker_score": (
+                    round(float(item["reranker_score"]), 4)
+                    if item.get("reranker_score") is not None
+                    else None
+                ),
+                "reranker_provider": item.get("reranker_provider"),
+                "final_score": round(float(item.get("final_score", item.get("similarity", 0.0))), 4),
+                "retrieval_mode": item.get("retrieval_mode"),
+                "qdrant_score": (
+                    round(float(item["qdrant_score"]), 4)
+                    if item.get("qdrant_score") is not None
+                    else None
+                ),
+                "qdrant_query_mode": item.get("qdrant_query_mode"),
+                "qdrant_fusion": item.get("qdrant_fusion"),
+                "qdrant_prefetch_k": item.get("qdrant_prefetch_k"),
+                "source_diversified": bool(item.get("source_diversified")),
                 "lang": item.get("lang", ""),
                 "category": item.get("category", ""),
                 "filename": item.get("filename", ""),

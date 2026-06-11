@@ -34,3 +34,4 @@ opentelemetry-exporter-otlp-proto-http>=1.28.0
 # Embeddings
 # Install torch separately if your environment does not already provide it.
 sentence-transformers==3.3.1
+transformers>=4.51.0,<5

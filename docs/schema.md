@@ -110,7 +110,7 @@ Golden runs reuse `agent_eval_runs` with `source='golden_dataset'`. `agent_eval_
 
 When optional LLM-as-judge is enabled, `agent_eval_results` also stores `judge_provider`, `judge_model`, `judge_score`, `judge_verdict`, `judge_metrics_json`, `judge_reason`, `judge_latency_ms`, and `judge_error`. Judge metrics cover correctness, groundedness, completeness, citation support, and hallucination risk.
 
-Each golden run stores aggregate metrics, an optional baseline run ID, comparison deltas, and `gate_status`. By default, the previous matching golden run is used as baseline. A metric regression beyond `max_metric_drop` marks the gate as failed.
+Each golden run stores aggregate metrics, an optional baseline run ID, comparison deltas, and `gate_status`. By default, the previous matching golden run is used as baseline. A metric regression beyond `max_metric_drop` marks the gate as failed. Golden run `config_json` also stores a `rag_config_snapshot` with embedding model, chunking settings, vector backend, Qdrant hybrid settings, top-k/thresholds, reranker settings, corrective RAG settings, runtime budget/deployment profile, answer settings, LLM provider, and cache flags so retrieval/model benchmarks can be reproduced. Aggregate metrics include latency p50/p95/average and average retrieved candidate count.
 
 ## Agent run idempotency
 

@@ -5,6 +5,7 @@ query expansion, BM25 reranking, numeric guardrail, and conversational memory.
 
 from __future__ import annotations
 
+import contextvars
 import json
 import hashlib
 import logging
@@ -35,6 +36,7 @@ from app.knowledge_gaps import record_knowledge_gap
 from app.lang import detect_language
 from app.llm_client import (
     active_provider_name,
+    complete_chat,
     generate_stream,
     get_last_generation_usage,
     is_llm_ready,
@@ -43,10 +45,24 @@ from app.llm_client import (
 from app.models import Citation, RequestContext
 from app.observability import retrieval_trace_attrs, trace_span
 from app.query_expander import expand_query
-from app.reranker import rerank
+from app.reranker import rerank, rerank_candidate_limit
+from app.runtime_controls import (
+    LatencyTracker,
+    budget_snapshot,
+    corrective_disabled_for_request,
+    effective_llm_latency_budget_ms,
+    effective_max_answer_chunks,
+    effective_max_rerank_candidates,
+    effective_retrieval_latency_budget_ms,
+    reranker_disabled_for_request,
+)
 from app.vector_store import vector_store
 
 logger = logging.getLogger(__name__)
+_latency_tracker_var: contextvars.ContextVar[LatencyTracker | None] = contextvars.ContextVar(
+    "rag_latency_tracker",
+    default=None,
+)
 
 SYSTEM_PROMPT = """
 You are a customer support assistant.
@@ -165,6 +181,26 @@ FALLBACK_TEXT = {
     ),
 }
 
+CORRECTIVE_REWRITE_SYSTEM_PROMPT = """
+You rewrite weak retrieval queries for an internal business knowledge base.
+Return one compact JSON object only. Do not answer the user.
+The JSON object must be {"query":"..."}.
+Keep the query in the user's language unless translation is necessary for retrieval.
+Preserve product codes, order IDs, dates, numbers, names, and policy terms exactly.
+""".strip()
+
+CORRECTIVE_REWRITE_TEMPLATE = """The first retrieval attempt was weak.
+
+Reason: {reason}
+User language: {lang}
+Original user question:
+{query}
+
+Top retrieved snippets, if any:
+{snippets}
+
+Rewrite the search query to retrieve better internal KB passages."""
+
 # Regex to detect numbers in text (for guardrail)
 _NUMBER_RE = re.compile(r"\b\d[\d,\.\s]*\d|\b\d\b")
 
@@ -275,6 +311,48 @@ def _deduplicate(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return unique
 
 
+def _diversification_key(item: dict[str, Any]) -> str:
+    return str(item.get("source_id") or item.get("file_id") or item.get("filename") or item.get("chunk_id") or "")
+
+
+def _source_diversified(results: list[dict[str, Any]], limit: int) -> tuple[list[dict[str, Any]], bool]:
+    if (
+        not settings.retrieval_source_diversification_enabled
+        or settings.effective_retrieval_source_max_chunks_per_source <= 0
+        or limit <= 0
+    ):
+        return results[:limit], False
+
+    max_per_source = settings.effective_retrieval_source_max_chunks_per_source
+    counts: dict[str, int] = {}
+    selected: list[dict[str, Any]] = []
+    deferred: list[dict[str, Any]] = []
+    diversified = False
+    for item in results:
+        key = _diversification_key(item)
+        current = counts.get(key, 0)
+        if key and current >= max_per_source:
+            deferred.append(item)
+            diversified = True
+            continue
+        selected.append(item)
+        if key:
+            counts[key] = current + 1
+        if len(selected) >= limit:
+            break
+
+    if len(selected) < limit:
+        for item in deferred:
+            selected.append(item)
+            if len(selected) >= limit:
+                break
+
+    if diversified:
+        for item in selected:
+            item["source_diversified"] = True
+    return selected[:limit], diversified
+
+
 def _source_label(item: dict[str, Any]) -> str:
     source = item.get("filename", "document")
     if item.get("page_num"):
@@ -357,11 +435,15 @@ def _stream_llm_with_extract_fallback(
 ) -> tuple[str, bool, dict[str, int]]:
     generated_parts: list[str] = []
     reset_last_generation_usage()
+    tracker = _latency_tracker_var.get()
+    llm_started = time.perf_counter()
     try:
         for token in generate_stream(full_prompt, system_prompt=SYSTEM_PROMPT):
             generated_parts.append(token)
             yield {"event": "token", "data": {"text": token}}
     except Exception as err:
+        if tracker is not None:
+            tracker.add("llm_ms", llm_started)
         logger.warning("LLM generation failed, falling back to extractive answer: %s", err)
         extractive = _extractive_answer(results, lang)
         if generated_parts:
@@ -370,6 +452,12 @@ def _stream_llm_with_extract_fallback(
             return "".join(generated_parts).strip() + fallback_text, False, get_last_generation_usage()
         yield {"event": "token", "data": {"text": extractive}}
         return extractive, False, get_last_generation_usage()
+
+    if tracker is not None:
+        tracker.add("llm_ms", llm_started)
+        llm_budget_ms = effective_llm_latency_budget_ms()
+        if llm_budget_ms and tracker.llm_ms > llm_budget_ms:
+            tracker.event("llm_budget_exceeded", budget_ms=llm_budget_ms, actual_ms=tracker.llm_ms)
 
     answer_text = "".join(generated_parts).strip()
     llm_usage = get_last_generation_usage()
@@ -427,9 +515,162 @@ def _clarify_question(results: list[dict[str, Any]], lang: str) -> str:
 
 def _context_for_llm(results: list[dict[str, Any]]) -> str:
     blocks = []
-    for idx, item in enumerate(results[: settings.max_answer_chunks], start=1):
+    for idx, item in enumerate(results[: effective_max_answer_chunks()], start=1):
         blocks.append(f"[{idx}] Source: {_source_label(item)}\n{item.get('text', '')}")
     return "\n\n".join(blocks)
+
+
+def _effective_corrective_threshold() -> float:
+    threshold = settings.effective_corrective_rag_min_score
+    if vector_store.backend_name == "qdrant" and settings.qdrant_hybrid_enabled and settings.corrective_rag_min_score <= 0:
+        threshold = settings.qdrant_hybrid_threshold_low
+    if using_hashing_fallback() and settings.corrective_rag_min_score <= 0:
+        threshold = min(threshold, settings.hashing_threshold_low)
+    return float(threshold)
+
+
+def _corrective_trigger_reason(results: list[dict[str, Any]], top_score: float) -> str | None:
+    if not settings.corrective_rag_enabled or settings.effective_corrective_rag_max_attempts <= 0:
+        return None
+    if not results:
+        return "no_results"
+    if len(results) < settings.effective_corrective_rag_min_results:
+        return "too_few_results"
+    if top_score < _effective_corrective_threshold():
+        return "low_top_score"
+    return None
+
+
+def _rewrite_snippet_preview(results: list[dict[str, Any]], limit: int = 3) -> str:
+    if not results:
+        return "-"
+    lines = []
+    for idx, item in enumerate(results[:limit], start=1):
+        source = _source_label(item)
+        text = re.sub(r"\s+", " ", str(item.get("text") or item.get("content_preview") or "")).strip()
+        lines.append(f"{idx}. {source}: {text[:500]}")
+    return "\n".join(lines)
+
+
+def _extract_rewritten_query(raw: str) -> str:
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+        if not match:
+            return text[:300].strip().strip('"')
+        payload = json.loads(match.group(0))
+    if not isinstance(payload, dict):
+        return ""
+    return str(payload.get("query") or "").strip()
+
+
+def _rewrite_query_for_correction(
+    query: str,
+    *,
+    results: list[dict[str, Any]],
+    lang: str,
+    reason: str,
+) -> tuple[str | None, str | None]:
+    if not is_llm_ready():
+        return None, "llm_unavailable"
+    prompt = CORRECTIVE_REWRITE_TEMPLATE.format(
+        reason=reason,
+        lang=lang,
+        query=query,
+        snippets=_rewrite_snippet_preview(results),
+    )
+    try:
+        response = complete_chat(
+            prompt,
+            system_prompt=CORRECTIVE_REWRITE_SYSTEM_PROMPT,
+            timeout_seconds=settings.effective_corrective_rag_rewrite_timeout_seconds,
+            max_tokens=settings.effective_corrective_rag_rewrite_max_tokens,
+            response_format={"type": "json_object"},
+        )
+        rewritten = _normalize_query(_extract_rewritten_query(response.text))
+    except Exception as err:
+        logger.warning("Corrective RAG query rewrite failed: %s", err)
+        return None, f"rewrite_error:{err.__class__.__name__}"
+
+    if not rewritten:
+        return None, "empty_rewrite"
+    if rewritten.lower() == _normalize_query(query).lower():
+        return None, "unchanged_rewrite"
+    return rewritten, None
+
+
+def _maybe_corrective_retrieve(
+    *,
+    query: str,
+    results: list[dict[str, Any]],
+    top_score: float,
+    lang: str,
+    kb_id: int,
+    auth_context: dict[str, Any] | None,
+    runtime_context: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    metadata: dict[str, Any] = {
+        "enabled": bool(settings.corrective_rag_enabled) and not corrective_disabled_for_request(runtime_context),
+        "attempt_count": 1,
+        "query_rewritten": False,
+        "correction_reason": None,
+        "rewrite_error": None,
+        "rewritten_query": None,
+    }
+    if corrective_disabled_for_request(runtime_context):
+        return results, metadata
+    reason = _corrective_trigger_reason(results, top_score)
+    if reason is None:
+        return results, metadata
+
+    metadata["correction_reason"] = reason
+    rewritten_query, rewrite_error = _rewrite_query_for_correction(
+        query,
+        results=results,
+        lang=lang,
+        reason=reason,
+    )
+    if rewrite_error:
+        metadata["rewrite_error"] = rewrite_error
+        return results, metadata
+    if not rewritten_query:
+        return results, metadata
+
+    retried = retrieve(
+        rewritten_query,
+        kb_id=kb_id,
+        auth_context=auth_context,
+        runtime_context=runtime_context,
+    )
+    retried = _apply_lang_boost(retried, lang)
+    retried_top_score = float(retried[0].get("similarity", 0.0)) if retried else 0.0
+    if retried and (not results or retried_top_score >= top_score):
+        metadata.update(
+            {
+                "attempt_count": 2,
+                "query_rewritten": True,
+                "rewritten_query": rewritten_query,
+                "previous_top_score": round(float(top_score), 4),
+                "corrected_top_score": round(float(retried_top_score), 4),
+            }
+        )
+        return retried, metadata
+
+    metadata.update(
+        {
+            "attempt_count": 2,
+            "query_rewritten": False,
+            "rewritten_query": rewritten_query,
+            "rewrite_error": "retried_results_not_better",
+            "previous_top_score": round(float(top_score), 4),
+            "corrected_top_score": round(float(retried_top_score), 4),
+        }
+    )
+    return results, metadata
 
 
 # ── Conversational memory (rule-based) ───────────────────────────────────────
@@ -621,7 +862,7 @@ def _build_retrieval_scope(
             f"k:{top_k}",
             f"backend:{vector_store.backend_name}",
             f"retrieval_mode:{vector_store.retrieval_mode}",
-            f"embedding:{settings.effective_embedding_model_id}",
+            f"embedding:{settings.effective_embedding_fingerprint}",
             f"auth:{auth_scope}",
             f"where:{'|'.join(where_parts)}",
         ]
@@ -648,11 +889,14 @@ def _build_response_cache_scope(
             f"answer_mode:{settings.normalized_answer_mode}",
             f"provider:{llm_provider}",
             f"model:{settings.effective_chat_model or ''}",
-            f"embedding:{settings.effective_embedding_model_id}",
+            f"embedding:{settings.effective_embedding_fingerprint}",
             f"backend:{vector_store.backend_name}",
             f"retrieval_mode:{vector_store.retrieval_mode}",
             f"top_k:{settings.top_k}",
-            f"max_answer_chunks:{settings.max_answer_chunks}",
+            f"max_answer_chunks:{effective_max_answer_chunks()}",
+            f"corrective:{bool(settings.corrective_rag_enabled)}",
+            f"corrective_min_score:{settings.effective_corrective_rag_min_score}",
+            f"corrective_min_results:{settings.effective_corrective_rag_min_results}",
             f"system:{_hash_text(SYSTEM_PROMPT)}",
         ]
     )
@@ -697,11 +941,18 @@ def _set_response_cache(query: str, scope: str, payload: dict[str, Any]):
 def _retrieve_single(query: str, top_k: int, where: dict[str, Any], cache_scope: str) -> list[dict[str, Any]]:
     """Retrieve for a single query string (with embedding cache)."""
     normalized = _normalize_query(query)
+    tracker = _latency_tracker_var.get()
+    embed_started = time.perf_counter()
     query_embedding = _embedding_for_query(normalized)
+    if tracker is not None:
+        tracker.add("embedding_ms", embed_started)
 
     cached_results = get_cached_retrieval(normalized, cache_scope)
     if cached_results is not None:
         logger.debug("Retrieval cache hit: type=exact scope=%s query=%s", cache_scope, normalized)
+        if tracker is not None:
+            tracker.cache_hit = True
+            tracker.event("retrieval_cache_hit", cache_type="exact")
         return cached_results
 
     if settings.semantic_retrieval_cache_enabled and _semantic_cache_available():
@@ -712,9 +963,15 @@ def _retrieve_single(query: str, top_k: int, where: dict[str, Any], cache_scope:
                 float(semantic_hit.get("score") or 0.0),
                 semantic_hit.get("query"),
             )
+            if tracker is not None:
+                tracker.cache_hit = True
+                tracker.event("retrieval_cache_hit", cache_type="semantic", score=semantic_hit.get("score"))
             return semantic_hit["results"]
 
+    vector_started = time.perf_counter()
     raw = vector_store.query(query_embedding, top_k=top_k, where=where, query_text=normalized)
+    if tracker is not None:
+        tracker.add("vector_query_ms", vector_started)
     results = raw or []
     set_cached_retrieval(normalized, cache_scope, results)
     if settings.semantic_retrieval_cache_enabled and _semantic_cache_available():
@@ -729,58 +986,106 @@ def retrieve(
     kb_id: int | None = None,
     kb_key: str | None = None,
     auth_context: dict[str, Any] | None = None,
+    runtime_context: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Multi-query retrieval: query original + expanded variants.
     Results are merged, deduplicated, filtered by min_similarity, and reranked.
     """
     k = top_k or settings.top_k
-    with trace_span(
-        "rag.retrieve",
-        retrieval_trace_attrs(query=query, top_k=k, kb_id=kb_id, kb_key=kb_key),
-    ) as span:
-        kb_scope = _resolve_kb_scope(kb_id=kb_id, kb_key=kb_key, auth_context=auth_context)
-        span.set_attribute("rag.kb_id", kb_scope["id"])
-        span.set_attribute("rag.kb_key", kb_scope["key"])
-        where = {
-            "kb_id": kb_scope["id"],
-            "access_level": kb_scope["access_level"],
-        }
-        if kb_scope.get("tenant_id"):
-            where["tenant_id"] = kb_scope["tenant_id"]
-        if kb_scope.get("org_id"):
-            where["org_id"] = kb_scope["org_id"]
-        cache_scope = _build_retrieval_scope(
-            kb_scope,
-            k,
-            where=where,
-            auth_scope=_build_auth_cache_scope(auth_context),
-        )
-        variants = expand_query(query)
-        span.set_attribute("rag.query_variant_count", len(variants))
-        span.set_attribute("rag.cache.semantic_retrieval_enabled", bool(settings.semantic_retrieval_cache_enabled))
+    reranker_disabled = reranker_disabled_for_request(runtime_context)
+    candidate_k = (
+        int(k)
+        if reranker_disabled
+        else max(int(k), min(rerank_candidate_limit(k), effective_max_rerank_candidates()))
+    )
+    tracker = _latency_tracker_var.get() or LatencyTracker()
+    token = _latency_tracker_var.set(tracker)
+    try:
+        with trace_span(
+            "rag.retrieve",
+            retrieval_trace_attrs(query=query, top_k=candidate_k, kb_id=kb_id, kb_key=kb_key),
+        ) as span:
+            kb_scope = _resolve_kb_scope(kb_id=kb_id, kb_key=kb_key, auth_context=auth_context)
+            span.set_attribute("rag.kb_id", kb_scope["id"])
+            span.set_attribute("rag.kb_key", kb_scope["key"])
+            where = {
+                "kb_id": kb_scope["id"],
+                "access_level": kb_scope["access_level"],
+            }
+            if kb_scope.get("tenant_id"):
+                where["tenant_id"] = kb_scope["tenant_id"]
+            if kb_scope.get("org_id"):
+                where["org_id"] = kb_scope["org_id"]
+            cache_scope = _build_retrieval_scope(
+                kb_scope,
+                candidate_k,
+                where=where,
+                auth_scope=_build_auth_cache_scope(auth_context),
+            )
+            variants = expand_query(query)
+            span.set_attribute("rag.query_variant_count", len(variants))
+            span.set_attribute("rag.cache.semantic_retrieval_enabled", bool(settings.semantic_retrieval_cache_enabled))
 
-        all_raw: list[dict[str, Any]] = []
-        for variant in variants:
-            all_raw.extend(_retrieve_single(variant, k, where=where, cache_scope=cache_scope))
+            all_raw: list[dict[str, Any]] = []
+            for variant in variants:
+                all_raw.extend(_retrieve_single(variant, candidate_k, where=where, cache_scope=cache_scope))
 
-        floor = settings.min_similarity_threshold
-        if vector_store.backend_name == "qdrant" and settings.qdrant_hybrid_enabled:
-            floor = settings.qdrant_hybrid_min_similarity_threshold
-        if using_hashing_fallback():
-            floor = min(floor, settings.hashing_min_similarity_threshold)
+            floor = settings.min_similarity_threshold
+            if vector_store.backend_name == "qdrant" and settings.qdrant_hybrid_enabled:
+                floor = settings.qdrant_hybrid_min_similarity_threshold
+            if using_hashing_fallback():
+                floor = min(floor, settings.hashing_min_similarity_threshold)
 
-        filtered = [item for item in all_raw if float(item.get("similarity", 0.0)) >= floor]
-        deduped = _deduplicate(filtered)
+            filtered = [item for item in all_raw if float(item.get("similarity", 0.0)) >= floor]
+            deduped = _deduplicate(filtered)
 
-        # BM25 rerank
-        reranked = rerank(query, deduped)
-        results = reranked[:k]
-        span.set_attribute("rag.raw_result_count", len(all_raw))
-        span.set_attribute("rag.filtered_result_count", len(filtered))
-        span.set_attribute("rag.result_count", len(results))
-        span.set_attribute("rag.top_score", float(results[0].get("similarity", 0.0)) if results else 0.0)
-        return results
+            if reranker_disabled:
+                reranked = sorted(
+                    [dict(item) for item in deduped],
+                    key=lambda item: float(item.get("similarity", 0.0)),
+                    reverse=True,
+                )
+                for item in reranked:
+                    item["reranker_provider"] = "disabled"
+                    item["retrieval_score"] = round(float(item.get("similarity", 0.0)), 6)
+                    item["final_score"] = item["retrieval_score"]
+            else:
+                rerank_started = time.perf_counter()
+                reranked = rerank(query, deduped)
+                tracker.add("reranker_ms", rerank_started)
+
+            results, diversified = _source_diversified(reranked, k)
+            retrieval_total_ms = tracker.embedding_ms + tracker.vector_query_ms + tracker.reranker_ms
+            retrieval_budget_ms = effective_retrieval_latency_budget_ms()
+            if retrieval_budget_ms and retrieval_total_ms > retrieval_budget_ms:
+                tracker.event(
+                    "retrieval_budget_exceeded",
+                    budget_ms=retrieval_budget_ms,
+                    actual_ms=retrieval_total_ms,
+                )
+
+            span.set_attribute("rag.final_top_k", k)
+            span.set_attribute("rag.candidate_top_k", candidate_k)
+            span.set_attribute("rag.runtime.max_rerank_candidates", effective_max_rerank_candidates())
+            span.set_attribute("rag.runtime.reranker_disabled", bool(reranker_disabled))
+            span.set_attribute("rag.reranker_provider", "disabled" if reranker_disabled else settings.normalized_reranker_provider)
+            span.set_attribute("rag.source_diversification_enabled", bool(settings.retrieval_source_diversification_enabled))
+            span.set_attribute("rag.source_diversification_applied", bool(diversified))
+            span.set_attribute(
+                "rag.source_max_chunks_per_source",
+                settings.effective_retrieval_source_max_chunks_per_source,
+            )
+            span.set_attribute("rag.latency.embedding_ms", tracker.embedding_ms)
+            span.set_attribute("rag.latency.vector_query_ms", tracker.vector_query_ms)
+            span.set_attribute("rag.latency.reranker_ms", tracker.reranker_ms)
+            span.set_attribute("rag.raw_result_count", len(all_raw))
+            span.set_attribute("rag.filtered_result_count", len(filtered))
+            span.set_attribute("rag.result_count", len(results))
+            span.set_attribute("rag.top_score", float(results[0].get("similarity", 0.0)) if results else 0.0)
+            return results
+    finally:
+        _latency_tracker_var.reset(token)
 
 
 def _apply_lang_boost(results: list[dict[str, Any]], user_lang: str) -> list[dict[str, Any]]:
@@ -821,6 +1126,8 @@ def rag_stream(
     followup = False
     scoped_sid = sid
     context = _coerce_request_context(request_context)
+    latency_tracker = LatencyTracker()
+    latency_token = _latency_tracker_var.set(latency_tracker)
     recent_turns: list[dict[str, Any]] = []
 
     llm_provider = active_provider_name()
@@ -829,6 +1136,14 @@ def rag_stream(
     answer_text = ""
     citations: list[dict[str, Any]] = []
     llm_usage: dict[str, int] = {}
+    corrective_metadata: dict[str, Any] = {
+        "enabled": bool(settings.corrective_rag_enabled) and not corrective_disabled_for_request(context),
+        "attempt_count": 1,
+        "query_rewritten": False,
+        "correction_reason": None,
+        "rewrite_error": None,
+        "rewritten_query": None,
+    }
 
     try:
         kb_scope = _resolve_kb_scope(kb_id=kb_id, kb_key=kb_key, auth_context=context.get("auth"))
@@ -887,6 +1202,9 @@ def rag_stream(
                             "kb_name": kb_scope["name"],
                             "kb_version": kb_scope["kb_version"],
                             "cache": cache_data,
+                            "corrective_rag": corrective_metadata,
+                            "runtime_budget": budget_snapshot(context),
+                            "latency_breakdown": latency_tracker.snapshot(),
                         },
                     }
                     yield {"event": "token", "data": {"text": answer_text}}
@@ -906,12 +1224,33 @@ def rag_stream(
                     )
                     yield {
                         "event": "done",
-                        "data": {"ok": True, "latency_ms": latency_ms, "cache": cache_data},
+                        "data": {
+                            "ok": True,
+                            "latency_ms": latency_ms,
+                            "cache": cache_data,
+                            "runtime_budget": budget_snapshot(context),
+                            "latency_breakdown": latency_tracker.snapshot(),
+                        },
                     }
                     return
 
-        results = retrieve(merged_query, kb_id=kb_scope["id"], auth_context=context.get("auth"))
+        results = retrieve(
+            merged_query,
+            kb_id=kb_scope["id"],
+            auth_context=context.get("auth"),
+            runtime_context=context,
+        )
         results = _apply_lang_boost(results, resolved_lang)
+        top_score = float(results[0].get("similarity", 0.0)) if results else 0.0
+        results, corrective_metadata = _maybe_corrective_retrieve(
+            query=merged_query,
+            results=results,
+            top_score=top_score,
+            lang=resolved_lang,
+            kb_id=kb_scope["id"],
+            auth_context=context.get("auth"),
+            runtime_context=context,
+        )
         top_score = float(results[0].get("similarity", 0.0)) if results else 0.0
 
         mode = "answer" if followup else decide_mode(top_score)
@@ -932,6 +1271,9 @@ def rag_stream(
                 "kb_key": kb_scope["key"],
                 "kb_name": kb_scope["name"],
                 "kb_version": kb_scope["kb_version"],
+                "corrective_rag": corrective_metadata,
+                "runtime_budget": budget_snapshot(context),
+                "latency_breakdown": latency_tracker.snapshot(),
                 "cache": {
                     "response": "miss" if response_cache_enabled_for_request else "disabled",
                 },
@@ -1076,6 +1418,9 @@ def rag_stream(
                     "response_store": response_cache_store,
                     "response_cache_enabled": response_cache_enabled_for_request,
                 },
+                "corrective_rag": corrective_metadata,
+                "runtime_budget": budget_snapshot(context),
+                "latency_breakdown": latency_tracker.snapshot(),
             },
         }
 
@@ -1099,3 +1444,5 @@ def rag_stream(
         except Exception:
             logger.exception("Failed to store error log")
         yield {"event": "error", "data": {"message": str(err)}}
+    finally:
+        _latency_tracker_var.reset(latency_token)

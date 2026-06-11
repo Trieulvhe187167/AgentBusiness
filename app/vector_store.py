@@ -723,6 +723,14 @@ class QdrantVectorStore:
         }
         if settings.qdrant_hybrid_enabled and query_text:
             prefetch_k = max(k, settings.qdrant_hybrid_prefetch_k)
+            retrieval_details = {
+                "qdrant_query_mode": "hybrid",
+                "qdrant_fusion": "rrf",
+                "qdrant_prefetch_k": prefetch_k,
+                "qdrant_sparse_model": settings.qdrant_sparse_model,
+                "qdrant_dense_vector": settings.qdrant_dense_vector_name,
+                "qdrant_sparse_vector": settings.qdrant_sparse_vector_name,
+            }
             kwargs["prefetch"] = [
                 self._models.Prefetch(
                     query=self._models.Document(text=query_text, model=settings.qdrant_sparse_model),
@@ -737,6 +745,10 @@ class QdrantVectorStore:
             ]
             kwargs["query"] = self._models.FusionQuery(fusion=self._models.Fusion.RRF)
         else:
+            retrieval_details = {
+                "qdrant_query_mode": "dense",
+                "qdrant_dense_vector": settings.qdrant_dense_vector_name,
+            }
             kwargs["query"] = query_embedding
             kwargs["using"] = settings.qdrant_dense_vector_name
 
@@ -755,6 +767,7 @@ class QdrantVectorStore:
                     "similarity": score,
                     "qdrant_score": score,
                     "retrieval_mode": self.retrieval_mode,
+                    **retrieval_details,
                     **metadata,
                 }
             )

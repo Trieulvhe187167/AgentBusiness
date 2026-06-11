@@ -47,7 +47,7 @@ def _expected_ingest_signature(row: dict[str, Any], kb_id: int) -> str:
         kb_id=kb_id,
         file_hash=row["file_hash"],
         chunk_cfg=chunk_cfg,
-        model_id=settings.effective_embedding_model_id,
+        model_id=settings.effective_embedding_fingerprint,
     )
 
 
@@ -223,7 +223,7 @@ async def _run_ingest(job_id: str, kb_id: int, file_id: int):
             kb_id=kb_id,
             file_hash=file_row["file_hash"],
             chunk_cfg=chunk_cfg,
-            model_id=settings.effective_embedding_model_id,
+            model_id=settings.effective_embedding_fingerprint,
         )
         next_kb_version = new_kb_version()
         file_version = await ensure_current_file_version(file_row)

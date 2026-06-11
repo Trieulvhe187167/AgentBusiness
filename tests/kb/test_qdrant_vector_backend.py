@@ -126,6 +126,12 @@ def test_qdrant_hybrid_collection_ingest_and_query(monkeypatch):
     assert len(query["query_filter"].must) == 2
     assert results[0]["chunk_id"] == "chunk-1"
     assert results[0]["retrieval_mode"] == "hybrid_rrf"
+    assert results[0]["qdrant_query_mode"] == "hybrid"
+    assert results[0]["qdrant_fusion"] == "rrf"
+    assert results[0]["qdrant_prefetch_k"] == 25
+    assert results[0]["qdrant_sparse_model"] == "Qdrant/bm25"
+    assert results[0]["qdrant_dense_vector"] == "dense"
+    assert results[0]["qdrant_sparse_vector"] == "sparse"
 
 
 def test_qdrant_dense_query_does_not_require_query_text(monkeypatch):
@@ -135,12 +141,15 @@ def test_qdrant_dense_query_does_not_require_query_text(monkeypatch):
 
     backend = QdrantVectorStore()
     backend.initialize(expected_dim=2)
-    backend.query([1.0, 0.0], top_k=3)
+    results = backend.query([1.0, 0.0], top_k=3)
 
     query = _Client.instances[-1].queries[0]
     assert query["query"] == [1.0, 0.0]
     assert query["using"] == "dense"
     assert "prefetch" not in query
+    assert results[0]["retrieval_mode"] == "dense"
+    assert results[0]["qdrant_query_mode"] == "dense"
+    assert results[0]["qdrant_dense_vector"] == "dense"
 
 
 def test_facade_falls_back_to_numpy_when_qdrant_is_unavailable(monkeypatch, tmp_path):

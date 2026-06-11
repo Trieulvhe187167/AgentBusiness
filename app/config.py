@@ -100,6 +100,14 @@ class Settings(BaseSettings):
     threshold_good: float = 0.60
     threshold_low: float = 0.40
     min_similarity_threshold: float = 0.30
+    retrieval_source_diversification_enabled: bool = False
+    retrieval_source_max_chunks_per_source: int = 0
+    corrective_rag_enabled: bool = False
+    corrective_rag_max_attempts: int = 1
+    corrective_rag_min_score: float = 0.0
+    corrective_rag_min_results: int = 1
+    corrective_rag_rewrite_timeout_seconds: int = 8
+    corrective_rag_rewrite_max_tokens: int = 128
     knowledge_gap_score_threshold: float = 0.40
     knowledge_gap_alert_repeat_count: int = 5
     knowledge_gap_semantic_clustering_enabled: bool = True
@@ -109,6 +117,34 @@ class Settings(BaseSettings):
     hashing_threshold_good: float = 0.32
     hashing_threshold_low: float = 0.18
     hashing_min_similarity_threshold: float = 0.12
+
+    # ------------------------------------------------------------------
+    # Reranking
+    # MVP default: BM25-lite. Neural reranking is opt-in.
+    # ------------------------------------------------------------------
+    reranker_provider: str = "bm25_lite"  # none | bm25_lite | cross_encoder
+    reranker_model: str = "Qwen/Qwen3-Reranker-0.6B"
+    reranker_top_n: int = 50
+    reranker_batch_size: int = 8
+    reranker_timeout_seconds: int = 10
+    reranker_min_score: float = 0.0
+    reranker_weight: float = 0.85
+    bm25_reranker_weight: float = 0.15
+
+    # ------------------------------------------------------------------
+    # Deployment/runtime cost and latency controls
+    # Defaults preserve current behavior. Named profiles can clamp budgets:
+    # custom | local_cpu | local_gpu | service
+    # ------------------------------------------------------------------
+    deployment_profile: str = "custom"
+    runtime_max_rerank_candidates: int = 0
+    runtime_max_answer_chunks: int = 0
+    runtime_retrieval_latency_budget_ms: int = 0
+    runtime_llm_latency_budget_ms: int = 0
+    runtime_disable_reranker: bool = False
+    runtime_disable_neural_reranker: bool = False
+    runtime_disable_corrective_rag: bool = False
+    runtime_monitoring_enabled: bool = True
 
     # ------------------------------------------------------------------
     # Answer presentation
@@ -124,14 +160,22 @@ class Settings(BaseSettings):
     # MVP required: yes
     # ------------------------------------------------------------------
     # Multilingual default to support both VI and EN retrieval.
+    embedding_provider: str = "sentence_transformers"  # sentence_transformers | tei | openai_compatible
     embedding_model: str = "paraphrase-multilingual-MiniLM-L12-v2"
     embedding_batch_size: int = 64
     embedding_model_path: str = ""
+    embedding_base_url: str = ""
+    embedding_api_key: str = ""
+    embedding_timeout_seconds: int = 30
+    embedding_dimension: int = 0
+    embedding_trust_remote_code: bool = False
     # Optional manual prefixes. Leave empty to auto-detect by model family.
     # E5 usually needs: query="query: " and passage="passage: "
     # BGE usually needs query instruction and empty passage prefix.
     embedding_query_prefix: str = ""
     embedding_passage_prefix: str = ""
+    embedding_query_instruction: str = ""
+    embedding_document_instruction: str = ""
 
     # ------------------------------------------------------------------
     # LLM
@@ -429,6 +473,36 @@ class Settings(BaseSettings):
         return self.embedding_model_path or self.embedding_model
 
     @property
+    def normalized_embedding_provider(self) -> str:
+        provider = self.embedding_provider.strip().lower()
+        valid = {"sentence_transformers", "tei", "openai_compatible"}
+        return provider if provider in valid else "sentence_transformers"
+
+    @property
+    def effective_embedding_timeout_seconds(self) -> int:
+        return max(1, min(int(self.embedding_timeout_seconds), 300))
+
+    @property
+    def effective_embedding_dimension(self) -> int | None:
+        value = int(self.embedding_dimension)
+        return value if value > 0 else None
+
+    @property
+    def effective_embedding_fingerprint(self) -> str:
+        source = self.effective_embedding_model_id
+        parts = [
+            f"provider:{self.normalized_embedding_provider}",
+            f"model:{source}",
+            f"dim:{self.effective_embedding_dimension or 'auto'}",
+            f"trust_remote_code:{bool(self.embedding_trust_remote_code)}",
+            f"query_prefix:{self.embedding_query_prefix}",
+            f"passage_prefix:{self.embedding_passage_prefix}",
+            f"query_instruction:{self.embedding_query_instruction}",
+            f"document_instruction:{self.embedding_document_instruction}",
+        ]
+        return "|".join(parts)
+
+    @property
     def effective_ollama_base_url(self) -> str:
         return self.ollama_base_url or self.ollama_url
 
@@ -436,6 +510,58 @@ class Settings(BaseSettings):
     def normalized_vector_backend(self) -> str:
         backend = self.vector_backend.strip().lower()
         return backend if backend in {"chroma", "numpy", "qdrant"} else "chroma"
+
+    @property
+    def normalized_reranker_provider(self) -> str:
+        provider = self.reranker_provider.strip().lower()
+        return provider if provider in {"none", "bm25_lite", "cross_encoder"} else "bm25_lite"
+
+    @property
+    def effective_reranker_top_n(self) -> int:
+        return max(1, min(int(self.reranker_top_n), 500))
+
+    @property
+    def effective_reranker_batch_size(self) -> int:
+        return max(1, min(int(self.reranker_batch_size), 128))
+
+    @property
+    def effective_reranker_timeout_seconds(self) -> int:
+        return max(1, min(int(self.reranker_timeout_seconds), 120))
+
+    @property
+    def effective_reranker_weight(self) -> float:
+        return max(0.0, min(float(self.reranker_weight), 1.0))
+
+    @property
+    def effective_bm25_reranker_weight(self) -> float:
+        return max(0.0, min(float(self.bm25_reranker_weight), 1.0))
+
+    @property
+    def effective_retrieval_source_max_chunks_per_source(self) -> int:
+        return max(0, min(int(self.retrieval_source_max_chunks_per_source), 50))
+
+    @property
+    def effective_corrective_rag_max_attempts(self) -> int:
+        return max(0, min(int(self.corrective_rag_max_attempts), 3))
+
+    @property
+    def effective_corrective_rag_min_results(self) -> int:
+        return max(0, min(int(self.corrective_rag_min_results), 20))
+
+    @property
+    def effective_corrective_rag_rewrite_timeout_seconds(self) -> int:
+        return max(1, min(int(self.corrective_rag_rewrite_timeout_seconds), 60))
+
+    @property
+    def effective_corrective_rag_rewrite_max_tokens(self) -> int:
+        return max(32, min(int(self.corrective_rag_rewrite_max_tokens), 512))
+
+    @property
+    def effective_corrective_rag_min_score(self) -> float:
+        configured = float(self.corrective_rag_min_score)
+        if configured > 0:
+            return max(0.0, min(configured, 1.0))
+        return max(0.0, min(float(self.threshold_low), 1.0))
 
     @property
     def normalized_answer_mode(self) -> str:
@@ -610,6 +736,9 @@ class Settings(BaseSettings):
         return max(1000, min(int(self.openai_responses_tool_output_max_chars), 50000))
 
     def validate_runtime_settings(self) -> None:
+        if self.normalized_embedding_provider in {"tei", "openai_compatible"} and not self.embedding_base_url.strip():
+            raise ValueError("RAG_EMBEDDING_BASE_URL is required for remote embedding providers")
+
         if self.normalized_auth_mode != "gateway":
             return
 

@@ -81,6 +81,7 @@ class RequestContext(BaseModel):
     kb_id: int | None = Field(default=None, ge=1)
     kb_key: str | None = Field(default=None, min_length=1, max_length=80)
     auth: AuthContext = Field(default_factory=AuthContext)
+    runtime_controls: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("request_id", "session_id", "kb_key", mode="before")
     @classmethod
@@ -295,6 +296,8 @@ class ChatRequest(BaseModel):
     channel: str = Field(default="web", min_length=1, max_length=40)
     tenant_id: str | None = Field(default=None, min_length=1, max_length=120)
     org_id: str | None = Field(default=None, min_length=1, max_length=120)
+    disable_reranker: bool = False
+    disable_corrective_rag: bool = False
 
     @field_validator("session_id", "conversation_id", "request_id", "user_id", "tenant_id", "org_id", "kb_key", mode="before")
     @classmethod
@@ -332,6 +335,10 @@ class ChatRequest(BaseModel):
             kb_id=self.kb_id,
             kb_key=self.kb_key,
             auth=self.auth_context,
+            runtime_controls={
+                "disable_reranker": self.disable_reranker,
+                "disable_corrective_rag": self.disable_corrective_rag,
+            },
         )
 
 
@@ -853,12 +860,17 @@ class SystemRuntime(BaseModel):
     llm_provider_active: str
     llm_provider_config: str
     answer_mode_config: str
+    corrective_rag: dict[str, Any] = Field(default_factory=dict)
+    runtime_budget: dict[str, Any] = Field(default_factory=dict)
     top_k: int
     threshold_good: float
     threshold_low: float
     min_similarity_threshold: float
     embedding_model: str
     embedding_source: str
+    embedding_provider: str = "sentence_transformers"
+    embedding_model_fingerprint: str | None = None
+    embedding_dimension: int | None = None
     total_files: int
     ingested_files: int
     source_count: int
