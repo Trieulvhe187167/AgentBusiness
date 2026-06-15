@@ -77,6 +77,38 @@ def test_admin_analytics_dashboard_wires_backend_endpoint():
     assert "idempotency_key" in html
 
 
+def test_admin_rag_quality_cockpit_is_wired():
+    html = (ROOT / "static" / "admin.html").read_text(encoding="utf-8")
+
+    assert "view-rag-quality" in html
+    assert "RAG Quality & Evaluation Cockpit" in html
+    assert "ragQualityDays" in html
+    assert "ragQualityScope" in html
+    assert "btnRefreshRagQuality" in html
+    assert "btnRunCockpitGoldenEval" in html
+    assert "rqEmbeddingStack" in html
+    assert "rqRerankerStack" in html
+    assert "rqVectorStack" in html
+    assert "rqCorrectiveStack" in html
+    assert "rqRetrievalBudget" in html
+    assert "Latest Eval Metric Breakdown" in html
+    assert "ragQualityMetricGrid" in html
+    assert "Baseline Regression Gate" in html
+    assert "ragQualityRegressionTable" in html
+    assert "ragQualityRunsTable" in html
+    assert "ragQualityFailuresTable" in html
+    assert "ragQualityGoldenTable" in html
+    assert "function renderRagQualityCockpit" in html
+    assert "function renderRagQualityMetrics" in html
+    assert "function ragQualityRegressionRowsHtml" in html
+    assert "function refreshRagQualityCockpitData" in html
+    assert "function runCockpitGoldenEvaluation" in html
+    assert "/api/system?kb_id=${selectedKbId()}" in html
+    assert "/api/admin/analytics?${params.toString()}" in html
+    assert "/api/admin/evaluations/runs?limit=20" in html
+    assert "/api/admin/evaluations/golden-dataset${query}" in html
+
+
 def test_admin_dev_identity_is_collapsible_and_debug_gated():
     html = (ROOT / "static" / "admin.html").read_text(encoding="utf-8")
 
@@ -98,6 +130,24 @@ def test_admin_role_based_shell_is_wired():
     assert "function canAccessTarget" in html
     assert "/api/me" in html
     assert "view-access-denied" in html
+
+
+def test_admin_navigation_information_architecture_is_wired():
+    html = (ROOT / "static" / "admin.html").read_text(encoding="utf-8")
+
+    assert 'class="tab-group" data-group="Knowledge"' in html
+    assert 'class="tab-group" data-group="Operations"' in html
+    assert 'class="tab-group" data-group="System"' in html
+    assert "tab-group-label" in html
+    assert "mobile-module-switcher" in html
+    assert 'id="adminModuleSelect"' in html
+    assert "document.getElementById('adminModuleSelect').addEventListener('change'" in html
+    assert "option.disabled = !allowed" in html
+    assert "group.hidden = !hasVisibleTab" in html
+    assert "kb-danger-zone" in html
+    assert "Danger Zone" in html
+    assert "Destructive Knowledge Base actions live here" in html
+    assert 'id="btnDeleteKb"' in html
 
 
 def test_support_workspace_is_wired():
@@ -142,6 +192,44 @@ def test_knowledge_workspace_is_wired():
     assert "function renameSelectedKb" in html
     assert "body:JSON.stringify({ name })" in html
     assert "knowledgeJobSummary" in html
+    assert "knowledgeFlow" in html
+    assert "knowledge-stage" in html
+    assert "knowledgeStageSetupSummary" in html
+    assert "knowledgeStageSourcesSummary" in html
+    assert "knowledgeStageIndexingSummary" in html
+    assert "knowledgeStageQualitySummary" in html
+    assert "data-knowledge-stage-target" in html
+    assert "function renderKnowledgeFlow" in html
+    assert "function scrollToKnowledgeStage" in html
+    assert "knowledgeBulkSelectAll" in html
+    assert "btnKnowledgeBulkIngest" in html
+    assert "btnKnowledgeBulkReviewed" in html
+    assert "btnKnowledgeBulkDetach" in html
+    assert "data-knowledge-file-select" in html
+    assert "function renderKnowledgeBulkState" in html
+    assert "function bulkIngestKnowledgeFiles" in html
+    assert "function bulkMarkKnowledgeFilesReviewed" in html
+    assert "function bulkDetachKnowledgeFiles" in html
+    assert "fileDetailDrawer" in html
+    assert "fileDetailTitle" in html
+    assert "fileDetailBody" in html
+    assert "btnCloseFileDetail" in html
+    assert "data-file-detail" in html
+    assert "data-file-detail-source" in html
+    assert "function findFileDetail" in html
+    assert "function fileDetailHtml" in html
+    assert "function openFileDetail" in html
+    assert "function closeFileDetail" in html
+    assert "document.getElementById('fileDetailBody').addEventListener('click'" in html
+    assert "knowledgeProgressPanel" in html
+    assert "knowledgeIndexProgressBar" in html
+    assert "knowledgeProgressSummary" in html
+    assert "knowledgeNextActions" in html
+    assert "knowledgeProgressNeedsIngest" in html
+    assert "function knowledgeProgressStats" in html
+    assert "function knowledgeNextActionsHtml" in html
+    assert "function renderKnowledgeProgress" in html
+    assert "function fileNextActionNote" in html
     assert "knowledgeWorkspaceKbFilesTable" in html
     assert "knowledgeWorkspaceLibraryTable" in html
     assert "btnViewAllKbFiles" in html

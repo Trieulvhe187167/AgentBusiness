@@ -14,6 +14,9 @@ def test_system_info_reports_phase0_runtime_contract(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(settings, "llm_provider", "openai_compatible")
     monkeypatch.setattr(settings, "llm_model", "Qwen/Qwen3-4B-Instruct-2507")
     monkeypatch.setattr(settings, "agent_brain_mode", "hybrid")
+    monkeypatch.setattr(settings, "reranker_provider", "cross_encoder")
+    monkeypatch.setattr(settings, "reranker_model", "Qwen/Qwen3-Reranker-0.6B")
+    monkeypatch.setattr(settings, "qdrant_hybrid_enabled", True)
 
     request = SimpleNamespace(
         app=SimpleNamespace(
@@ -38,3 +41,8 @@ def test_system_info_reports_phase0_runtime_contract(monkeypatch: pytest.MonkeyP
     }
     assert system["llm_provider_config"] == "openai_compatible"
     assert system["llm_model"] == "Qwen/Qwen3-4B-Instruct-2507"
+    assert system["reranker_provider"] == "cross_encoder"
+    assert system["reranker_model"] == "Qwen/Qwen3-Reranker-0.6B"
+    assert system["reranker_top_n"] == settings.effective_reranker_top_n
+    assert system["qdrant_hybrid_enabled"] is True
+    assert "retrieval_mode" in system

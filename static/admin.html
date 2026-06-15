@@ -38,6 +38,7 @@
         .stats { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:10px; }
         .stat { border:1px solid var(--line); border-radius:12px; padding:10px; background:#fff; }
         .value { font-size:24px; font-weight:800; color:var(--brand); line-height:1; }
+        #s-kb-version { font-size:18px; line-height:1.15; overflow-wrap:anywhere; word-break:break-word; }
         .label { margin-top:4px; font-size:12px; color:var(--dim); }
         .row, .toolbar, .btn-row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
         .grow { flex:1; }
@@ -66,12 +67,19 @@
         .dev-identity[open] { top:58px; width:min(760px, calc(100vw - 260px)); padding:12px; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); box-shadow:var(--shadow); }
         .dev-identity[open] summary { display:inline-flex; margin-bottom:10px; }
         .dev-identity[hidden] { display:none; }
-        .tabs { position:fixed; left:0; top:60px; bottom:0; z-index:25; width:200px; height:calc(100vh - 60px); display:flex; flex-direction:column; gap:8px; padding:24px 10px 18px; border-right:1px solid var(--line); background:rgba(255,253,248,.96); box-shadow:8px 0 24px rgba(39,55,58,.035); backdrop-filter:blur(12px); overflow:auto; }
+        .tabs { position:fixed; left:0; top:60px; bottom:0; z-index:25; width:200px; height:calc(100vh - 60px); display:flex; flex-direction:column; gap:14px; padding:20px 10px 18px; border-right:1px solid var(--line); background:rgba(255,253,248,.96); box-shadow:8px 0 24px rgba(39,55,58,.035); backdrop-filter:blur(12px); overflow:auto; }
+        .tab-group { display:flex; flex-direction:column; gap:6px; }
+        .tab-group-label { padding:0 12px; color:var(--dim); font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; }
         .tab-btn { background:transparent; color:var(--dim); text-align:left; border-radius:8px; display:flex; align-items:center; gap:10px; padding:10px 12px; }
         .tab-btn.active { background:linear-gradient(135deg, var(--brand), #0098a0); color:#fff; box-shadow:0 8px 18px rgba(0,125,132,.22); }
         .tab-btn[hidden] { display:none; }
         .tab-icon { width:20px; height:20px; border:1.5px solid currentColor; border-radius:6px; display:inline-grid; place-items:center; font-size:11px; line-height:1; flex:0 0 20px; opacity:.88; }
         .tab-label { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .mobile-module-switcher { display:none; }
+        .kb-danger-zone { margin-top:10px; border:1px solid #efc4bb; border-radius:12px; background:#fff8f6; padding:10px; }
+        .kb-danger-zone summary { cursor:pointer; font-weight:800; color:var(--bad); list-style:none; }
+        .kb-danger-zone summary::-webkit-details-marker { display:none; }
+        .kb-danger-zone p { margin:6px 0 10px; color:var(--dim); font-size:12px; }
         .support-shell { display:grid; grid-template-columns:minmax(360px, 5fr) minmax(360px, 4fr); gap:14px; align-items:start; }
         .support-panel { display:flex; flex-direction:column; gap:10px; }
         .support-detail-card { border:1px solid var(--line); border-radius:var(--radius); background:#fff; padding:14px; box-shadow:0 6px 16px rgba(39,55,58,.04); }
@@ -113,6 +121,22 @@
         .drive-form-grid { display:grid; grid-template-columns:repeat(3,minmax(180px,1fr)); gap:10px; align-items:end; }
         .drive-form-grid .wide { grid-column:span 2; }
         .drive-action-row { display:grid; grid-template-columns:minmax(220px,1fr) auto minmax(260px,2fr); gap:10px; align-items:center; margin-bottom:10px; }
+        .knowledge-flow { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:12px 0; }
+        .knowledge-stage { border:1px solid var(--line); border-radius:12px; background:#fff; padding:10px; text-align:left; color:var(--ink); }
+        .knowledge-stage strong { display:block; margin-bottom:4px; font-size:13px; }
+        .knowledge-stage small { display:block; color:var(--dim); font-size:11px; line-height:1.35; }
+        .knowledge-stage .status { margin-bottom:6px; }
+        .knowledge-progress-panel { display:grid; grid-template-columns:minmax(280px,1.2fr) minmax(280px,1fr); gap:12px; margin:12px 0; }
+        .knowledge-progress-meter { height:10px; border-radius:999px; background:#eef3f3; overflow:hidden; border:1px solid var(--line); }
+        .knowledge-progress-meter span { display:block; height:100%; width:0%; background:linear-gradient(90deg,var(--brand),#00a98f); transition:width .2s ease; }
+        .knowledge-progress-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin-top:10px; }
+        .knowledge-progress-item { border:1px solid var(--line); border-radius:10px; background:#fff; padding:9px; min-width:0; }
+        .knowledge-progress-item strong { display:block; color:var(--brand); font-size:18px; line-height:1.1; }
+        .knowledge-progress-item span { display:block; margin-top:3px; color:var(--dim); font-size:11px; }
+        .knowledge-next-actions { margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:7px; }
+        .knowledge-next-actions li { border:1px solid var(--line); border-radius:10px; background:#fff; padding:9px; }
+        .knowledge-next-actions strong { display:block; font-size:12px; }
+        .knowledge-next-actions small { color:var(--dim); }
         .operations-shell { display:grid; grid-template-columns:minmax(380px, 5fr) minmax(340px, 4fr); gap:14px; align-items:start; }
         .operations-shell > .span-12 { grid-column:1 / -1; }
         .operations-panel { display:flex; flex-direction:column; gap:10px; }
@@ -128,6 +152,21 @@
         .analytics-insights { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-top:10px; }
         .insight { border:1px solid var(--line); border-radius:12px; padding:10px; background:#fff; }
         .insight strong { display:block; margin-bottom:4px; font-size:13px; }
+        .rag-quality-hero { display:grid; grid-template-columns:minmax(280px,1.4fr) repeat(3,minmax(180px,1fr)); gap:10px; margin-bottom:12px; }
+        .rag-quality-card { border:1px solid var(--line); border-radius:14px; background:#fff; padding:12px; min-width:0; }
+        .rag-quality-card h3 { margin:0 0 8px; font-size:12px; color:var(--dim); text-transform:uppercase; letter-spacing:.04em; }
+        .rag-quality-score { display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap; margin-bottom:6px; }
+        .rag-quality-score strong { font-size:34px; line-height:1; color:var(--brand); }
+        .rag-stack-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+        .rag-stack-item { border:1px solid var(--line); border-radius:12px; background:#fff; padding:10px; min-width:0; }
+        .rag-stack-item strong { display:block; margin-bottom:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .rag-budget-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+        .rag-budget-grid .stat { min-width:0; }
+        .rag-metric-grid { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:10px; }
+        .rag-metric { border:1px solid var(--line); border-radius:12px; background:#fff; padding:10px; min-width:0; }
+        .rag-metric strong { display:block; color:var(--brand); font-size:20px; line-height:1.1; margin-bottom:4px; }
+        .rag-metric span { display:block; color:var(--dim); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+        .rag-quality-actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
         .view { display:none; } .view.active { display:block; }
         .legacy-backfill { display:none !important; }
         .table { width:100%; border-collapse:separate; border-spacing:0; font-size:13px; }
@@ -162,7 +201,18 @@
         .modal-card h2 { margin:0; font-size:17px; }
         .modal-card p { margin:8px 0 12px; color:var(--dim); font-size:13px; line-height:1.5; white-space:pre-wrap; }
         .modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:12px; }
-        @media (max-width:1100px) { .container { padding:112px 18px 24px; } .header { height:auto; min-height:60px; flex-wrap:wrap; padding:10px 14px; } .brand { min-width:0; } .links { order:3; width:100%; margin:0; overflow:auto; } .role-shell { top:8px; right:12px; height:44px; } .role-shell-detail { display:none; } .tabs { position:static; width:auto; height:auto; flex-direction:row; overflow:auto; } .tab-btn { flex:0 0 auto; } .span-8,.span-7,.span-6,.span-5,.span-4 { grid-column:span 12; } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } .support-shell,.knowledge-shell,.operations-shell,.analytics-hero,.webhook-form { grid-template-columns:1fr; } .knowledge-strip,.analytics-insights,.case-kv,.readiness-list,.drive-form-grid,.drive-action-row { grid-template-columns:1fr; } .drive-form-grid .wide { grid-column:auto; } }
+        .drawer-backdrop { position:fixed; inset:0; z-index:115; display:none; justify-content:flex-end; background:rgba(20,28,29,.24); backdrop-filter:blur(4px); }
+        .drawer-backdrop.active { display:flex; }
+        .drawer-card { width:min(520px,100%); height:100%; overflow:auto; background:var(--panel); border-left:1px solid var(--line); box-shadow:-24px 0 60px rgba(0,0,0,.16); padding:16px; }
+        .drawer-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; padding-bottom:12px; border-bottom:1px solid var(--line); }
+        .drawer-head h2 { margin:0; font-size:18px; }
+        .drawer-body { display:flex; flex-direction:column; gap:12px; padding-top:12px; }
+        .drawer-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+        .drawer-kv { border:1px solid var(--line); border-radius:10px; background:#fff; padding:10px; min-width:0; }
+        .drawer-kv span { display:block; color:var(--dim); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+        .drawer-kv strong { display:block; margin-top:4px; overflow-wrap:anywhere; }
+        .drawer-actions { display:flex; flex-wrap:wrap; gap:8px; }
+        @media (max-width:1100px) { .container { padding:112px 18px 24px; } .header { height:auto; min-height:60px; flex-wrap:wrap; padding:10px 14px; } .brand { min-width:0; } .links { order:3; width:100%; margin:0; overflow:auto; } .role-shell { top:8px; right:12px; height:44px; } .role-shell-detail { display:none; } .tabs { display:none; } .mobile-module-switcher { display:block; } .span-8,.span-7,.span-6,.span-5,.span-4 { grid-column:span 12; } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } .support-shell,.knowledge-shell,.knowledge-progress-panel,.operations-shell,.analytics-hero,.rag-quality-hero,.webhook-form { grid-template-columns:1fr; } .knowledge-strip,.knowledge-flow,.knowledge-progress-grid,.analytics-insights,.rag-stack-grid,.rag-budget-grid,.rag-metric-grid,.case-kv,.readiness-list,.drive-form-grid,.drive-action-row { grid-template-columns:1fr; } .drive-form-grid .wide { grid-column:auto; } }
     </style>
 </head>
 <body>
@@ -231,9 +281,13 @@
                 <span class="badge">Access: <strong id="kbAccessLabel">-</strong></span>
                 <span class="badge">Default: <strong id="kbDefaultLabel">-</strong></span>
                 <button class="btn-muted" id="btnSetDefault" title="Mark the selected Knowledge Base as the default one for general chat.">Set Default</button>
-                <button class="btn-danger" id="btnDeleteKb" title="Delete the selected Knowledge Base and detach its related admin configuration.">Delete KB</button>
             </div>
             <div class="note" id="kbDescription">No Knowledge Base selected.</div>
+            <details class="kb-danger-zone">
+                <summary>Danger Zone</summary>
+                <p>Destructive Knowledge Base actions live here so daily setup and review controls stay safer to scan.</p>
+                <button class="btn-danger" id="btnDeleteKb" title="Delete the selected Knowledge Base and detach its related admin configuration.">Delete KB</button>
+            </details>
         </section>
 
         <section class="card">
@@ -251,15 +305,43 @@
             </div>
         </section>
 
-        <div class="tabs">
-            <button class="tab-btn active" data-target="view-knowledge-workspace" title="Unified workspace for KB files, source library, Google Drive sync, and source quality."><span class="tab-icon">K</span><span class="tab-label">Knowledge</span></button>
-            <button class="tab-btn" data-target="view-support-workspace" title="Unified workspace for support inbox, case context, notes, assignment, and escalation."><span class="tab-icon">S</span><span class="tab-label">Support</span></button>
-            <button class="tab-btn" data-target="view-operations-workspace" title="Unified workspace for approvals, jobs, schedules, and audit snapshots."><span class="tab-icon">O</span><span class="tab-label">Operations</span></button>
-            <button class="tab-btn" data-target="view-access" title="Manage internal user directory, access status, and production readiness."><span class="tab-icon">A</span><span class="tab-label">Access</span></button>
-            <button class="tab-btn" data-target="view-analytics" title="Track chat quality, workflow health, jobs, and support operations."><span class="tab-icon">N</span><span class="tab-label">Analytics</span></button>
-            <button class="tab-btn" data-target="view-calibrate" title="Test retrieval quality in the currently selected Knowledge Base."><span class="tab-icon">C</span><span class="tab-label">Calibrate</span></button>
-            <button class="tab-btn" data-target="view-mcp" title="Inspect MCP server status, exposed tools, and resources."><span class="tab-icon">M</span><span class="tab-label">MCP Server</span></button>
-            <button class="tab-btn" data-target="view-system" title="Inspect selected KB and runtime system payload."><span class="tab-icon">Y</span><span class="tab-label">System</span></button>
+        <section class="card mobile-module-switcher">
+            <div class="section-head">
+                <h2>Admin Module</h2>
+                <p>Switch between grouped admin workspaces.</p>
+            </div>
+            <select id="adminModuleSelect" title="Choose an Admin module.">
+                <option value="view-knowledge-workspace">Knowledge</option>
+                <option value="view-rag-quality">RAG Quality</option>
+                <option value="view-calibrate">Calibrate</option>
+                <option value="view-analytics">Analytics</option>
+                <option value="view-support-workspace">Support</option>
+                <option value="view-operations-workspace">Operations</option>
+                <option value="view-mcp">MCP Server</option>
+                <option value="view-system">System</option>
+                <option value="view-access">Access</option>
+            </select>
+        </section>
+
+        <div class="tabs" aria-label="Admin modules">
+            <div class="tab-group" data-group="Knowledge">
+                <div class="tab-group-label">Knowledge</div>
+                <button class="tab-btn active" data-target="view-knowledge-workspace" title="Unified workspace for KB files, source library, Google Drive sync, and source quality."><span class="tab-icon">K</span><span class="tab-label">Knowledge</span></button>
+                <button class="tab-btn" data-target="view-rag-quality" title="Operate model, retrieval, reranker, latency budget, and evaluation quality gates in one place."><span class="tab-icon">Q</span><span class="tab-label">RAG Quality</span></button>
+                <button class="tab-btn" data-target="view-calibrate" title="Test retrieval quality in the currently selected Knowledge Base."><span class="tab-icon">C</span><span class="tab-label">Calibrate</span></button>
+            </div>
+            <div class="tab-group" data-group="Operations">
+                <div class="tab-group-label">Operations</div>
+                <button class="tab-btn" data-target="view-analytics" title="Track chat quality, workflow health, jobs, and support operations."><span class="tab-icon">N</span><span class="tab-label">Analytics</span></button>
+                <button class="tab-btn" data-target="view-support-workspace" title="Unified workspace for support inbox, case context, notes, assignment, and escalation."><span class="tab-icon">S</span><span class="tab-label">Support</span></button>
+                <button class="tab-btn" data-target="view-operations-workspace" title="Unified workspace for approvals, jobs, schedules, and audit snapshots."><span class="tab-icon">O</span><span class="tab-label">Operations</span></button>
+            </div>
+            <div class="tab-group" data-group="System">
+                <div class="tab-group-label">System</div>
+                <button class="tab-btn" data-target="view-mcp" title="Inspect MCP server status, exposed tools, and resources."><span class="tab-icon">M</span><span class="tab-label">MCP Server</span></button>
+                <button class="tab-btn" data-target="view-system" title="Inspect selected KB and runtime system payload."><span class="tab-icon">Y</span><span class="tab-label">System</span></button>
+                <button class="tab-btn" data-target="view-access" title="Manage internal user directory, access status, and production readiness."><span class="tab-icon">A</span><span class="tab-label">Access</span></button>
+            </div>
         </div>
 
         <div id="view-access-denied" class="view">
@@ -284,6 +366,28 @@
                     <button class="btn-muted" id="btnKnowledgeReindex" title="Rebuild vectors for every file attached to the selected KB.">Reindex All</button>
                     <span class="note" id="knowledgeWorkspaceSummary">No Knowledge Base selected.</span>
                 </div>
+                <div class="knowledge-flow" id="knowledgeFlow">
+                    <button class="knowledge-stage" data-knowledge-stage-target="knowledgeStageSetup" title="Jump to Knowledge Base setup controls.">
+                        <span class="status active">Setup</span>
+                        <strong>KB Setup</strong>
+                        <small id="knowledgeStageSetupSummary">Select or create a Knowledge Base.</small>
+                    </button>
+                    <button class="knowledge-stage" data-knowledge-stage-target="knowledgeStageSources" title="Jump to source upload and library controls.">
+                        <span class="status active">Sources</span>
+                        <strong>Upload & Attach</strong>
+                        <small id="knowledgeStageSourcesSummary">Attach files or Drive sources.</small>
+                    </button>
+                    <button class="knowledge-stage" data-knowledge-stage-target="knowledgeStageIndexing" title="Jump to ingest and reindex controls.">
+                        <span class="status queued">Indexing</span>
+                        <strong>Ingest & Reindex</strong>
+                        <small id="knowledgeStageIndexingSummary">Run ingest for stale files.</small>
+                    </button>
+                    <button class="knowledge-stage" data-knowledge-stage-target="knowledgeStageQuality" title="Jump to quality review controls.">
+                        <span class="status queued">Quality</span>
+                        <strong>Review & Improve</strong>
+                        <small id="knowledgeStageQualitySummary">Review stale and low-quality docs.</small>
+                    </button>
+                </div>
                 <div class="knowledge-strip">
                     <div class="stat"><div class="value" id="kwFiles">-</div><div class="label">KB Files</div></div>
                     <div class="stat"><div class="value" id="kwLibrary">-</div><div class="label">Library Sources</div></div>
@@ -291,7 +395,33 @@
                     <div class="stat"><div class="value" id="kwQualityScore">-</div><div class="label">Quality Score</div></div>
                     <div class="stat"><div class="value" id="kwStaleDocs">-</div><div class="label">Stale Docs</div></div>
                 </div>
-                <div class="grid" style="margin-top:12px;">
+                <div class="knowledge-progress-panel" id="knowledgeProgressPanel">
+                    <div>
+                        <div class="section-head">
+                            <h2>Indexing Progress</h2>
+                            <p id="knowledgeProgressSummary">No Knowledge Base selected.</p>
+                        </div>
+                        <div class="knowledge-progress-meter" aria-label="Knowledge indexing progress">
+                            <span id="knowledgeIndexProgressBar"></span>
+                        </div>
+                        <div class="knowledge-progress-grid">
+                            <div class="knowledge-progress-item"><strong id="knowledgeProgressIngested">-</strong><span>Ingested</span></div>
+                            <div class="knowledge-progress-item"><strong id="knowledgeProgressNeedsIngest">-</strong><span>Needs Ingest</span></div>
+                            <div class="knowledge-progress-item"><strong id="knowledgeProgressAttention">-</strong><span>Failed / Stale</span></div>
+                            <div class="knowledge-progress-item"><strong id="knowledgeProgressReviewed">-</strong><span>Reviewed / Published</span></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="section-head">
+                            <h2>Next Actions</h2>
+                            <p>Prioritized fixes for retrieval readiness.</p>
+                        </div>
+                        <ul class="knowledge-next-actions" id="knowledgeNextActions">
+                            <li><strong>No Knowledge Base selected.</strong><small>Select a KB to inspect indexing actions.</small></li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="grid" id="knowledgeStageSetup" style="margin-top:12px;">
                     <div class="span-6">
                         <div class="support-detail-card">
                             <h3>Create Knowledge Base</h3>
@@ -327,11 +457,12 @@
                                 <button class="btn-danger" id="btnKwClearCache" title="Clear retrieval and runtime cache.">Clear Cache</button>
                             </div>
                             <div class="note" id="knowledgeJobSummary">No active ingest job.</div>
+                            <div id="knowledgeStageIndexing"></div>
                         </div>
                     </div>
                 </div>
             </section>
-            <div class="knowledge-shell">
+            <div class="knowledge-shell" id="knowledgeStageSources">
                 <div class="knowledge-panel">
                     <section class="card">
                         <div class="section-head">
@@ -350,10 +481,17 @@
                             <h2>Files In Selected KB</h2>
                             <p>Per-file ingest status and actions for the active KB.</p>
                         </div>
+                        <div class="toolbar" style="margin-bottom:8px;">
+                            <label class="badge" title="Select or clear all files currently attached to this KB."><input id="knowledgeBulkSelectAll" type="checkbox"> Select all</label>
+                            <button class="btn-main" id="btnKnowledgeBulkIngest" title="Queue ingest/reindex for selected files." disabled>Ingest Selected</button>
+                            <button class="btn-ok" id="btnKnowledgeBulkReviewed" title="Mark selected files as reviewed." disabled>Mark Reviewed</button>
+                            <button class="btn-danger" id="btnKnowledgeBulkDetach" title="Detach selected files from this Knowledge Base." disabled>Detach Selected</button>
+                            <span class="note" id="knowledgeBulkSummary">No files selected.</span>
+                        </div>
                         <div class="scroll">
                             <table class="table" id="knowledgeWorkspaceKbFilesTable">
-                                <thead><tr><th>ID</th><th>Name</th><th>KB Status</th><th>Lifecycle</th><th>Source Status</th><th>Chunks</th><th>Actions</th></tr></thead>
-                                <tbody><tr><td colspan="7">No files loaded.</td></tr></tbody>
+                                <thead><tr><th>Select</th><th>ID</th><th>Name</th><th>KB Status</th><th>Lifecycle</th><th>Source Status</th><th>Chunks</th><th>Actions</th></tr></thead>
+                                <tbody><tr><td colspan="8">No files loaded.</td></tr></tbody>
                             </table>
                         </div>
                         <div class="card-footer-action">
@@ -418,7 +556,7 @@
                     </table>
                 </div>
             </section>
-            <section class="card source-quality-full">
+            <section class="card source-quality-full" id="knowledgeStageQuality">
                 <div class="section-head">
                     <h2>Review & Quality Details</h2>
                     <p>Open deeper governance tables only when reviewing quality, stale documents, or language distribution.</p>
@@ -923,6 +1061,171 @@
                 <section class="card span-4">
                     <div class="section-head"><h2>KB Usage</h2><p>Chat traffic grouped by Knowledge Base.</p></div>
                     <div class="scroll"><table class="table" id="analyticsKbUsageTable"><thead><tr><th>KB</th><th>Chats</th></tr></thead><tbody><tr><td colspan="2">-</td></tr></tbody></table></div>
+                </section>
+            </div>
+        </div>
+
+        <div id="view-rag-quality" class="view">
+            <div class="grid">
+                <section class="card span-12">
+                    <div class="page-title">
+                        <div>
+                            <h2>RAG Quality & Evaluation Cockpit</h2>
+                            <p>One operating view for model stack, retrieval controls, golden eval gates, and failed-answer inspection.</p>
+                        </div>
+                        <div class="rag-quality-actions">
+                            <select id="ragQualityDays" title="Select cockpit analytics lookback window.">
+                                <option value="7">Last 7 days</option>
+                                <option value="14">Last 14 days</option>
+                                <option value="30">Last 30 days</option>
+                                <option value="90">Last 90 days</option>
+                            </select>
+                            <select id="ragQualityScope" title="Choose all KBs or the selected Knowledge Base.">
+                                <option value="selected">Selected KB</option>
+                                <option value="global">All KBs</option>
+                            </select>
+                            <button class="btn-main" id="btnRefreshRagQuality" title="Reload runtime, analytics, golden dataset, and evaluation data.">Refresh Cockpit</button>
+                            <button class="btn-ok" id="btnRunCockpitGoldenEval" title="Run a golden dataset evaluation for the selected scope.">Run Golden Eval</button>
+                        </div>
+                    </div>
+                    <div class="note" id="ragQualitySummary">No RAG quality data loaded.</div>
+                </section>
+
+                <section class="card span-12">
+                    <div class="rag-quality-hero">
+                        <div class="rag-quality-card">
+                            <h3>Quality Gate</h3>
+                            <div class="rag-quality-score">
+                                <strong id="rqQualityScore">-</strong>
+                                <span class="status queued" id="rqGateStatus">not loaded</span>
+                            </div>
+                            <small class="note" id="rqGateDetail">Latest evaluation run and regression gate will appear here.</small>
+                        </div>
+                        <div class="rag-quality-card">
+                            <h3>Runtime Readiness</h3>
+                            <div class="rag-quality-score">
+                                <strong id="rqRuntimeStatus">-</strong>
+                            </div>
+                            <small class="note" id="rqRuntimeDetail">Model, embeddings, and vector store readiness.</small>
+                        </div>
+                        <div class="rag-quality-card">
+                            <h3>Eval Coverage</h3>
+                            <div class="rag-quality-score">
+                                <strong id="rqEvalSample">-</strong>
+                            </div>
+                            <small class="note" id="rqEvalDetail">Recent run sample and golden dataset count.</small>
+                        </div>
+                        <div class="rag-quality-card">
+                            <h3>Latency Budget</h3>
+                            <div class="rag-quality-score">
+                                <strong id="rqLatencyBudget">-</strong>
+                            </div>
+                            <small class="note" id="rqLatencyDetail">Runtime retrieval and LLM budgets.</small>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="card span-12">
+                    <div class="section-head">
+                        <h2>Retrieval Stack</h2>
+                        <p>Current production controls for embedding, reranking, hybrid vector retrieval, and corrective RAG.</p>
+                    </div>
+                    <div class="rag-stack-grid">
+                        <div class="rag-stack-item">
+                            <span class="status active">Embedding</span>
+                            <strong id="rqEmbeddingStack">-</strong>
+                            <small class="note" id="rqEmbeddingDetail">Provider and fingerprint.</small>
+                        </div>
+                        <div class="rag-stack-item">
+                            <span class="status active">Reranker</span>
+                            <strong id="rqRerankerStack">-</strong>
+                            <small class="note" id="rqRerankerDetail">Provider and runtime disable state.</small>
+                        </div>
+                        <div class="rag-stack-item">
+                            <span class="status active">Vector</span>
+                            <strong id="rqVectorStack">-</strong>
+                            <small class="note" id="rqVectorDetail">Backend, collection, and retrieval mode.</small>
+                        </div>
+                        <div class="rag-stack-item">
+                            <span class="status active">Corrective RAG</span>
+                            <strong id="rqCorrectiveStack">-</strong>
+                            <small class="note" id="rqCorrectiveDetail">Rewrite attempts and thresholds.</small>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="card span-12">
+                    <div class="section-head">
+                        <h2>Budget & Latency Controls</h2>
+                        <p>Deployment controls added for cost and latency are shown here as operator-readable constraints.</p>
+                    </div>
+                    <div class="rag-budget-grid">
+                        <div class="stat"><div class="value" id="rqRetrievalBudget">-</div><div class="label">Retrieval Budget</div></div>
+                        <div class="stat"><div class="value" id="rqRerankBudget">-</div><div class="label">Rerank Candidates</div></div>
+                        <div class="stat"><div class="value" id="rqAnswerBudget">-</div><div class="label">Answer Chunks</div></div>
+                        <div class="stat"><div class="value" id="rqLlmBudget">-</div><div class="label">LLM Budget</div></div>
+                    </div>
+                </section>
+
+                <section class="card span-12">
+                    <div class="section-head">
+                        <h2>Latest Eval Metric Breakdown</h2>
+                        <p>Golden evaluation metrics that show whether failures come from answer quality, retrieval, citations, judge quality, or latency.</p>
+                    </div>
+                    <div class="rag-metric-grid" id="ragQualityMetricGrid">
+                        <div class="rag-metric"><strong>-</strong><span>No eval metrics loaded.</span></div>
+                    </div>
+                </section>
+
+                <section class="card span-12">
+                    <div class="section-head">
+                        <h2>Baseline Regression Gate</h2>
+                        <p>Metric drops from the latest golden run compared with the selected baseline.</p>
+                    </div>
+                    <div class="scroll">
+                        <table class="table" id="ragQualityRegressionTable">
+                            <thead><tr><th>Metric</th><th>Baseline</th><th>Current</th><th>Delta</th></tr></thead>
+                            <tbody><tr><td colspan="4">No baseline comparison loaded.</td></tr></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="card span-4">
+                    <div class="section-head">
+                        <h2>Latest Runs</h2>
+                        <p>Recent evaluation history with score and gate status.</p>
+                    </div>
+                    <div class="scroll">
+                        <table class="table" id="ragQualityRunsTable">
+                            <thead><tr><th>Run</th><th>Gate</th><th>Score</th></tr></thead>
+                            <tbody><tr><td colspan="3">No evaluation runs loaded.</td></tr></tbody>
+                        </table>
+                    </div>
+                </section>
+                <section class="card span-8">
+                    <div class="section-head">
+                        <h2>Fail / Warn Inspector</h2>
+                        <p>Cases that need retrieval, citation, answer quality, or judge follow-up.</p>
+                    </div>
+                    <div class="scroll">
+                        <table class="table" id="ragQualityFailuresTable">
+                            <thead><tr><th>Verdict</th><th>Score</th><th>Question / Answer</th><th>Reason</th></tr></thead>
+                            <tbody><tr><td colspan="4">Select or run an evaluation.</td></tr></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="card span-12">
+                    <div class="section-head">
+                        <h2>Golden Dataset Coverage</h2>
+                        <p>Benchmark rows for the selected KB, including expected answer/source targets.</p>
+                    </div>
+                    <div class="scroll">
+                        <table class="table" id="ragQualityGoldenTable">
+                            <thead><tr><th>ID</th><th>Question</th><th>Expected</th><th>Target</th></tr></thead>
+                            <tbody><tr><td colspan="4">No golden dataset loaded.</td></tr></tbody>
+                        </table>
+                    </div>
                 </section>
             </div>
         </div>
@@ -1712,6 +2015,21 @@
         </div>
     </div>
 
+    <div class="drawer-backdrop" id="fileDetailDrawer" aria-hidden="true">
+        <aside class="drawer-card" role="dialog" aria-modal="true" aria-labelledby="fileDetailTitle">
+            <div class="drawer-head">
+                <div>
+                    <h2 id="fileDetailTitle">File Details</h2>
+                    <p class="note" id="fileDetailSubtitle">No file selected.</p>
+                </div>
+                <button class="btn-muted" id="btnCloseFileDetail">Close</button>
+            </div>
+            <div class="drawer-body" id="fileDetailBody">
+                <div class="empty-state"><strong>No file selected.</strong><span>Open details from a KB or library file action menu.</span></div>
+            </div>
+        </aside>
+    </div>
+
     <div class="modal-backdrop" id="adminModal" role="dialog" aria-modal="true" aria-labelledby="adminModalTitle">
         <div class="modal-card">
             <h2 id="adminModalTitle">Confirm action</h2>
@@ -1744,6 +2062,9 @@
         let selectedAgentEvalRun = null;
         let goldenDataset = [];
         let knowledgeGaps = [];
+        let systemRuntime = null;
+        let analyticsDashboard = null;
+        let selectedKnowledgeFileIds = new Set();
         let fileBrowserMode = 'kb';
         let authAuditLogs = [];
         let notifications = [];
@@ -1774,6 +2095,7 @@
             'view-actions': ['admin', 'support_manager', 'approver'],
             'view-jobs': ['admin', 'integration_admin'],
             'view-analytics': ['admin', 'support_manager', 'analyst'],
+            'view-rag-quality': ['admin'],
             'view-audit': ['admin', 'auditor'],
             'view-calibrate': ['admin', 'content_manager', 'support_manager', 'analyst'],
             'view-mcp': ['admin', 'integration_admin'],
@@ -1787,6 +2109,7 @@
             operations: TAB_ACCESS['view-operations-workspace'],
             access: TAB_ACCESS['view-access'],
             analytics: TAB_ACCESS['view-analytics'],
+            rag_quality: TAB_ACCESS['view-rag-quality'],
             audit: ['admin', 'auditor'],
             mcp: ['admin', 'integration_admin'],
             system: ['admin', 'integration_admin', 'auditor'],
@@ -1801,6 +2124,7 @@
             'view-operations-workspace': ['Operations Workspace', 'Monitor jobs, schedules, notifications, and workflow runs.'],
             'view-access': ['Access', 'Manage users, roles, and production readiness.'],
             'view-analytics': ['Analytics', 'Track quality, feedback, evaluation, and operational metrics.'],
+            'view-rag-quality': ['RAG Quality', 'Operate model stack, retrieval controls, latency budgets, and evaluation gates.'],
             'view-calibrate': ['Calibrate', 'Test retrieval ranking and snippet quality in the selected KB.'],
             'view-mcp': ['MCP Server', 'Inspect MCP health, tools, resources, and security policy.'],
             'view-system': ['System', 'Inspect runtime and selected Knowledge Base payloads.'],
@@ -1926,6 +2250,8 @@
             const copy = VIEW_COPY[target] || VIEW_COPY['view-knowledge-workspace'];
             setTextIfExists('pageTitle', copy[0]);
             setTextIfExists('pageSubtitle', copy[1]);
+            const mobileSelect = document.getElementById('adminModuleSelect');
+            if (mobileSelect && mobileSelect.value !== target) mobileSelect.value = target;
         }
 
         async function loadViewerProfile() {
@@ -1970,10 +2296,24 @@
                 btn.setAttribute('aria-hidden', allowed ? 'false' : 'true');
                 if (allowed) visibleTargets.add(target);
             });
+            document.querySelectorAll('.tab-group').forEach((group) => {
+                const hasVisibleTab = Array.from(group.querySelectorAll('.tab-btn')).some((btn) => !btn.hidden);
+                group.hidden = !hasVisibleTab;
+            });
+            const mobileSelect = document.getElementById('adminModuleSelect');
+            if (mobileSelect) {
+                Array.from(mobileSelect.options).forEach((option) => {
+                    const allowed = canAccessTarget(option.value);
+                    option.disabled = !allowed;
+                    option.hidden = !allowed;
+                });
+            }
 
             const current = document.querySelector('.tab-btn.active')?.dataset.target;
             if (!current || !visibleTargets.has(current)) {
                 activateTab(firstVisibleTarget());
+            } else {
+                activateTab(current);
             }
         }
 
@@ -2133,6 +2473,7 @@
 
         function kbActionButtons(file) {
             return `
+                <button class="btn-muted" data-file-detail="${file.file_id}" data-file-detail-source="kb">Details</button>
                 <button class="btn-main" data-kb-ingest="${file.file_id}">${file.kb_status === 'ingested' ? 'Reindex' : 'Ingest'}</button>
                 <button class="btn-muted" data-file-versions="${file.file_id}">Versions</button>
                 <button class="btn-muted" data-file-version-diff="${file.file_id}">V-Diff</button>
@@ -2142,8 +2483,31 @@
             `;
         }
 
+        function fileNeedsIngest(file) {
+            const status = String(file.kb_status || file.status || '').toLowerCase();
+            return ['uploaded', 'queued', 'failed', 'stale', 'attached'].includes(status) || Number(file.chunk_count || 0) === 0;
+        }
+
+        function fileNeedsAttention(file) {
+            const status = String(file.kb_status || file.status || '').toLowerCase();
+            return status === 'failed' || Boolean(file.stale_reason);
+        }
+
+        function fileNextActionNote(file) {
+            const status = String(file.kb_status || file.status || '').toLowerCase();
+            const lifecycle = String(file.lifecycle_status || 'draft').toLowerCase();
+            if (status === 'failed') return 'Next: inspect Details, then reingest or replace.';
+            if (file.stale_reason) return `Next: reingest stale source (${file.stale_reason}).`;
+            if (Number(file.chunk_count || 0) === 0 || ['uploaded', 'attached'].includes(status)) return 'Next: ingest to create retrieval chunks.';
+            if (['queued', 'running', 'ingesting'].includes(status)) return 'Next: wait for ingest job to finish.';
+            if (lifecycle === 'draft') return 'Next: review and publish when citations look correct.';
+            if (lifecycle === 'reviewed') return 'Next: publish when ready for production retrieval.';
+            return 'Ready for retrieval.';
+        }
+
         function libraryActionButtons(file, attachedSet) {
             return `
+                <button class="btn-muted" data-file-detail="${file.id}" data-file-detail-source="library">Details</button>
                 ${attachedSet.has(Number(file.id)) ? '<button class="btn-muted" disabled>Attached</button>' : `<button class="btn-ok" data-attach="${file.id}">Attach</button>`}
                 <button class="btn-muted" data-file-versions="${file.id}">Versions</button>
                 <button class="btn-muted" data-file-version-diff="${file.id}">V-Diff</button>
@@ -2166,17 +2530,20 @@
         function kbFileRowsHtml(items, options = {}) {
             const preview = Boolean(options.preview);
             const compactActions = options.compactActions ?? preview;
+            const selectable = Boolean(options.selectable);
             const limit = Number.isInteger(options.limit) ? options.limit : (preview ? 3 : 0);
             const visibleItems = limit > 0 ? items.slice(0, limit) : items;
-            if (!items.length) return '<tr><td colspan="7">No files attached to this KB.</td></tr>';
+            const colspan = selectable ? 8 : 7;
+            if (!items.length) return `<tr><td colspan="${colspan}">No files attached to this KB.</td></tr>`;
             return visibleItems.map((file) => `
                 <tr>
+                    ${selectable ? `<td><input type="checkbox" data-knowledge-file-select="${file.file_id}" ${selectedKnowledgeFileIds.has(Number(file.file_id)) ? 'checked' : ''} title="Select this file for bulk actions."></td>` : ''}
                     <td>${file.file_id}</td>
                     <td>${escapeHtml(file.original_name)}</td>
                     <td><span class="status ${file.kb_status}">${file.kb_status}</span></td>
                     <td><span class="status ${escapeHtml(file.lifecycle_status || 'draft')}">${escapeHtml(file.lifecycle_status || 'draft')}</span>${file.stale_reason ? '<br><small class="note">stale</small>' : ''}</td>
                     <td><span class="status ${file.upload_status}">${file.upload_status}</span></td>
-                    <td>${file.chunk_count ?? 0}</td>
+                    <td>${file.chunk_count ?? 0}<br><small class="note">${escapeHtml(fileNextActionNote(file))}</small></td>
                     <td>
                         ${compactActions ? compactFileActions(file.file_id, kbActionButtons(file)) : `
                             <div class="table-actions">
@@ -2484,9 +2851,192 @@
             auditCard.style.height = `${targetHeight}px`;
         }
 
+        function setKnowledgeStageSummary(id, text, status = 'active') {
+            const summary = document.getElementById(`${id}Summary`);
+            const stage = summary?.closest('.knowledge-stage');
+            const badge = stage?.querySelector('.status');
+            if (summary) summary.textContent = text;
+            if (badge) badge.className = `status ${status}`;
+        }
+
+        function renderKnowledgeFlow(selectedDriveSources) {
+            const selectedName = activeKb?.name || 'No KB selected';
+            const staleCount = Number(kbQualityReport?.stale_count || 0);
+            const reviewCount = Number(kbReviewQueue?.total || 0);
+            const lowQualityCount = Number(kbReviewQueue?.low_quality_count || 0);
+            const pendingFiles = kbFiles.filter((item) => ['uploaded', 'queued', 'failed', 'stale'].includes(String(item.kb_status || item.status || '').toLowerCase())).length;
+            setKnowledgeStageSummary('knowledgeStageSetup', activeKb ? `${selectedName} is active.` : 'Select or create a Knowledge Base.', activeKb ? 'done' : 'queued');
+            setKnowledgeStageSummary('knowledgeStageSources', `${kbFiles.length} attached, ${libraryFiles.length} library, ${selectedDriveSources.length} Drive.`, kbFiles.length || selectedDriveSources.length ? 'done' : 'queued');
+            setKnowledgeStageSummary('knowledgeStageIndexing', pendingFiles ? `${pendingFiles} file(s) need ingest attention.` : 'No stale ingest work detected.', pendingFiles ? 'queued' : 'done');
+            setKnowledgeStageSummary('knowledgeStageQuality', `${reviewCount} review item(s), ${lowQualityCount} low quality, ${staleCount} stale.`, reviewCount || staleCount ? 'queued' : 'done');
+        }
+
+        function scrollToKnowledgeStage(targetId) {
+            const target = document.getElementById(targetId);
+            if (!target) return;
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function renderKnowledgeBulkState() {
+            const availableIds = new Set(kbFiles.map((item) => Number(item.file_id)));
+            selectedKnowledgeFileIds = new Set(Array.from(selectedKnowledgeFileIds).filter((id) => availableIds.has(Number(id))));
+            const selectedCount = selectedKnowledgeFileIds.size;
+            setTextIfExists('knowledgeBulkSummary', selectedCount ? `${selectedCount} selected.` : 'No files selected.');
+            ['btnKnowledgeBulkIngest', 'btnKnowledgeBulkReviewed', 'btnKnowledgeBulkDetach'].forEach((id) => {
+                const btn = document.getElementById(id);
+                if (btn) btn.disabled = selectedCount === 0;
+            });
+            const selectAll = document.getElementById('knowledgeBulkSelectAll');
+            if (selectAll) {
+                selectAll.checked = Boolean(kbFiles.length) && selectedCount === kbFiles.length;
+                selectAll.indeterminate = selectedCount > 0 && selectedCount < kbFiles.length;
+            }
+        }
+
+        function knowledgeProgressStats() {
+            const total = kbFiles.length;
+            const ingested = kbFiles.filter((item) => String(item.kb_status || '').toLowerCase() === 'ingested').length;
+            const needsIngest = kbFiles.filter(fileNeedsIngest).length;
+            const attention = kbFiles.filter(fileNeedsAttention).length;
+            const reviewed = kbFiles.filter((item) => ['reviewed', 'published'].includes(String(item.lifecycle_status || '').toLowerCase())).length;
+            const percent = total ? Math.round((ingested / total) * 100) : 0;
+            return { total, ingested, needsIngest, attention, reviewed, percent };
+        }
+
+        function knowledgeNextActionsHtml(stats) {
+            if (!activeKb) {
+                return '<li><strong>No Knowledge Base selected.</strong><small>Select a KB to inspect indexing actions.</small></li>';
+            }
+            const actions = [];
+            const failedFiles = kbFiles.filter((item) => String(item.kb_status || '').toLowerCase() === 'failed');
+            const staleFiles = kbFiles.filter((item) => item.stale_reason);
+            const emptyChunkFiles = kbFiles.filter((item) => Number(item.chunk_count || 0) === 0);
+            const draftFiles = kbFiles.filter((item) => String(item.lifecycle_status || 'draft').toLowerCase() === 'draft');
+            if (failedFiles.length) actions.push(['Fix failed ingest', `${failedFiles.length} file(s) failed. Open Details, replace bad sources, then reingest.`]);
+            if (staleFiles.length) actions.push(['Refresh stale sources', `${staleFiles.length} file(s) changed or became stale. Reingest before evaluating answers.`]);
+            if (emptyChunkFiles.length) actions.push(['Create retrieval chunks', `${emptyChunkFiles.length} file(s) have zero chunks. Run Ingest Selected after selecting them.`]);
+            if (draftFiles.length) actions.push(['Review lifecycle', `${draftFiles.length} draft file(s) should be reviewed or published after citations look correct.`]);
+            if (activeJobs.size) actions.push(['Watch active jobs', `${activeJobs.size} background job(s) are being tracked: ${Array.from(activeJobs).join(', ')}.`]);
+            if (!actions.length && stats.total) actions.push(['Ready for calibration', 'Files are indexed and no stale/failed sources are currently flagged. Run a golden eval next.']);
+            if (!actions.length) actions.push(['Add sources', 'Upload or attach source files, then ingest them into this KB.']);
+            return actions.slice(0, 4).map(([title, detail]) => `<li><strong>${escapeHtml(title)}</strong><small>${escapeHtml(detail)}</small></li>`).join('');
+        }
+
+        function renderKnowledgeProgress() {
+            const stats = knowledgeProgressStats();
+            const bar = document.getElementById('knowledgeIndexProgressBar');
+            if (bar) bar.style.width = `${stats.percent}%`;
+            setTextIfExists('knowledgeProgressSummary', activeKb
+                ? `${stats.percent}% indexed for ${activeKb.name}. ${stats.needsIngest} file(s) still need ingest attention.`
+                : 'No Knowledge Base selected.');
+            setTextIfExists('knowledgeProgressIngested', String(stats.ingested));
+            setTextIfExists('knowledgeProgressNeedsIngest', String(stats.needsIngest));
+            setTextIfExists('knowledgeProgressAttention', String(stats.attention));
+            setTextIfExists('knowledgeProgressReviewed', String(stats.reviewed));
+            const actions = document.getElementById('knowledgeNextActions');
+            if (actions) actions.innerHTML = knowledgeNextActionsHtml(stats);
+        }
+
+        function fileStatusBadge(status, fallback = '-') {
+            const value = status || fallback;
+            return `<span class="status ${escapeHtml(value)}">${escapeHtml(value)}</span>`;
+        }
+
+        function findFileDetail(fileId, source = 'kb') {
+            const id = Number(fileId);
+            if (source === 'library') {
+                return {
+                    source,
+                    file: libraryFiles.find((item) => Number(item.id) === id)
+                        || kbFiles.find((item) => Number(item.file_id) === id),
+                };
+            }
+            return {
+                source,
+                file: kbFiles.find((item) => Number(item.file_id) === id)
+                    || libraryFiles.find((item) => Number(item.id) === id),
+            };
+        }
+
+        function fileDetailKv(label, value) {
+            return `<div class="drawer-kv"><span>${escapeHtml(label)}</span><strong>${value}</strong></div>`;
+        }
+
+        function fileDetailActionsHtml(file, source) {
+            const id = Number(source === 'library' ? file.id : file.file_id);
+            const attachedSet = new Set(kbFiles.map((item) => Number(item.file_id)));
+            return source === 'library'
+                ? libraryActionButtons(file, attachedSet)
+                : kbActionButtons(file).replace(`data-file-detail="${id}" data-file-detail-source="kb"`, `data-file-detail="${id}" data-file-detail-source="kb" disabled`);
+        }
+
+        function fileDetailHtml(file, source = 'kb') {
+            if (!file) {
+                return '<div class="empty-state"><strong>File not found.</strong><span>Refresh the workspace and open details again.</span></div>';
+            }
+            const isLibrary = source === 'library';
+            const id = Number(isLibrary ? file.id : file.file_id);
+            const kbMatch = kbFiles.find((item) => Number(item.file_id) === id);
+            const libraryMatch = libraryFiles.find((item) => Number(item.id) === id);
+            const attachmentLabel = kbMatch ? 'Attached to selected KB' : 'Not attached to selected KB';
+            const primaryStatus = isLibrary ? file.status : file.kb_status;
+            const lifecycle = file.lifecycle_status || kbMatch?.lifecycle_status || '-';
+            const uploadStatus = file.upload_status || libraryMatch?.status || '-';
+            const staleReason = file.stale_reason || kbMatch?.stale_reason || '';
+            const chunks = file.chunk_count ?? kbMatch?.chunk_count ?? 0;
+            const rowsPages = file.pages_or_rows ?? libraryMatch?.pages_or_rows ?? '-';
+            const createdAt = file.created_at || libraryMatch?.created_at || '-';
+            const updatedAt = file.updated_at || kbMatch?.updated_at || libraryMatch?.updated_at || '-';
+            return `
+                <section class="support-detail-card">
+                    <h3>${escapeHtml(file.original_name || '-')}</h3>
+                    <p class="note">Source ${escapeHtml(source)} | ${attachmentLabel}</p>
+                    <div class="drawer-grid">
+                        ${fileDetailKv('File ID', escapeHtml(id))}
+                        ${fileDetailKv('Status', fileStatusBadge(primaryStatus))}
+                        ${fileDetailKv('Lifecycle', fileStatusBadge(lifecycle))}
+                        ${fileDetailKv('Upload', fileStatusBadge(uploadStatus))}
+                        ${fileDetailKv('Chunks', escapeHtml(chunks))}
+                        ${fileDetailKv('Rows / Pages', escapeHtml(rowsPages))}
+                        ${fileDetailKv('Created', escapeHtml(compactValue(createdAt, 34)))}
+                        ${fileDetailKv('Updated', escapeHtml(compactValue(updatedAt, 34)))}
+                    </div>
+                </section>
+                <section class="support-detail-card">
+                    <h3>Quality Notes</h3>
+                    ${staleReason
+                        ? `<p><span class="status failed">stale</span> ${escapeHtml(staleReason)}</p>`
+                        : '<p class="note">No stale reason recorded for this file.</p>'}
+                    ${kbMatch?.drive_sync_status ? `<p class="note">Drive sync: ${escapeHtml(kbMatch.drive_sync_status)}</p>` : ''}
+                </section>
+                <section class="support-detail-card">
+                    <h3>Actions</h3>
+                    <div class="drawer-actions">${fileDetailActionsHtml(file, source)}</div>
+                </section>
+            `;
+        }
+
+        function openFileDetail(fileId, source = 'kb') {
+            const found = findFileDetail(fileId, source);
+            const drawer = document.getElementById('fileDetailDrawer');
+            const file = found.file;
+            setTextIfExists('fileDetailTitle', file?.original_name || 'File Details');
+            setTextIfExists('fileDetailSubtitle', file ? `ID ${fileId} | ${found.source}` : `ID ${fileId} not found`);
+            const body = document.getElementById('fileDetailBody');
+            if (body) body.innerHTML = fileDetailHtml(file, found.source);
+            drawer?.classList.add('active');
+            drawer?.setAttribute('aria-hidden', 'false');
+        }
+
+        function closeFileDetail() {
+            const drawer = document.getElementById('fileDetailDrawer');
+            drawer?.classList.remove('active');
+            drawer?.setAttribute('aria-hidden', 'true');
+        }
+
         function renderKnowledgeWorkspace() {
             const selectedDriveSources = driveSourcesForSelectedKb();
-            setTableBody('knowledgeWorkspaceKbFilesTable', kbFileRowsHtml(kbFiles, { compactActions: true }));
+            setTableBody('knowledgeWorkspaceKbFilesTable', kbFileRowsHtml(kbFiles, { compactActions: true, selectable: true }));
             setTableBody('knowledgeWorkspaceLibraryTable', libraryRowsHtml(libraryFiles, { compactActions: true }));
             setTableBody('knowledgeWorkspaceSourcesTable', sourceStatsRowsHtml(sourceStats));
             setTableBody('knowledgeWorkspaceDriveSourcesTable', selectedKbId() ? driveSourceRowsHtml(selectedDriveSources, 'knowledge') : '<tr><td colspan="6">No Knowledge Base selected.</td></tr>');
@@ -2509,6 +3059,8 @@
             if (drive) drive.textContent = String(selectedDriveSources.length);
             if (quality) quality.textContent = kbQualityReport ? String(kbQualityReport.average_quality_score) : '-';
             if (stale) stale.textContent = kbQualityReport ? String(kbQualityReport.stale_count || 0) : '-';
+            renderKnowledgeFlow(selectedDriveSources);
+            renderKnowledgeProgress();
             const queueSummary = document.getElementById('knowledgeReviewQueueSummary');
             if (queueSummary) {
                 queueSummary.textContent = kbReviewQueue
@@ -2522,6 +3074,7 @@
                 detailsSummary.textContent = `${reviewCount} review item(s), quality ${qualityScore}, ${sourceStats.length} source(s).`;
             }
             requestAnimationFrame(syncKnowledgeCardHeights);
+            renderKnowledgeBulkState();
             renderFileBrowser();
         }
 
@@ -2646,6 +3199,7 @@
                 fetchJson(`/api/kbs/${selectedKbId()}`),
             ]);
             activeKb = freshKb;
+            systemRuntime = system;
             updateKbHeader();
             document.getElementById('s-files').textContent = kbStats.total_files;
             document.getElementById('s-ingested').textContent = kbStats.ingested_files;
@@ -2654,6 +3208,7 @@
             document.getElementById('s-provider').textContent = system.llm_provider_active || '-';
             renderProviderCapabilities(system.llm_capabilities || {});
             document.getElementById('systemDump').textContent = JSON.stringify({ selected_kb: freshKb, runtime: system }, null, 2);
+            renderRagQualityCockpit();
         }
 
         function renderProviderCapabilities(cap) {
@@ -3062,6 +3617,7 @@
             const params = new URLSearchParams({ days: String(days) });
             if (selectedOnly && selectedKbId()) params.set('kb_id', String(selectedKbId()));
             const data = await fetchJson(`/api/admin/analytics?${params.toString()}`);
+            analyticsDashboard = data;
             const summary = data.summary || {};
             document.getElementById('analyticsSummary').textContent = `${data.period_days} day window${data.kb_id ? ` | KB ${data.kb_id}` : ' | all KBs'} | ${summary.unique_users || 0} user(s) | avg latency ${summary.avg_latency_ms ?? '-'} ms`;
             document.getElementById('aChats').textContent = summary.chat_count || 0;
@@ -3106,6 +3662,7 @@
             renderBreakdownTable('analyticsSupportStatusTable', data.support_status);
             renderBreakdownTable('analyticsKbUsageTable', data.kb_usage);
             await refreshKnowledgeGaps(false);
+            renderRagQualityCockpit();
         }
 
         function evalScoreStatus(score) {
@@ -3150,6 +3707,148 @@
             `).join('');
         }
 
+        function setStatusIfExists(id, text, status = 'queued') {
+            const node = byId(id);
+            if (!node) return;
+            node.textContent = text;
+            node.className = `status ${status}`;
+        }
+
+        function gateStatusClass(gateStatus) {
+            const normalized = String(gateStatus || '').toLowerCase();
+            if (['passed', 'pass'].includes(normalized)) return 'done';
+            if (['failed', 'fail'].includes(normalized)) return 'failed';
+            if (['baseline_missing', 'not_compared'].includes(normalized)) return 'queued';
+            return 'active';
+        }
+
+        function booleanStatusLabel(value, enabledText = 'enabled', disabledText = 'disabled') {
+            return value ? enabledText : disabledText;
+        }
+
+        function formatMs(value) {
+            const numeric = Number(value || 0);
+            return numeric > 0 ? `${numeric} ms` : 'off';
+        }
+
+        function compactValue(value, max = 18) {
+            const text = String(value || '-');
+            if (text.length <= max) return text;
+            const half = Math.max(4, Math.floor((max - 3) / 2));
+            return `${text.slice(0, half)}...${text.slice(-half)}`;
+        }
+
+        function ragQualityRunRowsHtml(items) {
+            if (!items.length) return '<tr><td colspan="3">No evaluation runs found.</td></tr>';
+            return items.slice(0, 8).map((item) => `
+                <tr>
+                    <td><strong>${escapeHtml(item.name || `Run ${item.id}`)}</strong><br><small class="note">${escapeHtml(item.source || '-')} | ${escapeHtml(item.created_at || '-')}</small></td>
+                    <td><span class="status ${gateStatusClass(item.gate_status)}">${escapeHtml(item.gate_status || 'not_compared')}</span><br><small class="note">baseline ${item.baseline_run_id || '-'}</small></td>
+                    <td><strong>${item.avg_score ?? '-'}</strong><br><small class="note">${item.sample_size || 0} sample(s)</small></td>
+                </tr>
+            `).join('');
+        }
+
+        function ragMetricValue(value, { percent = true, suffix = '' } = {}) {
+            if (value === null || value === undefined || value === '') return '-';
+            const numeric = Number(value);
+            if (Number.isNaN(numeric)) return escapeHtml(value);
+            if (suffix) return `${Math.round(numeric)}${suffix}`;
+            if (!percent) return String(Math.round(numeric * 100) / 100);
+            return `${Math.round(numeric * 100)}%`;
+        }
+
+        function renderRagQualityMetrics(run) {
+            const metrics = run?.metrics || {};
+            const items = [
+                ['Answer Similarity', metrics.answer_similarity],
+                ['Recall @ K', metrics.recall_at_k],
+                ['Citation Accuracy', metrics.citation_accuracy],
+                ['MRR', metrics.mrr],
+                ['Judge Groundedness', metrics.judge_groundedness],
+                ['Retrieved Avg', metrics.retrieved_count_avg, { percent: false }],
+                ['Latency P50', metrics.latency_p50_ms, { percent: false, suffix: ' ms' }],
+                ['Latency P95', metrics.latency_p95_ms, { percent: false, suffix: ' ms' }],
+            ];
+            const available = items.filter(([, value]) => value !== null && value !== undefined);
+            const node = byId('ragQualityMetricGrid');
+            if (!node) return;
+            node.innerHTML = available.length
+                ? available.map(([label, value, options]) => `
+                    <div class="rag-metric">
+                        <strong>${ragMetricValue(value, options || {})}</strong>
+                        <span>${escapeHtml(label)}</span>
+                    </div>
+                `).join('')
+                : '<div class="rag-metric"><strong>-</strong><span>No eval metrics loaded.</span></div>';
+        }
+
+        function ragQualityRegressionRowsHtml(run) {
+            const regressions = run?.comparison?.regressions || [];
+            if (!regressions.length) {
+                const status = run?.gate_status || 'not_compared';
+                return `<tr><td colspan="4">No metric regressions found. Gate status: ${escapeHtml(status)}.</td></tr>`;
+            }
+            return regressions.map((item) => `
+                <tr>
+                    <td><strong>${escapeHtml(item.metric || '-')}</strong></td>
+                    <td>${item.baseline ?? '-'}</td>
+                    <td>${item.current ?? '-'}</td>
+                    <td><span class="status failed">${item.delta ?? '-'}</span></td>
+                </tr>
+            `).join('');
+        }
+
+        function renderRagQualityCockpit() {
+            const system = systemRuntime || {};
+            const budget = system.runtime_budget || {};
+            const latestRun = selectedAgentEvalRun || agentEvalRuns[0] || null;
+            const latestResults = latestRun?.results || [];
+            const failedOrWarn = latestResults.filter((item) => item.verdict !== 'pass');
+            const analyticsSummary = analyticsDashboard?.summary || {};
+
+            setTextIfExists('ragQualitySummary', system.timestamp
+                ? `Runtime ${system.timestamp} | ${activeKb?.name || 'No KB selected'} | ${analyticsDashboard?.period_days || '-'} day analytics window.`
+                : 'No RAG quality data loaded.');
+
+            setTextIfExists('rqQualityScore', latestRun?.avg_score ?? '-');
+            setStatusIfExists('rqGateStatus', latestRun?.gate_status || 'not loaded', gateStatusClass(latestRun?.gate_status));
+            setTextIfExists('rqGateDetail', latestRun
+                ? `${latestRun.name || `Run ${latestRun.id}`} | ${latestRun.pass_count || 0} pass, ${latestRun.warn_count || 0} warn, ${latestRun.fail_count || 0} fail.`
+                : 'Run a golden or recent-chat evaluation to populate the quality gate.');
+
+            const runtimeReady = Boolean(system.llm_loaded) && Boolean(system.embeddings_ready) && Boolean(system.vector_store_ready);
+            setTextIfExists('rqRuntimeStatus', runtimeReady ? 'Ready' : 'Check');
+            setTextIfExists('rqRuntimeDetail', `LLM ${booleanStatusLabel(system.llm_loaded, 'loaded', 'not loaded')}, embeddings ${booleanStatusLabel(system.embeddings_ready, 'ready', 'not ready')}, vector store ${booleanStatusLabel(system.vector_store_ready, 'ready', 'not ready')}.`);
+
+            setTextIfExists('rqEvalSample', latestRun ? String(latestRun.sample_size || 0) : '-');
+            setTextIfExists('rqEvalDetail', `${goldenDataset.length || 0} golden item(s), ${agentEvalRuns.length || 0} recent run(s).`);
+
+            setTextIfExists('rqLatencyBudget', formatMs(budget.retrieval_latency_budget_ms));
+            setTextIfExists('rqLatencyDetail', `Average chat latency ${analyticsSummary.avg_latency_ms === null || analyticsSummary.avg_latency_ms === undefined ? '-' : `${Math.round(analyticsSummary.avg_latency_ms)} ms`}; cached input ${formatRate(analyticsSummary.llm_cached_input_rate)}.`);
+
+            setTextIfExists('rqEmbeddingStack', system.embedding_model || '-');
+            setTextIfExists('rqEmbeddingDetail', `${system.embedding_provider || '-'} | ${system.embedding_backend || '-'} | ${compactValue(system.embedding_model_fingerprint || system.embedding_source || '-', 28)}`);
+            setTextIfExists('rqRerankerStack', system.reranker_model || system.reranker_provider || '-');
+            setTextIfExists('rqRerankerDetail', `${system.reranker_provider || '-'} | ${budget.effective_disable_reranker ? 'disabled' : 'enabled'} | top ${system.reranker_top_n || budget.max_rerank_candidates || '-'}`);
+            setTextIfExists('rqVectorStack', system.vector_backend_active || system.vector_backend || '-');
+            setTextIfExists('rqVectorDetail', `${system.vector_backend_config || '-'} | ${system.retrieval_mode || '-'}${system.qdrant_hybrid_enabled ? ' hybrid on' : ''} | dim ${system.embedding_dimension || '-'}`);
+            const corrective = system.corrective_rag || {};
+            setTextIfExists('rqCorrectiveStack', corrective.enabled ? 'Enabled' : 'Disabled');
+            setTextIfExists('rqCorrectiveDetail', `${corrective.max_attempts || 0} attempt(s), min score ${corrective.min_score ?? '-'}, min results ${corrective.min_results ?? '-'}.`);
+
+            setTextIfExists('rqRetrievalBudget', formatMs(budget.retrieval_latency_budget_ms));
+            setTextIfExists('rqRerankBudget', budget.max_rerank_candidates ?? '-');
+            setTextIfExists('rqAnswerBudget', budget.max_answer_chunks ?? '-');
+            setTextIfExists('rqLlmBudget', formatMs(budget.llm_latency_budget_ms));
+
+            setTableBody('ragQualityRunsTable', ragQualityRunRowsHtml(agentEvalRuns));
+            renderRagQualityMetrics(latestRun);
+            setTableBody('ragQualityRegressionTable', ragQualityRegressionRowsHtml(latestRun));
+            setTableBody('ragQualityFailuresTable', agentEvalResultRowsHtml(failedOrWarn));
+            setTableBody('ragQualityGoldenTable', goldenDatasetRowsHtml(goldenDataset.slice(0, 12)));
+        }
+
         function renderAgentEvalRun(run) {
             selectedAgentEvalRun = run || null;
             const results = (run?.results || []).filter((item) => item.verdict !== 'pass');
@@ -3161,6 +3860,7 @@
             document.getElementById('evalWarnCount').textContent = run?.warn_count ?? '-';
             document.getElementById('evalFailCount').textContent = run?.fail_count ?? '-';
             setTableBody('agentEvalResultsTable', agentEvalResultRowsHtml(results));
+            renderRagQualityCockpit();
         }
 
         async function refreshAgentEvalRuns() {
@@ -3173,6 +3873,7 @@
             } else if (!agentEvalRuns.length) {
                 renderAgentEvalRun(null);
             }
+            renderRagQualityCockpit();
         }
 
         async function refreshGoldenDataset() {
@@ -3182,6 +3883,7 @@
             goldenDataset = data.items || [];
             setTableBody('goldenDatasetTable', goldenDatasetRowsHtml(goldenDataset));
             document.getElementById('goldenDatasetSummary').textContent = `Loaded ${goldenDataset.length} golden item(s).`;
+            renderRagQualityCockpit();
         }
 
         async function createGoldenDatasetItem() {
@@ -3261,6 +3963,31 @@
             document.getElementById('evalRunName').value = '';
             await refreshAgentEvalRuns();
             toast(`Evaluation run completed: ${run.sample_size || 0} sample(s)`);
+        }
+
+        async function refreshRagQualityCockpitData() {
+            if (!selectedKbId()) return;
+            const days = Number(document.getElementById('ragQualityDays')?.value || '7');
+            const selectedOnly = document.getElementById('ragQualityScope')?.value !== 'global';
+            const params = new URLSearchParams({ days: String(days) });
+            if (selectedOnly && selectedKbId()) params.set('kb_id', String(selectedKbId()));
+            await refreshIfAllowed('system', refreshStatsAndSystem);
+            analyticsDashboard = await fetchJson(`/api/admin/analytics?${params.toString()}`);
+            await refreshAgentEvalRuns();
+            await refreshGoldenDataset();
+            renderRagQualityCockpit();
+        }
+
+        async function runCockpitGoldenEvaluation() {
+            if (!selectedKbId()) return toast('Select a KB before running a golden evaluation.', false);
+            const selectedOnly = document.getElementById('ragQualityScope')?.value !== 'global';
+            setValueIfExists('evalSource', 'golden_dataset');
+            setValueIfExists('evalScope', selectedOnly ? 'selected' : 'global');
+            setValueIfExists('evalDays', document.getElementById('ragQualityDays')?.value || '7');
+            setValueIfExists('evalRunName', `Cockpit golden eval ${new Date().toISOString().slice(0, 16)}`);
+            await runAgentEvaluation();
+            await refreshRagQualityCockpitData();
+            activateTab('view-rag-quality');
         }
 
         async function refreshAuthAudit() {
@@ -4541,6 +5268,7 @@
             const text = activeJobs.size ? `Tracking ${activeJobs.size} ingest job(s): ${Array.from(activeJobs).join(', ')}` : 'No active ingest job.';
             setTextIfExists('jobSummary', text);
             setTextIfExists('knowledgeJobSummary', text);
+            renderKnowledgeProgress();
         }
 
         async function pollJob(jobId) {
@@ -4814,6 +5542,53 @@
             ]);
         }
 
+        function selectedKnowledgeFileIdList() {
+            return Array.from(selectedKnowledgeFileIds).map(Number).filter((id) => Number.isInteger(id) && id > 0);
+        }
+
+        async function bulkIngestKnowledgeFiles() {
+            const ids = selectedKnowledgeFileIdList();
+            if (!ids.length) return toast('Select at least one KB file first.', false);
+            for (const fileId of ids) {
+                const data = await fetchJson(`/api/kbs/${selectedKbId()}/files/${fileId}/ingest`, { method:'POST' });
+                if (data.job_id) pollJob(data.job_id);
+            }
+            toast(`Queued ingest for ${ids.length} file(s).`);
+            selectedKnowledgeFileIds.clear();
+            await refreshAll(selectedKbId());
+        }
+
+        async function bulkMarkKnowledgeFilesReviewed() {
+            const ids = selectedKnowledgeFileIdList();
+            if (!ids.length) return toast('Select at least one KB file first.', false);
+            for (const fileId of ids) {
+                await fetchJson(`/api/kbs/${selectedKbId()}/files/${fileId}/lifecycle`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ lifecycle_status: 'reviewed' }),
+                });
+            }
+            toast(`Marked ${ids.length} file(s) as reviewed.`);
+            selectedKnowledgeFileIds.clear();
+            await allAllowed([
+                ['knowledge', refreshKbFiles],
+                ['knowledge', () => refreshKnowledgeQuality(false)],
+                ['knowledge', () => refreshKnowledgeReviewQueue(false)],
+            ]);
+        }
+
+        async function bulkDetachKnowledgeFiles() {
+            const ids = selectedKnowledgeFileIdList();
+            if (!ids.length) return toast('Select at least one KB file first.', false);
+            if (!await modalConfirm('Detach selected files', `Detach ${ids.length} file(s) from "${activeKb?.name || 'selected KB'}"?`, { danger: true, confirmLabel: 'Detach files' })) return;
+            for (const fileId of ids) {
+                await fetchJson(`/api/kbs/${selectedKbId()}/files/${fileId}`, { method:'DELETE' });
+            }
+            toast(`Detached ${ids.length} file(s).`);
+            selectedKnowledgeFileIds.clear();
+            await refreshAll(selectedKbId());
+        }
+
         async function showKbFileDiff(fileId) {
             const diff = await fetchJson(`/api/kbs/${selectedKbId()}/files/${fileId}/diff`);
             const body = [
@@ -4959,6 +5734,9 @@
         document.querySelectorAll('.subtab-btn[data-subtarget]').forEach((btn) => {
             btn.addEventListener('click', () => activateSupportSubtab(btn.dataset.subtarget));
         });
+        document.querySelectorAll('[data-knowledge-stage-target]').forEach((btn) => {
+            btn.addEventListener('click', () => scrollToKnowledgeStage(btn.dataset.knowledgeStageTarget));
+        });
         document.getElementById('btnSaveAuth').addEventListener('click', async () => {
             saveAdminAuth();
             await loadViewerProfile();
@@ -4985,6 +5763,51 @@
         document.getElementById('btnKnowledgeIngest').addEventListener('click', () => ingestKb().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnKnowledgeReindex').addEventListener('click', () => reindexKb().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnKnowledgeDriveRefresh').addEventListener('click', () => refreshDriveSources().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('knowledgeBulkSelectAll').addEventListener('change', (event) => {
+            selectedKnowledgeFileIds = event.target.checked
+                ? new Set(kbFiles.map((item) => Number(item.file_id)))
+                : new Set();
+            renderKnowledgeWorkspace();
+        });
+        document.getElementById('btnKnowledgeBulkIngest').addEventListener('click', () => bulkIngestKnowledgeFiles().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnKnowledgeBulkReviewed').addEventListener('click', () => bulkMarkKnowledgeFilesReviewed().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnKnowledgeBulkDetach').addEventListener('click', () => bulkDetachKnowledgeFiles().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnCloseFileDetail').addEventListener('click', closeFileDetail);
+        document.getElementById('fileDetailDrawer').addEventListener('click', (event) => {
+            if (event.target.id === 'fileDetailDrawer') closeFileDetail();
+        });
+        document.getElementById('fileDetailBody').addEventListener('click', (event) => {
+            const detailBtn = event.target.closest('[data-file-detail]');
+            if (detailBtn) return openFileDetail(Number(detailBtn.dataset.fileDetail), detailBtn.dataset.fileDetailSource || 'kb');
+            const ingestBtn = event.target.closest('[data-kb-ingest]');
+            if (ingestBtn) {
+                closeFileDetail();
+                return ingestOne(Number(ingestBtn.dataset.kbIngest)).catch((e) => toast(explainAuthError(e), false));
+            }
+            const attachBtn = event.target.closest('[data-attach]');
+            if (attachBtn) {
+                closeFileDetail();
+                return attachFile(Number(attachBtn.dataset.attach)).catch((e) => toast(explainAuthError(e), false));
+            }
+            const detachBtn = event.target.closest('[data-detach]');
+            if (detachBtn) {
+                closeFileDetail();
+                return detachFile(Number(detachBtn.dataset.detach)).catch((e) => toast(explainAuthError(e), false));
+            }
+            const versionsBtn = event.target.closest('[data-file-versions]');
+            if (versionsBtn) return showFileVersions(Number(versionsBtn.dataset.fileVersions)).catch((e) => toast(explainAuthError(e), false));
+            const versionDiffBtn = event.target.closest('[data-file-version-diff]');
+            if (versionDiffBtn) return showFileVersionDiff(Number(versionDiffBtn.dataset.fileVersionDiff)).catch((e) => toast(explainAuthError(e), false));
+            const replaceBtn = event.target.closest('[data-file-replace]');
+            if (replaceBtn) return replaceFileContent(Number(replaceBtn.dataset.fileReplace)).catch((e) => toast(explainAuthError(e), false));
+            const rollbackBtn = event.target.closest('[data-file-rollback]');
+            if (rollbackBtn) return rollbackFileVersion(Number(rollbackBtn.dataset.fileRollback)).catch((e) => toast(explainAuthError(e), false));
+            const delBtn = event.target.closest('[data-del]');
+            if (delBtn) {
+                closeFileDetail();
+                return deleteFile(Number(delBtn.dataset.del)).catch((e) => toast(explainAuthError(e), false));
+            }
+        });
         document.getElementById('btnViewAllKbFiles').addEventListener('click', () => openFileBrowser('kb'));
         document.getElementById('btnViewAllLibraryFiles').addEventListener('click', () => openFileBrowser('library'));
         document.getElementById('btnFileBrowserBack').addEventListener('click', () => activateTab('view-knowledge-workspace'));
@@ -5025,6 +5848,10 @@
         });
         document.getElementById('btnRunAgentEval').addEventListener('click', () => runAgentEvaluation().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnRefreshAgentEvals').addEventListener('click', () => refreshAgentEvalRuns().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnRefreshRagQuality').addEventListener('click', () => refreshRagQualityCockpitData().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnRunCockpitGoldenEval').addEventListener('click', () => runCockpitGoldenEvaluation().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('ragQualityDays').addEventListener('change', () => refreshRagQualityCockpitData().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('ragQualityScope').addEventListener('change', () => refreshRagQualityCockpitData().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnCreateGoldenItem').addEventListener('click', () => createGoldenDatasetItem().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnUploadGoldenCsv').addEventListener('click', () => uploadGoldenDatasetCsv().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnRefreshGoldenDataset').addEventListener('click', () => refreshGoldenDataset().catch((e) => toast(explainAuthError(e), false)));
@@ -5117,6 +5944,8 @@
         document.getElementById('calibQuery').addEventListener('keypress', (e) => { if (e.key === 'Enter') runCalibrate(); });
 
         document.querySelector('#kbFilesTable tbody').addEventListener('click', (event) => {
+            const detailBtn = event.target.closest('[data-file-detail]');
+            if (detailBtn) return openFileDetail(Number(detailBtn.dataset.fileDetail), detailBtn.dataset.fileDetailSource || 'kb');
             const ingestBtn = event.target.closest('[data-kb-ingest]');
             if (ingestBtn) return ingestOne(Number(ingestBtn.dataset.kbIngest)).catch((e) => toast(explainAuthError(e), false));
             const versionsBtn = event.target.closest('[data-file-versions]');
@@ -5132,6 +5961,8 @@
         });
 
         document.querySelector('#libraryTable tbody').addEventListener('click', (event) => {
+            const detailBtn = event.target.closest('[data-file-detail]');
+            if (detailBtn) return openFileDetail(Number(detailBtn.dataset.fileDetail), detailBtn.dataset.fileDetailSource || 'library');
             const attachBtn = event.target.closest('[data-attach]');
             if (attachBtn) return attachFile(Number(attachBtn.dataset.attach)).catch((e) => toast(explainAuthError(e), false));
             const versionsBtn = event.target.closest('[data-file-versions]');
@@ -5159,6 +5990,8 @@
         document.querySelector('#knowledgeWorkspaceKbFilesTable tbody').addEventListener('click', (event) => {
             const menuBtn = event.target.closest('[data-file-menu]');
             if (menuBtn) return toggleActionMenu(menuBtn);
+            const detailBtn = event.target.closest('[data-file-detail]');
+            if (detailBtn) return openFileDetail(Number(detailBtn.dataset.fileDetail), detailBtn.dataset.fileDetailSource || 'kb');
             const ingestBtn = event.target.closest('[data-kb-ingest]');
             if (ingestBtn) return ingestOne(Number(ingestBtn.dataset.kbIngest)).catch((e) => toast(explainAuthError(e), false));
             const versionsBtn = event.target.closest('[data-file-versions]');
@@ -5171,6 +6004,14 @@
             if (rollbackBtn) return rollbackFileVersion(Number(rollbackBtn.dataset.fileRollback)).catch((e) => toast(explainAuthError(e), false));
             const detachBtn = event.target.closest('[data-detach]');
             if (detachBtn) return detachFile(Number(detachBtn.dataset.detach)).catch((e) => toast(explainAuthError(e), false));
+        });
+        document.querySelector('#knowledgeWorkspaceKbFilesTable tbody').addEventListener('change', (event) => {
+            const checkbox = event.target.closest('[data-knowledge-file-select]');
+            if (!checkbox) return;
+            const fileId = Number(checkbox.dataset.knowledgeFileSelect);
+            if (checkbox.checked) selectedKnowledgeFileIds.add(fileId);
+            else selectedKnowledgeFileIds.delete(fileId);
+            renderKnowledgeBulkState();
         });
         document.querySelector('#knowledgeQualityTable tbody').addEventListener('click', (event) => {
             const lifecycleBtn = event.target.closest('[data-kb-lifecycle]');
@@ -5199,6 +6040,8 @@
         document.querySelector('#knowledgeWorkspaceLibraryTable tbody').addEventListener('click', (event) => {
             const menuBtn = event.target.closest('[data-file-menu]');
             if (menuBtn) return toggleActionMenu(menuBtn);
+            const detailBtn = event.target.closest('[data-file-detail]');
+            if (detailBtn) return openFileDetail(Number(detailBtn.dataset.fileDetail), detailBtn.dataset.fileDetailSource || 'library');
             const attachBtn = event.target.closest('[data-attach]');
             if (attachBtn) return attachFile(Number(attachBtn.dataset.attach)).catch((e) => toast(explainAuthError(e), false));
             const versionsBtn = event.target.closest('[data-file-versions]');
@@ -5398,9 +6241,23 @@
         document.querySelectorAll('.tab-btn').forEach((btn) => {
             btn.addEventListener('click', () => {
                 activateTab(btn.dataset.target);
+                if (btn.dataset.target === 'view-rag-quality') {
+                    refreshIfAllowed('rag_quality', refreshRagQualityCockpitData).catch((e) => toast(explainAuthError(e), false));
+                }
                 requestAnimationFrame(syncKnowledgeCardHeights);
                 requestAnimationFrame(syncOperationsCardHeights);
             });
+        });
+        document.getElementById('adminModuleSelect').addEventListener('change', (event) => {
+            activateTab(event.target.value);
+            if (event.target.value === 'view-rag-quality') {
+                refreshIfAllowed('rag_quality', refreshRagQualityCockpitData).catch((e) => toast(explainAuthError(e), false));
+            }
+            requestAnimationFrame(syncKnowledgeCardHeights);
+            requestAnimationFrame(syncOperationsCardHeights);
+        });
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') closeFileDetail();
         });
         window.addEventListener('resize', () => {
             requestAnimationFrame(syncKnowledgeCardHeights);
@@ -5432,6 +6289,9 @@
         }, 30000);
         setInterval(() => {
             if (isActiveView('view-analytics')) refreshIfAllowed('analytics', refreshAnalytics).catch(() => {});
+        }, 30000);
+        setInterval(() => {
+            if (isActiveView('view-rag-quality')) refreshIfAllowed('rag_quality', refreshRagQualityCockpitData).catch(() => {});
         }, 30000);
         setInterval(() => {
             if (isActiveView('view-operations-workspace')) refreshIfAllowed('audit', refreshAuthAudit).catch(() => {});

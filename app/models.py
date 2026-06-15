@@ -857,6 +857,11 @@ class SystemRuntime(BaseModel):
     observability: dict[str, str | bool | None]
     llm_capabilities: dict[str, Any] = Field(default_factory=dict)
     vector_backend: str
+    retrieval_mode: str | None = None
+    qdrant_hybrid_enabled: bool = False
+    reranker_provider: str = "bm25_lite"
+    reranker_model: str | None = None
+    reranker_top_n: int | None = None
     llm_provider_active: str
     llm_provider_config: str
     answer_mode_config: str
