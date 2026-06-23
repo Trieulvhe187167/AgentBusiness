@@ -10,6 +10,7 @@ from app.config import settings
 from app.database import execute_sync, fetch_one_sync, utcnow_iso
 from app.kb import create_knowledge_base
 from app.models import KnowledgeBaseCreate, RequestContext
+from app.support_ticket_service import create_support_ticket
 from tests.conftest import admin_headers, auth_headers, isolated_client, run
 
 
@@ -303,6 +304,75 @@ def test_mcp_risk_preview_reports_policy_and_quota(isolated_client: TestClient, 
     assert result["quota"]["limit"] == 5
 
 
+def test_mcp_tool_dry_run_validates_without_consuming_quota_or_executing(isolated_client: TestClient, monkeypatch):
+    monkeypatch.setattr(settings, "mcp_tool_quotas", "pytest-mcp-client:list_customer_tickets:1")
+
+    dry_run = _rpc(
+        isolated_client,
+        "tools/dryRun",
+        {
+            "name": "list_customer_tickets",
+            "arguments": {},
+            "context": {"request_id": "mcp-dry-run", "session_id": "mcp-dry-run"},
+        },
+    )
+    call = _rpc(
+        isolated_client,
+        "tools/call",
+        {
+            "name": "list_customer_tickets",
+            "arguments": {},
+            "context": {"request_id": "mcp-dry-run", "session_id": "mcp-dry-run"},
+        },
+        request_id=2,
+    )
+    blocked = _rpc(
+        isolated_client,
+        "tools/call",
+        {
+            "name": "list_customer_tickets",
+            "arguments": {},
+            "context": {"request_id": "mcp-dry-run", "session_id": "mcp-dry-run"},
+        },
+        request_id=3,
+    )
+
+    assert dry_run.status_code == 200, dry_run.text
+    dry_payload = dry_run.json()["result"]
+    assert dry_payload["valid"] is True
+    assert dry_payload["would_execute"] is True
+    assert dry_payload["quota"]["limit"] == 1
+    assert dry_payload["quota"]["remaining"] == 1
+    assert call.json()["result"]["isError"] is False
+    assert blocked.json()["error"]["data"]["reason"] == "tool_quota_exceeded"
+    executed = fetch_one_sync(
+        "SELECT COUNT(*) AS count FROM tool_audit_logs WHERE request_id = 'mcp-dry-run' AND tool_status = 'success'"
+    )
+    assert executed["count"] == 1
+
+
+def test_mcp_tool_dry_run_reports_policy_and_validation_denials(isolated_client: TestClient):
+    high_risk = _rpc(isolated_client, "tools/dryRun", {"name": "list_kbs", "arguments": {}})
+    invalid_args = _rpc(
+        isolated_client,
+        "tools/dryRun",
+        {"name": "search_kb", "arguments": {}},
+        request_id=2,
+    )
+
+    assert high_risk.status_code == 200, high_risk.text
+    high_payload = high_risk.json()["result"]
+    assert high_payload["allowed"] is False
+    assert high_payload["decision_reason"] == "high_risk_denied_by_default"
+    assert high_payload["would_execute"] is False
+
+    invalid_payload = invalid_args.json()["result"]
+    assert invalid_payload["allowed"] is True
+    assert invalid_payload["valid"] is False
+    assert invalid_payload["would_execute"] is False
+    assert "query" in invalid_payload["error"]
+
+
 def test_mcp_origin_validation(isolated_client: TestClient, monkeypatch):
     blocked = isolated_client.post(
         "/mcp",
@@ -368,7 +438,62 @@ def test_mcp_resource_templates_list(isolated_client: TestClient):
     uri_templates = {item["uriTemplate"] for item in templates}
     assert "kb://{kb_id}/stats" in uri_templates
     assert "kb://{kb_id}/sources" in uri_templates
+    assert "kb://{kb_id}/source-health" in uri_templates
+    assert "support://tickets/{ticket_id}/timeline" in uri_templates
+    assert "eval://runs/{run_id}" in uri_templates
     assert all(item["mimeType"] == "application/json" for item in templates)
+
+
+def test_mcp_reads_source_health_support_and_eval_resources(isolated_client: TestClient):
+    context = RequestContext(
+        request_id="mcp-resource-context",
+        kb_id=1,
+        kb_key="default",
+        auth={"user_id": "admin-1", "roles": ["admin"], "channel": "admin"},
+    )
+    ticket = create_support_ticket(
+        issue_type="other",
+        message="Need MCP timeline context",
+        contact="mcp@example.com",
+        context=context,
+    )
+    ticket_row = fetch_one_sync("SELECT id FROM support_tickets WHERE ticket_code = ?", (ticket["ticket_code"],))
+    now = utcnow_iso()
+    eval_run_id = execute_sync(
+        """
+        INSERT INTO agent_eval_runs (
+            name, status, source, kb_id, kb_key, period_days, sample_size,
+            pass_count, warn_count, fail_count, avg_score, config_json,
+            metrics_json, comparison_json, gate_status, created_by_user_id,
+            created_at, completed_at
+        ) VALUES (?, 'completed', 'chat_logs', 1, 'default', 7, 1, 1, 0, 0, 90.0, '{}', '{}', '{}', 'passed', 'admin-1', ?, ?)
+        """,
+        ("MCP eval resource", now, now),
+    )
+
+    source_health = _rpc(isolated_client, "resources/read", {"uri": "kb://1/source-health"})
+    support_recent = _rpc(isolated_client, "resources/read", {"uri": "support://tickets/recent"}, request_id=2)
+    support_timeline = _rpc(
+        isolated_client,
+        "resources/read",
+        {"uri": f"support://tickets/{ticket_row['id']}/timeline"},
+        request_id=3,
+    )
+    eval_recent = _rpc(isolated_client, "resources/read", {"uri": "eval://runs/recent"}, request_id=4)
+    eval_detail = _rpc(isolated_client, "resources/read", {"uri": f"eval://runs/{eval_run_id}"}, request_id=5)
+
+    assert source_health.status_code == 200, source_health.text
+    assert "source-health" in source_health.json()["result"]["contents"][0]["uri"]
+    assert support_recent.status_code == 200, support_recent.text
+    assert ticket["ticket_code"] in support_recent.json()["result"]["contents"][0]["text"]
+    assert support_timeline.status_code == 200, support_timeline.text
+    timeline_text = support_timeline.json()["result"]["contents"][0]["text"]
+    assert '"ticket_id"' in timeline_text
+    assert ticket["ticket_code"] in timeline_text
+    assert eval_recent.status_code == 200, eval_recent.text
+    assert "MCP eval resource" in eval_recent.json()["result"]["contents"][0]["text"]
+    assert eval_detail.status_code == 200, eval_detail.text
+    assert '"gate_status": "passed"' in eval_detail.json()["result"]["contents"][0]["text"]
 
 
 def test_mcp_resources_read_jobs_and_audit(isolated_client: TestClient):
@@ -501,6 +626,12 @@ def test_mcp_jobs_and_audit_resources_enforce_tenant_isolation(isolated_client: 
 
 
 def test_admin_mcp_status_endpoint(isolated_client: TestClient):
+    _rpc(
+        isolated_client,
+        "tools/call",
+        {"name": "search_kb", "arguments": {"query": "shipping"}},
+        headers={"X-MCP-Scopes": "scope:support"},
+    )
     response = isolated_client.get("/api/admin/mcp/status", headers=admin_headers())
     assert response.status_code == 200, response.text
     payload = response.json()
@@ -508,17 +639,23 @@ def test_admin_mcp_status_endpoint(isolated_client: TestClient):
     assert payload["endpoint_path"] == "/mcp"
     assert payload["capabilities"]["tools"] is True
     assert payload["capabilities"]["risk_preview"] is True
+    assert payload["capabilities"]["tool_dry_run"] is True
     assert payload["capabilities"]["session_audit"] is True
+    assert payload["capabilities"]["quota_dashboard"] is True
+    assert payload["capabilities"]["deny_audit"] is True
     assert payload["tools"]["registered_count"] >= payload["tools"]["exposed_count"] >= 1
     assert payload["security"]["require_tool_scopes"] is True
     assert payload["security"]["require_resource_scopes"] is True
     assert payload["security"]["require_client_token"] is False
     assert payload["security"]["default_tool_quota_per_window"] >= 0
+    assert "quota_dashboard" in payload["security"]
+    assert any(item["reason"] == "scope_not_granted" for item in payload["security"]["recent_denies"])
     assert payload["security"]["manifest_signature"]["signature"]
     assert any(item["name"] == "search_kb" for item in payload["tools"]["exposed"])
     assert any(item["name"] == "list_kbs" for item in payload["tools"]["blocked_by_policy"])
     assert any(item["uri"] == "kb://list" for item in payload["resources"]["items"])
     assert any(item["uriTemplate"] == "kb://{kb_id}/stats" for item in payload["resources"]["templates"])
+    assert any(item["uriTemplate"] == "support://tickets/{ticket_id}/timeline" for item in payload["resources"]["templates"])
 
 
 def test_admin_mcp_status_requires_admin(isolated_client: TestClient):

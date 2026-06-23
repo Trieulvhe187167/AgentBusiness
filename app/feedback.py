@@ -11,6 +11,7 @@ from fastapi import HTTPException
 
 from app.authorization import can_manage_kb
 from app.database import execute_sync, fetch_all_sync, fetch_one_sync, utcnow_iso
+from app.knowledge_gaps import create_feedback_gap_if_needed
 from app.models import (
     AuthContext,
     ChatFeedbackItem,
@@ -150,6 +151,13 @@ def submit_chat_feedback(payload: SubmitChatFeedbackInput, *, context: RequestCo
     )
     if not row:
         raise HTTPException(status_code=500, detail="Chat feedback was not persisted")
+    create_feedback_gap_if_needed(
+        chat_log=chat_log,
+        rating=payload.rating,
+        reason_code=payload.reason_code,
+        comment=payload.comment,
+        context=context,
+    )
     return _serialize_feedback(row)
 
 

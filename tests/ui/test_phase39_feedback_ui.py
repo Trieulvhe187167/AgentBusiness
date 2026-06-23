@@ -11,6 +11,32 @@ def test_chat_feedback_buttons_call_backend():
     assert "function submitFeedback" in html
     assert "responseRequestId" in html
     assert "Feedback saved" in html
+    assert "feedbackModal" in html
+    assert "feedbackReason" in html
+    assert "reason_code" in html
+
+
+def test_chat_sprint1_answer_to_ticket_and_collapsed_debug_ui_are_wired():
+    html = (ROOT / "static" / "chat.html").read_text(encoding="utf-8")
+
+    assert "evidence-collapsed" in html
+    assert "devSettingsToggle" in html
+    assert "Auth settings" in html
+    assert "function createTicketFromAnswer" in html
+    assert "/api/support-tickets" in html
+    assert "source_chat_request_id" in html
+    assert "source_citations" in html
+
+
+def test_portal_ticket_timeline_and_plain_sla_language_are_wired():
+    html = (ROOT / "static" / "internal.html").read_text(encoding="utf-8")
+
+    assert "function plainTicketStatus" in html
+    assert "function slaText" in html
+    assert "function renderTimeline" in html
+    assert "Dang cho phe duyet" in html
+    assert "ticket-timeline" in html
+    assert "<h3>Timeline</h3>" in html
 
 
 def test_admin_feedback_panels_use_admin_endpoints():
@@ -38,6 +64,15 @@ def test_admin_analytics_dashboard_wires_backend_endpoint():
     assert "analyticsInsights" in html
     assert "function analyticsHealth" in html
     assert "function renderAnalyticsInsights" in html
+    assert "AI Ops Snapshot" in html
+    assert "aiOpsSummary" in html
+    assert "aiOpsEvalTrendTable" in html
+    assert "aiOpsReplayChatId" in html
+    assert "btnRunAiOpsReplay" in html
+    assert "function refreshAiOps" in html
+    assert "function runAiOpsReplay" in html
+    assert "/api/admin/ai-ops/summary" in html
+    assert "/api/admin/ai-ops/replay/chat-logs" in html
     assert "Agent Evaluation Center" in html
     assert "/api/admin/evaluations/runs" in html
     assert "Golden Dataset" in html
@@ -62,13 +97,22 @@ def test_admin_analytics_dashboard_wires_backend_endpoint():
     assert "function runAgentEvaluation" in html
     assert "Knowledge Gaps" in html
     assert "knowledgeGapsTable" in html
+    assert "knowledgeQualityDebt" in html
+    assert "Source Needed" in html
+    assert "Patch Pending" in html
+    assert "Owner" in html
+    assert "Priority" in html
     assert "function refreshKnowledgeGaps" in html
+    assert "function triageKnowledgeGap" in html
+    assert "renderKnowledgeQualityDebt" in html
     assert "function suggestKnowledgeGapFaq" in html
     assert "function createKnowledgeGapReportSchedule" in html
     assert "/api/admin/knowledge-gaps" in html
+    assert "/api/admin/knowledge-gaps/quality-debt" in html
     assert "/suggest-faq" in html
     assert "knowledge_gap_report" in html
     assert "btnScheduleKnowledgeGapReport" in html
+    assert "data-gap-triage" in html
     assert "data-gap-suggest" in html
     assert "data-gap-status" in html
     assert "/api/admin/pending-actions/${actionId}/events" in html
@@ -347,6 +391,15 @@ def test_operations_workspace_is_wired():
     assert "function renderCaseTimeline" in html
     assert "Generate Draft" in html
     assert "/api/admin/support-tickets/${selectedSupportCaseId}/draft-reply" in html
+    assert "/api/admin/support-tickets/${selectedSupportCaseId}/canned-action" in html
+    assert "workspaceNextAction" in html
+    assert "workspaceDraftReview" in html
+    assert "workspaceCannedAction" in html
+    assert "refund_requires_approval" in html
+    assert "cancel_requires_approval" in html
+    assert "function renderNextActionCard" in html
+    assert "function renderDraftReviewPacket" in html
+    assert "function applySupportCannedAction" in html
     assert "function generateSupportDraftReply" in html
     assert "operationsChatLogsTable" in html
     assert "operationsFeedbackTable" in html
@@ -365,6 +418,15 @@ def test_mcp_security_hardening_ui_is_wired():
     assert "X-MCP-Scopes" in html
     assert "MCP Sessions" in html
     assert "mcpSessionsTable" in html
+    assert "MCP Quotas" in html
+    assert "mcpQuotaTable" in html
+    assert "MCP Deny Audit" in html
+    assert "mcpDenyTable" in html
+    assert "mcpDryRun" in html
+    assert "mcpRecentDenies" in html
+    assert "tool_dry_run" in html
+    assert "quota_dashboard" in html
+    assert "recent_denies" in html
     assert "require_client_token" in html
     assert "tool_quota_rules" in html
 

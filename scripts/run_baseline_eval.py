@@ -22,6 +22,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=150, help="Max golden items to evaluate")
     parser.add_argument("--min-golden-items", type=int, default=80, help="Recommended minimum golden item count")
     parser.add_argument("--allow-small", action="store_true", help="Run even if golden dataset is below the minimum")
+    parser.add_argument("--dry-run", action="store_true", help="Only inspect golden dataset readiness; do not create an eval run")
     parser.add_argument("--llm-judge", action="store_true", help="Enable optional LLM-as-judge for this run")
     parser.add_argument("--user-id", default="baseline-runner", help="Admin user id header")
     parser.add_argument("--tenant-id", default="", help="Optional tenant id header")
@@ -60,6 +61,16 @@ def main() -> int:
         dataset.raise_for_status()
         dataset_payload = dataset.json()
         total = int(dataset_payload.get("total") or 0)
+        readiness = {
+            "kb_id": args.kb_id,
+            "active_golden_items": total,
+            "recommended_minimum": args.min_golden_items,
+            "ready": total >= args.min_golden_items,
+            "will_run": not args.dry_run and (total >= args.min_golden_items or args.allow_small),
+        }
+        _print_json("Golden dataset readiness", readiness)
+        if args.dry_run:
+            return 0
         if total < args.min_golden_items and not args.allow_small:
             raise SystemExit(
                 "Golden dataset is too small for a reliable baseline: "

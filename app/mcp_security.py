@@ -188,6 +188,80 @@ def _cleanup_quota_buckets(now: float) -> None:
         _quota_buckets.pop(key, None)
 
 
+def list_mcp_quota_dashboard() -> list[dict[str, Any]]:
+    now = time.monotonic()
+    rows: dict[tuple[str, str], dict[str, Any]] = {}
+    for (client_id, tool_name), limit in settings.mcp_tool_quota_rules.items():
+        rows[(client_id, tool_name)] = {
+            "client_id": client_id,
+            "tool_name": tool_name,
+            "limit": int(limit),
+            "used": 0,
+            "remaining": int(limit),
+            "reset_after_seconds": 0,
+            "source": "configured",
+        }
+    for bucket_key, bucket in list(_quota_buckets.items()):
+        if bucket.reset_at <= now:
+            _quota_buckets.pop(bucket_key, None)
+            continue
+        client_id, sep, tool_name = bucket_key.partition(":")
+        if not sep:
+            continue
+        limit = _quota_limit_for(McpClientContext(client_id=client_id, session_id=None, scopes=set()), tool_name)
+        if limit <= 0:
+            continue
+        key = (client_id, tool_name)
+        rows[key] = {
+            "client_id": client_id,
+            "tool_name": tool_name,
+            "limit": limit,
+            "used": int(bucket.count),
+            "remaining": max(0, limit - int(bucket.count)),
+            "reset_after_seconds": max(1, int(bucket.reset_at - now)),
+            "source": "active_window",
+        }
+    return sorted(rows.values(), key=lambda item: (str(item["client_id"]), str(item["tool_name"])))
+
+
+def list_mcp_recent_denies(limit: int = 20) -> list[dict[str, Any]]:
+    rows = fetch_all_sync(
+        """
+        SELECT id, request_id, mcp_client_id, mcp_session_id, user_id, roles_json,
+               method, tool_name, resource_uri, required_scopes_json, granted_scopes_json,
+               risk_level, tool_scope, decision, reason, created_at
+        FROM mcp_audit_logs
+        WHERE decision = 'deny'
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+        """,
+        (max(1, min(int(limit), 100)),),
+    )
+    items = []
+    for row in rows:
+        items.append(
+            {
+                "id": int(row["id"]),
+                "request_id": row.get("request_id"),
+                "client_id": row.get("mcp_client_id"),
+                "session_id": row.get("mcp_session_id"),
+                "user_id": row.get("user_id"),
+                "roles": json.loads(row.get("roles_json") or "[]"),
+                "method": row.get("method"),
+                "tool_name": row.get("tool_name"),
+                "resource_uri": row.get("resource_uri"),
+                "required_scopes": json.loads(row.get("required_scopes_json") or "[]"),
+                "granted_scopes": json.loads(row.get("granted_scopes_json") or "[]"),
+                "risk_level": row.get("risk_level"),
+                "tool_scope": row.get("tool_scope"),
+                "decision": row.get("decision"),
+                "reason": row.get("reason"),
+                "created_at": row.get("created_at"),
+            }
+        )
+    return items
+
+
 def decide_tool_exposure(tool_definition, *, auth: AuthContext, client: McpClientContext) -> McpToolDecision:
     policy = tool_definition.auth_policy
     tool_name = tool_definition.name

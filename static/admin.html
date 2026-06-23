@@ -930,14 +930,64 @@
                 </section>
                 <section class="card span-12">
                     <div class="section-head">
+                        <h2>AI Ops Snapshot</h2>
+                        <p>Token spend, cache reuse, eval gates, approval wait, and safe retrieval replay for production debugging.</p>
+                    </div>
+                    <div class="toolbar" style="margin-bottom:10px;">
+                        <button class="btn-muted" id="btnRefreshAiOps" title="Reload AI Ops metrics.">Refresh AI Ops</button>
+                        <span class="note" id="aiOpsSummary">No AI Ops snapshot loaded.</span>
+                    </div>
+                    <div class="stats">
+                        <div class="stat"><div class="value" id="aiOpsStatus">-</div><div class="label">AI Ops Status</div></div>
+                        <div class="stat"><div class="value" id="aiOpsBillableTokens">-</div><div class="label">Billable Input Est.</div></div>
+                        <div class="stat"><div class="value" id="aiOpsCacheRate">-</div><div class="label">Cache Reuse</div></div>
+                        <div class="stat"><div class="value" id="aiOpsP95Latency">-</div><div class="label">P95 Latency</div></div>
+                        <div class="stat"><div class="value" id="aiOpsToolErrorBudget">-</div><div class="label">Tool Error Budget</div></div>
+                        <div class="stat"><div class="value" id="aiOpsApprovalAge">-</div><div class="label">Max Approval Age</div></div>
+                        <div class="stat"><div class="value" id="aiOpsEvalGate">-</div><div class="label">Latest Eval Gate</div></div>
+                    </div>
+                    <div class="analytics-insights" id="aiOpsAlerts">
+                        <div class="insight"><strong>No alerts loaded</strong><small class="note">Refresh AI Ops to calculate error budgets.</small></div>
+                    </div>
+                    <div class="grid" style="margin-top:10px;">
+                        <section class="span-6">
+                            <h3 style="margin:0 0 8px;">Evaluation Gate Trend</h3>
+                            <div class="scroll" style="max-height:240px;">
+                                <table class="table" id="aiOpsEvalTrendTable">
+                                    <thead><tr><th>Run</th><th>Score</th><th>Gate</th></tr></thead>
+                                    <tbody><tr><td colspan="3">No AI Ops snapshot loaded.</td></tr></tbody>
+                                </table>
+                            </div>
+                        </section>
+                        <section class="span-6">
+                            <h3 style="margin:0 0 8px;">Safe Chat Replay</h3>
+                            <div class="toolbar" style="margin-bottom:8px;">
+                                <input id="aiOpsReplayChatId" type="number" min="1" placeholder="Chat log ID" title="Chat log ID to replay through retrieval only.">
+                                <input id="aiOpsReplayTopK" type="number" min="1" max="20" value="5" title="Number of retrieval results to replay.">
+                                <button class="btn-main" id="btnRunAiOpsReplay" title="Replay retrieval for a chat log without calling the LLM.">Replay Retrieval</button>
+                            </div>
+                            <span class="note" id="aiOpsReplaySummary">Replay runs retrieval only and redacts sensitive fields.</span>
+                            <div class="scroll" style="max-height:220px; margin-top:8px;">
+                                <table class="table" id="aiOpsReplayTable">
+                                    <thead><tr><th>Rank</th><th>Score</th><th>Source</th><th>Snippet</th></tr></thead>
+                                    <tbody><tr><td colspan="4">Enter a chat log ID to replay.</td></tr></tbody>
+                                </table>
+                            </div>
+                        </section>
+                    </div>
+                </section>
+                <section class="card span-12">
+                    <div class="section-head">
                         <h2>Knowledge Gaps</h2>
                         <p>Top unanswered or low-confidence questions grouped for KB maintenance.</p>
                     </div>
                     <div class="toolbar" style="margin-bottom:10px;">
                         <select id="knowledgeGapStatus" title="Filter knowledge gaps by review status.">
-                            <option value="open">Open</option>
-                            <option value="suggested">Suggested</option>
-                            <option value="resolved">Resolved</option>
+                            <option value="new">New</option>
+                            <option value="triaged">Triaged</option>
+                            <option value="source_needed">Source Needed</option>
+                            <option value="patch_pending">Patch Pending</option>
+                            <option value="fixed">Fixed</option>
                             <option value="ignored">Ignored</option>
                             <option value="">All</option>
                         </select>
@@ -945,10 +995,13 @@
                         <button class="btn-main" id="btnScheduleKnowledgeGapReport" title="Create a weekly knowledge gap report schedule.">Schedule Weekly Report</button>
                         <span class="note" id="knowledgeGapSummary">No knowledge gaps loaded.</span>
                     </div>
+                    <div class="analytics-insights" id="knowledgeQualityDebt">
+                        <div class="insight"><strong>No debt summary</strong><small class="note">Refresh analytics to load quality debt by KB.</small></div>
+                    </div>
                     <div class="scroll">
                         <table class="table" id="knowledgeGapsTable">
-                            <thead><tr><th>Question Cluster</th><th>Count</th><th>Score</th><th>KB</th><th>Status</th><th>Actions</th></tr></thead>
-                            <tbody><tr><td colspan="6">No knowledge gaps loaded.</td></tr></tbody>
+                            <thead><tr><th>Question Cluster</th><th>Count</th><th>Score</th><th>KB</th><th>Owner</th><th>Priority</th><th>Status</th><th>Actions</th></tr></thead>
+                            <tbody><tr><td colspan="8">No knowledge gaps loaded.</td></tr></tbody>
                         </table>
                     </div>
                 </section>
@@ -1608,6 +1661,7 @@
                                     <h3>Selected Case</h3>
                                     <div class="note" id="workspaceCaseDetailSummary">No case selected.</div>
                                     <div class="support-meta" id="workspaceCaseMeta"></div>
+                                    <div id="workspaceNextAction" class="case-context" style="margin:8px 0;"></div>
                                     <div id="workspaceCaseContextView" class="case-context">
                                         <div class="empty-state"><strong>No case selected.</strong><small>Select Context on a case to view the readable workflow context.</small></div>
                                     </div>
@@ -1639,7 +1693,18 @@
                                     <h3>Reply To Employee</h3>
                                     <textarea id="workspacePublicReplyBody" placeholder="Public reply visible to the employee in Portal..." style="min-height:100px;"></textarea>
                                     <div class="note" id="workspaceDraftReplyMeta">AI draft not generated yet.</div>
+                                    <div id="workspaceDraftReview" class="case-context" style="margin-top:8px;"></div>
                                     <div id="workspaceDraftCitations" class="case-context" style="margin-top:8px;"></div>
+                                    <div class="row" style="margin-top:8px;">
+                                        <select id="workspaceCannedAction" title="Choose a canned support action.">
+                                            <option value="ask_more_info">Ask For More Info</option>
+                                            <option value="resolve_with_kb">Resolve With KB Answer</option>
+                                            <option value="escalate_to_team">Escalate To Team</option>
+                                            <option value="refund_requires_approval">Refund Requires Approval</option>
+                                            <option value="cancel_requires_approval">Cancel Requires Approval</option>
+                                        </select>
+                                        <button class="btn-muted" id="btnWorkspaceApplyCanned" title="Apply the selected canned action.">Apply Canned Action</button>
+                                    </div>
                                     <div class="btn-row" style="margin-top:8px;">
                                         <button class="btn-muted" id="btnWorkspaceGenerateDraft" title="Generate an AI draft reply from ticket context, notes, email thread, and KB citations.">Generate Draft</button>
                                         <button class="btn-main" id="btnWorkspacePublicReply" title="Send a public portal reply and move the case to waiting_customer.">Reply</button>
@@ -1967,6 +2032,8 @@
                         <div class="stat"><div class="value" id="mcpAuth">-</div><div class="label">Auth Required</div></div>
                         <div class="stat"><div class="value" id="mcpOrigin">-</div><div class="label">Origin Check</div></div>
                         <div class="stat"><div class="value" id="mcpScopes">-</div><div class="label">Tool Scopes</div></div>
+                        <div class="stat"><div class="value" id="mcpDryRun">-</div><div class="label">Dry Run</div></div>
+                        <div class="stat"><div class="value" id="mcpRecentDenies">-</div><div class="label">Recent Denies</div></div>
                         <div class="stat"><div class="value" id="mcpProtocol">-</div><div class="label">Protocol</div></div>
                     </div>
                     <div class="row" style="margin-bottom:10px;">
@@ -2008,6 +2075,30 @@
                         <table class="table" id="mcpSessionsTable">
                             <thead><tr><th>Client / Session</th><th>User</th><th>Last Activity</th><th>Counters</th><th>Decision</th></tr></thead>
                             <tbody><tr><td colspan="5">No MCP session status loaded.</td></tr></tbody>
+                        </table>
+                    </div>
+                </section>
+                <section class="card span-6">
+                    <div class="section-head">
+                        <h2>MCP Quotas</h2>
+                        <p>Configured and active per-client tool quota windows.</p>
+                    </div>
+                    <div class="scroll">
+                        <table class="table" id="mcpQuotaTable">
+                            <thead><tr><th>Client</th><th>Tool</th><th>Window</th><th>Source</th></tr></thead>
+                            <tbody><tr><td colspan="4">No MCP quota status loaded.</td></tr></tbody>
+                        </table>
+                    </div>
+                </section>
+                <section class="card span-6">
+                    <div class="section-head">
+                        <h2>MCP Deny Audit</h2>
+                        <p>Recent denied tool/resource attempts with reason and granted scopes.</p>
+                    </div>
+                    <div class="scroll">
+                        <table class="table" id="mcpDenyTable">
+                            <thead><tr><th>Client / Method</th><th>Target</th><th>Reason</th><th>Scopes</th></tr></thead>
+                            <tbody><tr><td colspan="4">No MCP deny audit loaded.</td></tr></tbody>
                         </table>
                     </div>
                 </section>
@@ -2064,6 +2155,7 @@
         let knowledgeGaps = [];
         let systemRuntime = null;
         let analyticsDashboard = null;
+        let aiOpsSummary = null;
         let selectedKnowledgeFileIds = new Set();
         let fileBrowserMode = 'kb';
         let authAuditLogs = [];
@@ -3237,6 +3329,8 @@
             document.getElementById('mcpAuth').textContent = security.require_auth ? 'Yes' : 'No';
             document.getElementById('mcpOrigin').textContent = security.validate_origin ? 'On' : 'Off';
             document.getElementById('mcpScopes').textContent = security.require_tool_scopes ? 'On' : 'Off';
+            document.getElementById('mcpDryRun').textContent = mcpStatus.capabilities?.tool_dry_run ? 'On' : 'Off';
+            document.getElementById('mcpRecentDenies').textContent = String((security.recent_denies || []).length);
             document.getElementById('mcpProtocol').textContent = mcpStatus.protocol_version || '-';
             document.getElementById('mcpEndpoint').value = endpoint;
             document.getElementById('mcpConfigDump').textContent = JSON.stringify({
@@ -3244,6 +3338,8 @@
                 security,
                 require_client_token: Boolean(security.require_client_token),
                 tool_quota_rules: security.tool_quota_rules || [],
+                quota_dashboard: security.quota_dashboard || [],
+                recent_denies: security.recent_denies || [],
                 hidden_tools: tools.hidden || [],
                 blocked_by_policy: tools.blocked_by_policy || [],
                 resource_templates: resources.templates || [],
@@ -3281,6 +3377,26 @@
                     <td><span class="status ${session.last_decision === 'deny' ? 'failed' : 'done'}">${escapeHtml(session.last_decision || '-')}</span><br><small class="note">${escapeHtml(session.last_reason || '-')}</small></td>
                 </tr>
             `).join('') : '<tr><td colspan="5">No MCP sessions found.</td></tr>';
+
+            const quotaRows = security.quota_dashboard || [];
+            document.querySelector('#mcpQuotaTable tbody').innerHTML = quotaRows.length ? quotaRows.map((quota) => `
+                <tr>
+                    <td>${escapeHtml(quota.client_id || '-')}</td>
+                    <td><strong>${escapeHtml(quota.tool_name || '-')}</strong></td>
+                    <td>${quota.used || 0}/${quota.limit || 0}<br><small class="note">${quota.remaining || 0} remaining, resets in ${quota.reset_after_seconds || 0}s</small></td>
+                    <td><span class="status ${quota.source === 'active_window' ? 'queued' : 'done'}">${escapeHtml(quota.source || '-')}</span></td>
+                </tr>
+            `).join('') : '<tr><td colspan="4">No MCP quotas configured or active.</td></tr>';
+
+            const denyRows = security.recent_denies || [];
+            document.querySelector('#mcpDenyTable tbody').innerHTML = denyRows.length ? denyRows.map((item) => `
+                <tr>
+                    <td><strong>${escapeHtml(item.client_id || '-')}</strong><br><small class="note">${escapeHtml(item.method || '-')} | ${escapeHtml(item.created_at || '-')}</small></td>
+                    <td>${escapeHtml(item.tool_name || item.resource_uri || '-')}<br><small class="note">${escapeHtml(item.risk_level || item.tool_scope || '-')}</small></td>
+                    <td><span class="status failed">${escapeHtml(item.reason || 'deny')}</span></td>
+                    <td><small class="mono">need: ${escapeHtml((item.required_scopes || []).join(', ') || '-')}<br>got: ${escapeHtml((item.granted_scopes || []).join(', ') || '-')}</small></td>
+                </tr>
+            `).join('') : '<tr><td colspan="4">No recent MCP denies.</td></tr>';
         }
 
         async function refreshKbFiles() {
@@ -3405,7 +3521,7 @@
             document.getElementById('feedbackRate').textContent = `${Math.round((summary.positive_rate || 0) * 100)}%`;
 
             const summaryBody = document.querySelector('#feedbackSummaryTable tbody');
-            const groups = summary.groups || [];
+            const groups = summary.by_kb || summary.groups || [];
             summaryBody.innerHTML = groups.length ? groups.map((item) => `
                 <tr>
                     <td>${escapeHtml(item.kb_key || item.kb_id || 'global')}</td>
@@ -3437,12 +3553,14 @@
         }
 
         function knowledgeGapRowsHtml(items) {
-            if (!items.length) return emptyRow(6, 'No knowledge gaps found.', 'Fallback and low-confidence questions will appear here.');
+            if (!items.length) return emptyRow(8, 'No knowledge gaps found.', 'Down feedback, fallback, and low-confidence questions will appear here.');
             return items.map((item) => {
                 const samples = (item.sample_queries || []).filter((query) => query && query !== item.representative_query);
                 const sampleText = samples.length ? `<br><small class="note">${samples.map(escapeHtml).join(' | ')}</small>` : '';
                 const actionBadge = item.suggested_action ? '<br><span class="status queued">FAQ suggested</span>' : '';
                 const kb = item.kb_key || item.kb_id || '-';
+                const statusClass = ['fixed'].includes(item.status) ? 'done' : ['ignored'].includes(item.status) ? 'archived' : ['patch_pending', 'source_needed', 'triaged'].includes(item.status) ? 'queued' : 'failed';
+                const due = item.due_date ? `${escapeHtml(item.due_date)}${item.overdue ? ' overdue' : ''}` : '-';
                 return `
                     <tr>
                         <td>
@@ -3456,18 +3574,36 @@
                             <br><small class="note">min ${item.min_score ?? '-'}</small>
                         </td>
                         <td>${escapeHtml(kb)}</td>
+                        <td>${escapeHtml(item.owner_user_id || 'unassigned')}<br><small class="note">${due}</small></td>
+                        <td><span class="status ${item.priority === 'P0' || item.priority === 'P1' ? 'failed' : 'queued'}">${escapeHtml(item.priority || 'P2')}</span></td>
                         <td>
-                            <span class="status ${item.status === 'open' ? 'failed' : item.status === 'resolved' ? 'done' : 'queued'}">${escapeHtml(item.status || 'open')}</span>
-                            <br><small class="note">${escapeHtml(item.last_seen_at || '-')}</small>
+                            <span class="status ${statusClass}">${escapeHtml(item.status || 'new')}</span>
+                            <br><small class="note">${escapeHtml(item.status_reason || item.last_seen_at || '-')}</small>
                         </td>
                         <td>
+                            <button class="btn-muted" data-gap-triage="${item.cluster_key}" data-gap-kb="${item.kb_id || ''}">Triage</button>
+                            <button class="btn-muted" data-gap-status="${item.cluster_key}" data-gap-next="source_needed" data-gap-kb="${item.kb_id || ''}">Need Source</button>
                             <button class="btn-main" data-gap-suggest="${item.cluster_key}" data-gap-kb="${item.kb_id || ''}">Suggest FAQ</button>
-                            <button class="btn-ok" data-gap-status="${item.cluster_key}" data-gap-next="resolved" data-gap-kb="${item.kb_id || ''}">Resolve</button>
+                            <button class="btn-ok" data-gap-status="${item.cluster_key}" data-gap-next="fixed" data-gap-kb="${item.kb_id || ''}">Fixed</button>
                             <button class="btn-muted" data-gap-status="${item.cluster_key}" data-gap-next="ignored" data-gap-kb="${item.kb_id || ''}">Ignore</button>
                         </td>
                     </tr>
                 `;
             }).join('');
+        }
+
+        function renderKnowledgeQualityDebt(debt) {
+            const el = document.getElementById('knowledgeQualityDebt');
+            if (!el) return;
+            if (!debt) {
+                el.innerHTML = '<div class="insight"><strong>No debt summary</strong><small class="note">Refresh analytics to load quality debt by KB.</small></div>';
+                return;
+            }
+            el.innerHTML = `
+                <div class="insight"><strong>${debt.active_gap_count || 0} active gap(s)</strong><small class="note">${debt.overdue_gap_count || 0} overdue, ${debt.due_soon_gap_count || 0} due soon.</small></div>
+                <div class="insight"><strong>${debt.pending_patch_action_count || 0} patch action(s)</strong><small class="note">Draft or approved FAQ/source updates waiting on admin flow.</small></div>
+                <div class="insight"><strong>${debt.stale_document_count || 0} stale doc(s)</strong><small class="note">${debt.failed_ingest_count || 0} failed ingest, ${debt.zero_chunk_count || 0} zero chunk.</small></div>
+            `;
         }
 
         async function refreshKnowledgeGaps(showLoading = true) {
@@ -3480,24 +3616,47 @@
             const status = document.getElementById('knowledgeGapStatus')?.value || '';
             if (status) params.set('status', status);
             if (selectedOnly && selectedKbId()) params.set('kb_id', String(selectedKbId()));
-            if (showLoading) setTableBody('knowledgeGapsTable', loadingRow(6, 'Loading knowledge gaps...'));
-            const data = await fetchJson(`/api/admin/knowledge-gaps?${params.toString()}`);
+            if (showLoading) setTableBody('knowledgeGapsTable', loadingRow(8, 'Loading knowledge gaps...'));
+            const debtParams = new URLSearchParams({ days: String(days) });
+            if (selectedOnly && selectedKbId()) debtParams.set('kb_id', String(selectedKbId()));
+            const [data, debt] = await Promise.all([
+                fetchJson(`/api/admin/knowledge-gaps?${params.toString()}`),
+                fetchJson(`/api/admin/knowledge-gaps/quality-debt?${debtParams.toString()}`),
+            ]);
             knowledgeGaps = data.items || [];
             setTableBody('knowledgeGapsTable', knowledgeGapRowsHtml(knowledgeGaps));
+            renderKnowledgeQualityDebt(debt);
             document.getElementById('knowledgeGapSummary').textContent = `${knowledgeGaps.length} cluster(s) in ${data.period_days || days} day window${data.kb_id ? ` | KB ${data.kb_id}` : ' | all KBs'}.`;
         }
 
-        async function updateKnowledgeGapStatus(clusterKey, status, kbId) {
+        async function updateKnowledgeGapStatus(clusterKey, status, kbId, extra = {}) {
             const params = new URLSearchParams();
             if (kbId) params.set('kb_id', String(kbId));
             const suffix = params.toString() ? `?${params.toString()}` : '';
             await fetchJson(`/api/admin/knowledge-gaps/${encodeURIComponent(clusterKey)}${suffix}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status }),
+                body: JSON.stringify({ status, ...extra }),
             });
             toast(`Knowledge gap marked ${status}`);
             await refreshKnowledgeGaps(false);
+        }
+
+        async function triageKnowledgeGap(clusterKey, kbId) {
+            const defaultDue = new Date();
+            defaultDue.setDate(defaultDue.getDate() + 7);
+            const owner = await modalPrompt('Assign gap owner', 'Owner user ID:', 'knowledge-owner');
+            if (owner === null) return;
+            const priority = await modalPrompt('Set gap priority', 'Priority: P0, P1, P2, or P3', 'P2');
+            if (priority === null) return;
+            const dueDate = await modalPrompt('Set due date', 'Due date (YYYY-MM-DD):', defaultDue.toISOString().slice(0, 10));
+            if (dueDate === null) return;
+            await updateKnowledgeGapStatus(clusterKey, 'triaged', kbId, {
+                owner_user_id: owner,
+                priority,
+                due_date: dueDate,
+                status_reason: 'Triaged for knowledge governance review.',
+            });
         }
 
         async function suggestKnowledgeGapFaq(clusterKey, kbId) {
@@ -3532,7 +3691,7 @@
                     payload: {
                         days: 7,
                         kb_id: targetKb,
-                        status: document.getElementById('knowledgeGapStatus')?.value || 'open',
+                        status: document.getElementById('knowledgeGapStatus')?.value || 'new',
                         limit: 20,
                     },
                 }),
@@ -3611,6 +3770,93 @@
             `).join('');
         }
 
+        function aiOpsStatusClass(status) {
+            if (status === 'healthy') return 'done';
+            if (status === 'warning') return 'queued';
+            if (status === 'critical') return 'failed';
+            return 'active';
+        }
+
+        function aiOpsEvalTrendRowsHtml(items) {
+            if (!items.length) return '<tr><td colspan="3">No evaluation runs found.</td></tr>';
+            return items.map((item) => `
+                <tr>
+                    <td><strong>${escapeHtml(item.name || `Run ${item.id}`)}</strong><br><small class="note">${escapeHtml(item.source || '-')} | ${escapeHtml(item.created_at || '-')}</small></td>
+                    <td>${item.avg_score ?? '-'}<br><small class="note">${item.pass_count || 0} pass, ${item.warn_count || 0} warn, ${item.fail_count || 0} fail</small></td>
+                    <td><span class="status ${aiOpsStatusClass(item.gate_status === 'failed' ? 'critical' : item.gate_status === 'passed' ? 'healthy' : 'warning')}">${escapeHtml(item.gate_status || 'not_compared')}</span></td>
+                </tr>
+            `).join('');
+        }
+
+        function renderAiOpsSummary(data) {
+            aiOpsSummary = data;
+            const cost = data?.cost || {};
+            const latency = data?.latency || {};
+            const tooling = data?.tooling || {};
+            const approvals = data?.approvals || {};
+            const latestEval = (data?.eval_trend || [])[0] || {};
+            const status = data?.status || 'not loaded';
+            setTextIfExists('aiOpsSummary', `${data?.period_days || '-'} day window${data?.kb_id ? ` | KB ${data.kb_id}` : ' | all KBs'} | ${(data?.alerts || []).length} alert(s).`);
+            setTextIfExists('aiOpsStatus', status);
+            setTextIfExists('aiOpsBillableTokens', cost.billable_input_token_estimate ?? '-');
+            setTextIfExists('aiOpsCacheRate', formatRate(cost.cache_reuse_rate));
+            setTextIfExists('aiOpsP95Latency', latency.p95_ms === null || latency.p95_ms === undefined ? '-' : `${latency.p95_ms} ms`);
+            setTextIfExists('aiOpsToolErrorBudget', formatRate(tooling.error_rate));
+            setTextIfExists('aiOpsApprovalAge', approvals.max_open_hours ? `${Math.round(approvals.max_open_hours)}h` : '-');
+            setTextIfExists('aiOpsEvalGate', latestEval.gate_status || '-');
+
+            const statusNode = byId('aiOpsStatus');
+            if (statusNode) statusNode.className = `value status ${aiOpsStatusClass(status)}`;
+            const alerts = data?.alerts || [];
+            byId('aiOpsAlerts').innerHTML = alerts.length ? alerts.map((item) => `
+                <div class="insight">
+                    <strong><span class="status ${item.severity === 'critical' ? 'failed' : 'queued'}">${escapeHtml(item.code || 'alert')}</span></strong>
+                    <small class="note">${escapeHtml(item.message || '-')}</small>
+                </div>
+            `).join('') : '<div class="insight"><strong><span class="status done">No active AI Ops alerts</span></strong><small class="note">Error budgets and latest eval gate are within the current thresholds.</small></div>';
+            setTableBody('aiOpsEvalTrendTable', aiOpsEvalTrendRowsHtml(data?.eval_trend || []));
+        }
+
+        async function refreshAiOps(showLoading = true) {
+            const days = Number(document.getElementById('analyticsDays').value || '7');
+            const selectedOnly = document.getElementById('analyticsScope').value === 'selected';
+            const params = new URLSearchParams({ days: String(days) });
+            if (selectedOnly && selectedKbId()) params.set('kb_id', String(selectedKbId()));
+            if (showLoading) {
+                setTextIfExists('aiOpsSummary', 'Loading AI Ops snapshot...');
+                setTableBody('aiOpsEvalTrendTable', loadingRow(3, 'Loading AI Ops eval trend...'));
+            }
+            const data = await fetchJson(`/api/admin/ai-ops/summary?${params.toString()}`);
+            renderAiOpsSummary(data);
+        }
+
+        function aiOpsReplayRowsHtml(results) {
+            if (!results.length) return '<tr><td colspan="4">No retrieval results found.</td></tr>';
+            return results.map((item) => `
+                <tr>
+                    <td>#${item.rank || '-'}</td>
+                    <td>${item.final_score ?? item.similarity ?? '-'}<br><small class="note">retrieval ${item.retrieval_score ?? '-'}</small></td>
+                    <td>${escapeHtml(item.filename || '-')}<br><small class="note">${escapeHtml(item.category || '-')} ${escapeHtml(item.lang || '')}</small></td>
+                    <td class="mono" style="font-size:11px; white-space:pre-wrap;">${escapeHtml(item.snippet || '-')}</td>
+                </tr>
+            `).join('');
+        }
+
+        async function runAiOpsReplay() {
+            const chatLogId = Number(document.getElementById('aiOpsReplayChatId').value || 0);
+            if (!chatLogId) return toast('Enter a chat log ID to replay.', false);
+            const topK = clampNumber(document.getElementById('aiOpsReplayTopK').value || 5, 1, 20);
+            setTextIfExists('aiOpsReplaySummary', 'Running retrieval replay...');
+            setTableBody('aiOpsReplayTable', loadingRow(4, 'Replaying retrieval...'));
+            const data = await fetchJson(`/api/admin/ai-ops/replay/chat-logs/${chatLogId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode: 'retrieval_only', top_k: topK }),
+            });
+            setTextIfExists('aiOpsReplaySummary', `Replay ${data.mode} | top score ${data.top_score ?? '-'} | predicted ${data.predicted_mode || '-'} | ${data.latency_ms || 0} ms.`);
+            setTableBody('aiOpsReplayTable', aiOpsReplayRowsHtml(data.results || []));
+        }
+
         async function refreshAnalytics() {
             const days = Number(document.getElementById('analyticsDays').value || '7');
             const selectedOnly = document.getElementById('analyticsScope').value === 'selected';
@@ -3661,6 +3907,7 @@
             renderBreakdownTable('analyticsSupportIntentsTable', data.support_intents);
             renderBreakdownTable('analyticsSupportStatusTable', data.support_status);
             renderBreakdownTable('analyticsKbUsageTable', data.kb_usage);
+            await refreshAiOps(false);
             await refreshKnowledgeGaps(false);
             renderRagQualityCockpit();
         }
@@ -4002,10 +4249,12 @@
                 const wf = item.workflow_status || item.status || 'new';
                 const slaClass = item.sla_breached_at ? 'failed' : 'queued';
                 const owner = `${item.assigned_team || '-'}<br><small class="note">${item.assigned_user_id || '-'}</small>`;
+                const next = item.next_action || {};
+                const nextClass = next.severity === 'critical' ? 'failed' : (next.severity === 'warning' ? 'queued' : 'done');
                 return `
                     <tr>
                         <td><strong>${item.ticket_code}</strong><br><small class="note">${escapeHtml(item.contact || item.created_by_user_id || '-')}</small><br><span class="status ${wf}">${wf}</span></td>
-                        <td>${item.intent || '-'}<br><small class="note">risk: ${item.risk_level || '-'} / sentiment: ${item.sentiment || '-'}</small></td>
+                        <td>${item.intent || '-'}<br><small class="note">risk: ${item.risk_level || '-'} / sentiment: ${item.sentiment || '-'}</small><br><span class="status ${nextClass}">${escapeHtml(next.label || 'No next action')}</span></td>
                         <td><span class="status ${slaClass}">${item.priority || '-'}</span><br><small class="note">Due: ${item.sla_due_at || '-'}</small>${item.sla_breached_at ? `<br><small class="note">Breached: ${item.sla_breached_at}</small>` : ''}</td>
                         <td>${owner}${compact ? '' : `<br><small class="note">${item.note_count || 0} note(s), ${item.pending_action_count || 0} approval(s)</small>`}</td>
                         <td>
@@ -4084,6 +4333,21 @@
                     <br><small class="note">${escapeHtml(step.tool || 'no tool')} | risk: ${escapeHtml(step.risk || '-')} | status: ${escapeHtml(step.status || '-')} ${step.requires_approval ? '| approval required' : ''}</small>
                 </li>
             `).join('')}</ol>`;
+        }
+
+        function renderNextActionCard(next) {
+            if (!next || !next.key) {
+                return '<div class="empty-state"><strong>No next action.</strong><small>Select or handle a case to compute the next support step.</small></div>';
+            }
+            const statusClass = next.severity === 'critical' ? 'failed' : (next.severity === 'warning' ? 'queued' : 'done');
+            return `
+                <section class="case-context-section">
+                    <h4>Next Action</h4>
+                    <p><span class="status ${statusClass}">${escapeHtml(next.label || next.key)}</span></p>
+                    <p class="note" style="margin-top:6px;">${escapeHtml(next.description || '-')}</p>
+                    ${next.requires_approval ? '<p class="note" style="margin-top:6px;"><strong>Approval boundary:</strong> review in Pending Actions before customer-impacting execution.</p>' : ''}
+                </section>
+            `;
         }
 
         function renderReadableCaseContext(ctx, notes) {
@@ -4205,6 +4469,27 @@
                             </li>
                         `).join('')}
                     </ul>
+                </section>
+            `;
+        }
+
+        function renderDraftReviewPacket(packet) {
+            if (!packet || !Object.keys(packet).length) {
+                return '<p class="note">Generate a draft to review customer reply, evidence, and internal risk.</p>';
+            }
+            const risk = packet.internal_risk || {};
+            const evidence = Array.isArray(packet.evidence_used) ? packet.evidence_used : [];
+            const riskClass = risk.risk_level === 'high' || risk.risk_level === 'critical' ? 'failed' : 'done';
+            return `
+                <section class="case-context-section">
+                    <h4>Draft Review</h4>
+                    <div class="case-kv">
+                        <div><small>Approval</small><strong>${escapeHtml(packet.approval_boundary || '-')}</strong></div>
+                        <div><small>Risk</small><span class="status ${riskClass}">${escapeHtml(risk.risk_level || '-')}</span></div>
+                        <div><small>Intent</small><strong>${escapeHtml(risk.intent || '-')}</strong></div>
+                        <div><small>Evidence</small><strong>${evidence.length}</strong></div>
+                    </div>
+                    <p class="note" style="margin-top:8px;">${escapeHtml(risk.policy || '')}</p>
                 </section>
             `;
         }
@@ -4708,6 +4993,7 @@
             const workspaceSummary = document.getElementById('workspaceCaseDetailSummary');
             const workspaceBody = document.getElementById('workspaceCaseContextBody');
             const workspaceMeta = document.getElementById('workspaceCaseMeta');
+            const workspaceNextAction = document.getElementById('workspaceNextAction');
             const workspaceContextView = document.getElementById('workspaceCaseContextView');
             const workspaceTimeline = document.getElementById('workspaceCaseTimeline');
             const workspaceTimelineSummary = document.getElementById('workspaceCaseTimelineSummary');
@@ -4723,6 +5009,7 @@
                 };
                 workspaceBody.value = JSON.stringify(rawContext, null, 2);
                 if (workspaceContextView) workspaceContextView.innerHTML = renderReadableCaseContext(ctx, notes);
+                if (workspaceNextAction) workspaceNextAction.innerHTML = renderNextActionCard(ticket.next_action || {});
                 workspaceMeta.innerHTML = [
                     ticket.priority ? `<span class="status queued">${ticket.priority}</span>` : '',
                     ticket.risk_level ? `<span class="status ${ticket.risk_level === 'low' ? 'done' : 'queued'}">risk: ${ticket.risk_level}</span>` : '',
@@ -4734,8 +5021,10 @@
                 document.getElementById('workspaceAssignUser').value = ticket.assigned_user_id || '';
                 const draftMeta = document.getElementById('workspaceDraftReplyMeta');
                 const draftCitations = document.getElementById('workspaceDraftCitations');
+                const draftReview = document.getElementById('workspaceDraftReview');
                 if (draftMeta) draftMeta.textContent = 'AI draft not generated yet.';
                 if (draftCitations) draftCitations.innerHTML = '';
+                if (draftReview) draftReview.innerHTML = '<p class="note">Generate a draft to review customer reply, evidence, and internal risk.</p>';
             }
             if (workspaceTimeline && workspaceTimelineSummary) {
                 workspaceTimelineSummary.textContent = `${timeline.total || 0} trace event(s) for ${timeline.ticket_code || ticket.ticket_code || caseId}.`;
@@ -4829,10 +5118,45 @@
                 }
                 const citations = document.getElementById('workspaceDraftCitations');
                 if (citations) citations.innerHTML = renderDraftCitations(result.citations || []);
+                const review = document.getElementById('workspaceDraftReview');
+                if (review) review.innerHTML = renderDraftReviewPacket(result.review_packet || {});
                 toast('AI draft generated. Review before sending.');
             } finally {
                 setButtonLoading(button, false);
             }
+        }
+
+        async function applySupportCannedAction() {
+            if (!selectedSupportCaseId) return toast('Select a support case first.', false);
+            const action = document.getElementById('workspaceCannedAction')?.value || 'ask_more_info';
+            const replyBody = document.getElementById('workspacePublicReplyBody')?.value.trim() || null;
+            const note = document.getElementById('workspaceCaseNoteBody')?.value.trim() || null;
+            const assignedTeam = document.getElementById('workspaceAssignTeam')?.value.trim() || null;
+            const assignedUser = document.getElementById('workspaceAssignUser')?.value.trim() || null;
+            const highRisk = action === 'refund_requires_approval' || action === 'cancel_requires_approval';
+            if (highRisk) {
+                const ok = await modalConfirm('Approval required', 'This canned action creates a pending approval. Continue?');
+                if (!ok) return;
+            }
+            const result = await fetchJson(`/api/admin/support-tickets/${selectedSupportCaseId}/canned-action`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action,
+                    reply_body: replyBody,
+                    note,
+                    assigned_team: assignedTeam,
+                    assigned_user_id: assignedUser,
+                }),
+            });
+            if (document.getElementById('workspaceCaseNoteBody')) document.getElementById('workspaceCaseNoteBody').value = '';
+            if (['ask_more_info', 'resolve_with_kb'].includes(action) && document.getElementById('workspacePublicReplyBody')) {
+                document.getElementById('workspacePublicReplyBody').value = '';
+            }
+            toast(result.message || 'Canned action applied.');
+            await refreshPendingActions(false);
+            await refreshSupportCases();
+            await viewSupportCase(selectedSupportCaseId);
         }
 
         async function sendPublicSupportReply(resolve = false) {
@@ -4900,12 +5224,16 @@
                 if (workspaceTimelineSummary) workspaceTimelineSummary.textContent = 'Select a case to inspect request, workflow, tools, approvals, replies, and jobs.';
                 const draftMeta = document.getElementById('workspaceDraftReplyMeta');
                 const draftCitations = document.getElementById('workspaceDraftCitations');
+                const draftReview = document.getElementById('workspaceDraftReview');
                 if (draftMeta) draftMeta.textContent = 'AI draft not generated yet.';
                 if (draftCitations) draftCitations.innerHTML = '';
+                if (draftReview) draftReview.innerHTML = '';
                 document.getElementById('workspaceCaseNoteBody').value = '';
                 document.getElementById('workspaceAssignTeam').value = '';
                 document.getElementById('workspaceAssignUser').value = '';
                 document.getElementById('workspaceCaseMeta').innerHTML = '';
+                const workspaceNextAction = document.getElementById('workspaceNextAction');
+                if (workspaceNextAction) workspaceNextAction.innerHTML = '';
             }
             renderSupportWorkspaceActions();
         }
@@ -5834,10 +6162,16 @@
         document.getElementById('btnRefreshAnalytics').addEventListener('click', () => refreshAnalytics().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('analyticsDays').addEventListener('change', () => refreshAnalytics().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('analyticsScope').addEventListener('change', () => refreshAnalytics().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnRefreshAiOps').addEventListener('click', () => refreshAiOps().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnRunAiOpsReplay').addEventListener('click', () => runAiOpsReplay().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnRefreshKnowledgeGaps').addEventListener('click', () => refreshKnowledgeGaps().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnScheduleKnowledgeGapReport').addEventListener('click', () => createKnowledgeGapReportSchedule().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('knowledgeGapStatus').addEventListener('change', () => refreshKnowledgeGaps().catch((e) => toast(explainAuthError(e), false)));
         document.querySelector('#knowledgeGapsTable tbody').addEventListener('click', (event) => {
+            const triageBtn = event.target.closest('[data-gap-triage]');
+            if (triageBtn) {
+                return triageKnowledgeGap(triageBtn.dataset.gapTriage, triageBtn.dataset.gapKb).catch((e) => toast(explainAuthError(e), false));
+            }
             const suggestBtn = event.target.closest('[data-gap-suggest]');
             if (suggestBtn) {
                 return suggestKnowledgeGapFaq(suggestBtn.dataset.gapSuggest, suggestBtn.dataset.gapKb).catch((e) => toast(explainAuthError(e), false));
@@ -5885,6 +6219,7 @@
         document.getElementById('btnWorkspaceEscalate').addEventListener('click', () => selectedSupportCaseId ? escalateSupportCase(selectedSupportCaseId).catch((e) => toast(explainAuthError(e), false)) : toast('Select a support case first.', false));
         document.getElementById('btnWorkspaceClear').addEventListener('click', clearSupportCaseSelection);
         document.getElementById('btnWorkspaceGenerateDraft').addEventListener('click', () => generateSupportDraftReply().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnWorkspaceApplyCanned').addEventListener('click', () => applySupportCannedAction().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnWorkspacePublicReply').addEventListener('click', () => sendPublicSupportReply(false).catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnWorkspacePublicReplyResolve').addEventListener('click', () => sendPublicSupportReply(true).catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnWorkspaceCloseCase').addEventListener('click', () => closeSupportCase().catch((e) => toast(explainAuthError(e), false)));

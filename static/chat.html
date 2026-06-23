@@ -133,6 +133,8 @@
       min-height: 0;
       overflow: hidden;
     }
+    .body.evidence-collapsed { grid-template-columns: 1fr; }
+    .body.evidence-collapsed .sidebar { display: none; }
 
     /* ── Chat column ───────────────────────────────────── */
     .chat-col {
@@ -449,6 +451,21 @@
     .dev-fields {
       display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;
     }
+    .dev-settings-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--ink2);
+      cursor: pointer;
+      font-family: var(--font);
+      font-size: 12px;
+      margin-bottom: 8px;
+      padding: 6px 10px;
+    }
+    .dev-settings-toggle:hover { color: var(--ink); border-color: var(--border2); }
     .dev-input {
       flex: 1; min-width: 140px;
       background: var(--bg);
@@ -595,6 +612,50 @@
     }
     .overlay.active { display: block; }
 
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,.58);
+      padding: 18px;
+    }
+    .modal {
+      width: min(460px, 100%);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      padding: 16px;
+    }
+    .modal h2 { font-size: 16px; margin-bottom: 6px; }
+    .modal p { color: var(--ink2); font-size: 12px; margin-bottom: 12px; }
+    .reason-grid { display: grid; gap: 8px; margin-bottom: 10px; }
+    .reason-option {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 8px;
+      cursor: pointer;
+    }
+    .reason-option:hover { border-color: var(--brand); background: var(--brand-glow); }
+    .modal textarea {
+      width: 100%;
+      min-height: 80px;
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--ink);
+      font-family: var(--font);
+      padding: 9px 10px;
+      resize: vertical;
+    }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+
     /* ── Utilities ──────────────────────────────────────── */
     .hidden { display: none !important; }
 
@@ -650,6 +711,7 @@
 
       <!-- Input area -->
       <div class="input-area">
+        <button class="dev-settings-toggle hidden" id="devSettingsToggle" type="button" title="Open local development auth controls">Auth settings</button>
         <div class="dev-fields" id="devFields">
           <input class="dev-input" id="userIdInput" type="text" placeholder="X-User-Id (dev mode)">
           <input class="dev-input" id="rolesInput" type="text" placeholder="X-Roles (vd: admin,support)">
@@ -691,6 +753,26 @@
 <!-- Mobile overlay -->
 <div class="overlay" id="overlay" onclick="closeSidebar()"></div>
 
+<div class="modal-backdrop hidden" id="feedbackModal" role="dialog" aria-modal="true" aria-labelledby="feedbackTitle">
+  <div class="modal">
+    <h2 id="feedbackTitle">What was not helpful?</h2>
+    <p>Choose the closest reason so the knowledge and evaluation queues can route the fix.</p>
+    <div class="reason-grid">
+      <label class="reason-option"><input type="radio" name="feedbackReason" value="wrong_source"> Wrong or weak source</label>
+      <label class="reason-option"><input type="radio" name="feedbackReason" value="outdated"> Outdated answer</label>
+      <label class="reason-option"><input type="radio" name="feedbackReason" value="incomplete"> Incomplete answer</label>
+      <label class="reason-option"><input type="radio" name="feedbackReason" value="hallucination"> Not grounded in the documents</label>
+      <label class="reason-option"><input type="radio" name="feedbackReason" value="too_slow"> Too slow</label>
+      <label class="reason-option"><input type="radio" name="feedbackReason" value="other"> Other</label>
+    </div>
+    <textarea id="feedbackComment" placeholder="Optional detail for the support or knowledge team..."></textarea>
+    <div class="modal-actions">
+      <button class="action-btn" id="btnCancelFeedback" type="button">Cancel</button>
+      <button class="send-btn" id="btnSubmitFeedbackReason" type="button" title="Save feedback">OK</button>
+    </div>
+  </div>
+</div>
+
 <script>
   /* ── Setup marked.js ─────────────────────────────────── */
   if (typeof marked !== 'undefined') {
@@ -730,20 +812,27 @@
   const citationsPanel= document.getElementById('panel-citations');
   const tracePanel    = document.getElementById('panel-trace');
   const devFields     = document.getElementById('devFields');
+  const devSettingsToggle = document.getElementById('devSettingsToggle');
   const sidebar       = document.getElementById('sidebar');
   const overlay       = document.getElementById('overlay');
+  const bodyGrid      = document.getElementById('bodyGrid');
+  const feedbackModal = document.getElementById('feedbackModal');
+  const feedbackComment = document.getElementById('feedbackComment');
 
   let isBusy    = false;
   let sessionId = localStorage.getItem('rag_session') || null;
   let activeKb  = null;
   let chatRuntime = { authMode: 'dev', debugAuthInputsEnabled: true };
   let viewerProfile = null;
+  let devSettingsOpen = false;
+  let pendingFeedback = null;
 
   const savedAuth = JSON.parse(localStorage.getItem('rag_chat_auth') || '{}');
   userIdInput.value = savedAuth.userId || '';
   rolesInput.value  = savedAuth.roles  || '';
   updateSessionLabel();
   updateAuthLabels();
+  bodyGrid.classList.add('evidence-collapsed');
 
   /* ── Helpers ─────────────────────────────────────────── */
   function escapeHtml(v) {
@@ -839,7 +928,17 @@
   }
 
   function applyChatRuntimeMode() {
-    devFields.classList.toggle('hidden', !chatRuntime.debugAuthInputsEnabled);
+    const canUseDevInputs = Boolean(chatRuntime.debugAuthInputsEnabled);
+    devSettingsToggle.classList.toggle('hidden', !canUseDevInputs);
+    devFields.classList.toggle('hidden', !canUseDevInputs || !devSettingsOpen);
+  }
+
+  function revealEvidencePanel() {
+    bodyGrid.classList.remove('evidence-collapsed');
+  }
+
+  function collapseEvidencePanel() {
+    bodyGrid.classList.add('evidence-collapsed');
   }
 
   /* ── Load profile & KBs ──────────────────────────────── */
@@ -902,6 +1001,11 @@
     const isOpen = sidebar.classList.toggle('open');
     overlay.classList.toggle('active', isOpen);
   });
+  devSettingsToggle.addEventListener('click', () => {
+    devSettingsOpen = !devSettingsOpen;
+    applyChatRuntimeMode();
+    if (devSettingsOpen) userIdInput.focus();
+  });
   function closeSidebar() {
     sidebar.classList.remove('open');
     overlay.classList.remove('active');
@@ -956,10 +1060,12 @@
     if (!actions) return;
     actions.removeAttribute('id');
     if (requestId) row.dataset.requestId = requestId;
+    row.answerText = fullText || '';
     actions.innerHTML = `
-      <button class="action-btn" onclick="copyText(this.closest('.msg-row').querySelector('.md-content').innerText)">📋 Copy</button>
-      <button class="action-btn" onclick="voteMsg(this,'up')">👍</button>
-      <button class="action-btn" onclick="voteMsg(this,'down')">👎</button>
+      <button class="action-btn" onclick="copyText(this.closest('.msg-row').querySelector('.md-content').innerText)">Copy</button>
+      <button class="action-btn" onclick="createTicketFromAnswer(this)">Create ticket</button>
+      <button class="action-btn" onclick="voteMsg(this,'up')">Helpful</button>
+      <button class="action-btn down" onclick="voteMsg(this,'down')">Not helpful</button>
     `;
     const voteButtons = Array.from(actions.querySelectorAll('button'))
       .filter((item) => item.getAttribute('onclick')?.includes('voteMsg'));
@@ -975,7 +1081,25 @@
   }
 
   function voteMsg(btn, dir) {
+    if (dir === 'down') {
+      openFeedbackModal(btn);
+      return;
+    }
     return submitFeedback(btn, dir);
+  }
+
+  function openFeedbackModal(btn) {
+    pendingFeedback = { btn, dir: 'down' };
+    feedbackComment.value = '';
+    feedbackModal.querySelectorAll('input[name="feedbackReason"]').forEach((input) => {
+      input.checked = input.value === 'incomplete';
+    });
+    feedbackModal.classList.remove('hidden');
+  }
+
+  function closeFeedbackModal() {
+    pendingFeedback = null;
+    feedbackModal.classList.add('hidden');
   }
 
   function setFeedbackStatus(row, text, ok = true) {
@@ -992,7 +1116,7 @@
     status.closest('.msg-actions')?.classList.add('feedback-active');
   }
 
-  async function submitFeedback(btn, dir) {
+  async function submitFeedback(btn, dir, reasonCode = null, comment = null) {
     const row = btn.closest('.msg-row');
     const requestId = row?.dataset.requestId;
     if (!row || !requestId) {
@@ -1009,7 +1133,12 @@
       const res = await fetch('/api/feedback/chat', {
         method: 'POST',
         headers: getChatHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ request_id: requestId, rating: dir }),
+        body: JSON.stringify({
+          request_id: requestId,
+          rating: dir,
+          reason_code: reasonCode || (dir === 'up' ? 'helpful' : 'not_helpful'),
+          comment: comment || null,
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -1024,6 +1153,60 @@
       setFeedbackStatus(row, err.message || 'Feedback failed', false);
     } finally {
       buttons.forEach((item) => { item.disabled = false; });
+    }
+  }
+
+  function truncateText(text, maxLen) {
+    const value = String(text || '').trim();
+    return value.length > maxLen ? `${value.slice(0, maxLen - 1)}...` : value;
+  }
+
+  async function createTicketFromAnswer(btn) {
+    const row = btn.closest('.msg-row');
+    const question = row?.userQuestion || '';
+    const answer = row?.answerText || row?.querySelector('.md-content')?.innerText || '';
+    const citations = Array.isArray(row?.citations) ? row.citations : [];
+    const requestId = row?.dataset.requestId || null;
+    if (!row || !requestId || !answer.trim()) {
+      if (row) setFeedbackStatus(row, 'Ticket context unavailable', false);
+      return;
+    }
+    btn.disabled = true;
+    setFeedbackStatus(row, 'Creating ticket...', true);
+    const sourceLines = citations.slice(0, 3).map((item, idx) => {
+      const filename = item.filename || 'source';
+      const preview = truncateText(item.content_preview || '', 180);
+      return `[${idx + 1}] ${filename}: ${preview}`;
+    }).join('\n');
+    const message = truncateText([
+      'The assistant answer was not enough and I need human follow-up.',
+      question ? `\nQuestion:\n${question}` : '',
+      answer ? `\nAssistant answer:\n${answer}` : '',
+      sourceLines ? `\nCitations:\n${sourceLines}` : '',
+    ].join('\n'), 3900);
+    try {
+      const res = await fetch('/api/support-tickets', {
+        method: 'POST',
+        headers: getChatHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({
+          issue_type: 'question',
+          message,
+          kb_id: activeKb ? Number(activeKb.id) : null,
+          kb_key: activeKb?.key || null,
+          source_chat_request_id: requestId,
+          source_session_id: sessionId,
+          source_question: truncateText(question, 2800),
+          source_answer: truncateText(answer, 2800),
+          source_citations: citations.slice(0, 5),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+      setFeedbackStatus(row, `Ticket ${data.ticket_code || data.id} created`, true);
+    } catch (err) {
+      setFeedbackStatus(row, err.message || 'Ticket failed', false);
+    } finally {
+      btn.disabled = false;
     }
   }
 
@@ -1065,6 +1248,7 @@
       citationsPanel.innerHTML = '<div class="panel-empty">Không có citation cho phản hồi này.</div>';
       return;
     }
+    revealEvidencePanel();
     citationsPanel.innerHTML = '';
     for (const [i, item] of items.entries()) {
       let src = item.filename || 'source';
@@ -1098,6 +1282,7 @@
     tracePanel.innerHTML = '<div class="panel-empty">Đang chờ agent trace...</div>';
   }
   function addTrace(kind, title, detail, state='pending') {
+    revealEvidencePanel();
     const empty = tracePanel.querySelector('.panel-empty');
     if (empty) empty.remove();
     const item = document.createElement('div');
@@ -1147,6 +1332,8 @@
 
       removeTypingRow();
       const botRow    = addBotMessage();
+      botRow.userQuestion = text;
+      botRow.citations = [];
       const contentEl = botRow.querySelector('#msgContent');
       const metaEl    = botRow.querySelector('#msgMeta');
       contentEl.removeAttribute('id');
@@ -1232,7 +1419,8 @@
           }
 
           if (currentEvent === 'citations') {
-            renderCitations(data.items||[]);
+            botRow.citations = data.items || [];
+            renderCitations(botRow.citations);
           }
 
           if (currentEvent === 'done') {
@@ -1283,6 +1471,18 @@
   rolesInput.addEventListener('input',  () => { persistChatAuth(); updateAuthLabels(); });
   userIdInput.addEventListener('change', init);
   rolesInput.addEventListener('change', init);
+  document.getElementById('btnCancelFeedback').addEventListener('click', closeFeedbackModal);
+  document.getElementById('btnSubmitFeedbackReason').addEventListener('click', () => {
+    if (!pendingFeedback) return closeFeedbackModal();
+    const reason = feedbackModal.querySelector('input[name="feedbackReason"]:checked')?.value || 'not_helpful';
+    const comment = feedbackComment.value.trim() || null;
+    const { btn, dir } = pendingFeedback;
+    closeFeedbackModal();
+    submitFeedback(btn, dir, reason, comment);
+  });
+  feedbackModal.addEventListener('click', (event) => {
+    if (event.target === feedbackModal) closeFeedbackModal();
+  });
 
   /* ── Init ───────────────────────────────────────────── */
   init();

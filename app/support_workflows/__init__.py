@@ -2,6 +2,7 @@
 
 from app.support_workflows.service import (
     add_ticket_note,
+    apply_canned_support_action,
     assign_ticket,
     classify_ticket,
     escalate_ticket,
@@ -19,6 +20,7 @@ from app.support_workflows.service import (
 
 __all__ = [
     "add_ticket_note",
+    "apply_canned_support_action",
     "assign_ticket",
     "classify_ticket",
     "escalate_ticket",

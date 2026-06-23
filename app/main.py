@@ -28,6 +28,7 @@ from app.access_management import (
     update_app_user,
     upsert_app_user,
 )
+from app.ai_ops import build_ai_ops_summary, replay_chat_log
 from app.analytics import build_analytics_dashboard
 from app.approval_events import ApprovalEventsOutput, list_approval_events
 from app.agent_runs import (
@@ -77,8 +78,14 @@ from app.feedback import feedback_summary, list_chat_feedback, submit_chat_feedb
 from app.ingest import router as ingest_router
 from app.kb import router as kb_router
 from app.kb_service import list_accessible_kbs, open_db, resolve_kb_scope
-from app.knowledge_gaps import list_knowledge_gap_clusters, suggest_faq_pending_action, update_gap_cluster_status
+from app.knowledge_gaps import (
+    build_knowledge_quality_debt,
+    list_knowledge_gap_clusters,
+    suggest_faq_pending_action,
+    update_gap_cluster_status,
+)
 from app.models import (
+    AiOpsReplayInput,
     AnalyticsDashboardOutput,
     AgentEvalRunDetail,
     AuthAuditLogItem,
@@ -159,6 +166,7 @@ from app.scheduled_sync import (
 )
 from app.support_workflows import (
     add_ticket_note,
+    apply_canned_support_action,
     assign_ticket,
     classify_ticket,
     escalate_ticket,
@@ -181,6 +189,8 @@ from app.support_workflows.schemas import (
     ListSupportTicketNotesOutput,
     ListSupportTicketsOutput,
     SlaMonitorResult,
+    SupportCannedActionInput,
+    SupportCannedActionOutput,
     SupportTicketItem,
     SupportTicketNoteItem,
     UpdateTicketStatusInput,
@@ -701,6 +711,25 @@ def _assert_ticket_visible_to_user(ticket: dict, auth) -> None:
         raise HTTPException(status_code=403, detail="Support ticket access denied")
 
 
+def _source_chat_note_body(payload: CreateSupportTicketInput) -> str | None:
+    parts: list[str] = []
+    if payload.source_question:
+        parts.append(f"User question:\n{payload.source_question.strip()}")
+    if payload.source_answer:
+        parts.append(f"Assistant answer:\n{payload.source_answer.strip()}")
+    if payload.source_citations:
+        citation_lines: list[str] = []
+        for idx, item in enumerate(payload.source_citations[:5], start=1):
+            filename = str(item.get("filename") or item.get("source") or "source").strip()
+            chunk_id = str(item.get("chunk_id") or "").strip()
+            preview = str(item.get("content_preview") or "").strip()
+            suffix = f" ({chunk_id})" if chunk_id else ""
+            citation_lines.append(f"[{idx}] {filename}{suffix}: {preview[:240]}")
+        if citation_lines:
+            parts.append("Citations:\n" + "\n".join(citation_lines))
+    return "\n\n".join(part for part in parts if part.strip()) or None
+
+
 @app.get("/api/support-tickets", response_model=ListSupportTicketsOutput)
 async def list_my_support_tickets(
     status: str | None = Query(default=None),
@@ -735,7 +764,32 @@ async def create_my_support_ticket(
             auth=auth,
         ),
     )
-    return get_support_ticket_by_code(result["ticket_code"])
+    ticket = get_support_ticket_by_code(result["ticket_code"])
+    source_note = _source_chat_note_body(payload)
+    if source_note:
+        add_ticket_note(
+            int(ticket["id"]),
+            AddTicketNoteInput(
+                body=source_note,
+                note_type="source_chat",
+                visibility="internal",
+                metadata={
+                    "source": "chat_answer",
+                    "request_id": payload.source_chat_request_id,
+                    "chat_log_id": payload.source_chat_log_id,
+                    "session_id": payload.source_session_id,
+                    "citation_count": len(payload.source_citations or []),
+                },
+            ),
+            context=RequestContext(
+                request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+                kb_id=payload.kb_id,
+                kb_key=payload.kb_key,
+                auth=auth,
+            ),
+        )
+        ticket = get_support_ticket_by_code(result["ticket_code"])
+    return ticket
 
 
 @app.get("/api/support-tickets/{ticket_id}", response_model=SupportTicketItem)
@@ -999,15 +1053,47 @@ async def admin_analytics_dashboard(
     return await build_analytics_dashboard(days=days, kb_id=kb_id)
 
 
+@app.get("/api/admin/ai-ops/summary")
+async def admin_ai_ops_summary(
+    days: int = Query(default=7, ge=1, le=90),
+    kb_id: int | None = Query(default=None, ge=1),
+    _=Depends(require_analytics_role),
+):
+    return await build_ai_ops_summary(days=days, kb_id=kb_id)
+
+
+@app.post("/api/admin/ai-ops/replay/chat-logs/{chat_log_id}")
+async def admin_ai_ops_replay_chat_log(
+    chat_log_id: int,
+    payload: AiOpsReplayInput,
+    _=Depends(require_analytics_role),
+):
+    try:
+        return replay_chat_log(chat_log_id, mode=payload.mode, top_k=payload.top_k)
+    except LookupError as err:
+        raise HTTPException(status_code=404, detail=str(err)) from err
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+
+
 @app.get("/api/admin/knowledge-gaps", response_model=ListKnowledgeGapClustersOutput)
 async def admin_knowledge_gaps(
     days: int = Query(default=7, ge=1, le=90),
     kb_id: int | None = Query(default=None, ge=1),
-    status: str = Query(default="open"),
+    status: str = Query(default="new"),
     limit: int = Query(default=20, ge=1, le=100),
     _=Depends(require_analytics_role),
 ):
     return list_knowledge_gap_clusters(days=days, kb_id=kb_id, status=status, limit=limit)
+
+
+@app.get("/api/admin/knowledge-gaps/quality-debt")
+async def admin_knowledge_quality_debt(
+    days: int = Query(default=30, ge=1, le=180),
+    kb_id: int | None = Query(default=None, ge=1),
+    _=Depends(require_analytics_role),
+):
+    return build_knowledge_quality_debt(days=days, kb_id=kb_id)
 
 
 @app.patch("/api/admin/knowledge-gaps/{cluster_key}")
@@ -1017,7 +1103,15 @@ async def admin_update_knowledge_gap_status(
     kb_id: int | None = Query(default=None, ge=1),
     _=Depends(require_analytics_role),
 ):
-    return update_gap_cluster_status(cluster_key=cluster_key, status=payload.status, kb_id=kb_id)
+    return update_gap_cluster_status(
+        cluster_key=cluster_key,
+        status=payload.status,
+        kb_id=kb_id,
+        owner_user_id=payload.owner_user_id,
+        priority=payload.priority,
+        due_date=payload.due_date,
+        status_reason=payload.status_reason,
+    )
 
 
 @app.post("/api/admin/knowledge-gaps/{cluster_key}/suggest-faq")
@@ -1493,6 +1587,26 @@ async def admin_update_support_ticket_status(
             auth=auth,
         ),
     )
+
+
+@app.post("/api/admin/support-tickets/{ticket_id}/canned-action", response_model=SupportCannedActionOutput)
+async def admin_apply_support_canned_action(
+    ticket_id: int,
+    payload: SupportCannedActionInput,
+    request: Request,
+    auth=Depends(require_support_role),
+):
+    try:
+        return apply_canned_support_action(
+            ticket_id,
+            payload,
+            context=RequestContext(
+                request_id=getattr(request.state, "request_id", None) or uuid.uuid4().hex[:8],
+                auth=auth,
+            ),
+        )
+    except ValueError as err:
+        raise HTTPException(status_code=404, detail=str(err)) from err
 
 
 @app.post("/api/admin/support-workflows/tickets/{ticket_id}/classify", response_model=CaseClassification)

@@ -29,6 +29,10 @@ class SupportDraftReplyOutput(BaseModel):
     used_llm: bool
     retrieval_query: str
     context_summary: dict[str, Any] = Field(default_factory=dict)
+    evidence_used: list[dict[str, Any]] = Field(default_factory=list)
+    customer_reply: str
+    internal_risk: dict[str, Any] = Field(default_factory=dict)
+    review_packet: dict[str, Any] = Field(default_factory=dict)
 
 
 _SYSTEM_PROMPT = """You draft customer support replies for an internal support team.
@@ -250,10 +254,39 @@ def generate_support_draft_reply(
         draft = _fallback_draft(ticket, citations, lang)
         provider = provider or "none"
 
+    risk_level = ticket.get("risk_level") or _parse_json(ticket.get("classification_json"), {}).get("risk_level") or "unknown"
+    intent = ticket.get("intent") or _parse_json(ticket.get("classification_json"), {}).get("intent") or ticket.get("issue_type")
+    status = ticket.get("workflow_status") or ticket.get("status")
+    requires_approval = bool(risk_level in {"high", "critical"} or intent in {"refund_request", "cancel_order"} or status == "waiting_approval")
+    evidence_used = [
+        {
+            "source": item.get("filename") or item.get("source") or "KB source",
+            "preview": item.get("content_preview") or item.get("text") or "",
+            "score": item.get("score"),
+            "page_num": item.get("page_num"),
+            "row_range": item.get("row_range"),
+        }
+        for item in citations[:5]
+    ]
+    internal_risk = {
+        "risk_level": risk_level,
+        "intent": intent,
+        "requires_approval": requires_approval,
+        "status": status,
+        "policy": "Do not send high-risk refund/cancel/customer-impacting replies without approval.",
+    }
+    review_packet = {
+        "evidence_used": evidence_used,
+        "customer_facing_reply": draft,
+        "internal_risk": internal_risk,
+        "approval_boundary": "approval_required" if requires_approval else "operator_review",
+    }
+
     return SupportDraftReplyOutput(
         ticket_id=int(ticket["id"]),
         ticket_code=ticket["ticket_code"],
         draft_reply=draft,
+        customer_reply=draft,
         citations=citations,
         provider=provider,
         used_llm=used_llm,
@@ -266,4 +299,7 @@ def generate_support_draft_reply(
             "intent": ticket.get("intent"),
             "priority": ticket.get("priority"),
         },
+        evidence_used=evidence_used,
+        internal_risk=internal_risk,
+        review_packet=review_packet,
     ).model_dump()

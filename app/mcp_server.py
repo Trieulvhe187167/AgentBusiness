@@ -15,13 +15,17 @@ from fastapi.responses import JSONResponse, Response
 from app.auth import get_request_auth
 from app.authorization import can_manage_kb
 from app.background_jobs import list_background_jobs
+from app.case_timeline import build_case_timeline
 from app.config import settings
 from app.database import fetch_all, fetch_one
+from app.evaluations import get_agent_eval_run, list_agent_eval_runs
 from app.kb_service import list_accessible_kbs, open_db, resolve_kb_scope
 from app.mcp_security import (
     McpClientContext,
     consume_mcp_tool_quota,
     decide_tool_exposure,
+    list_mcp_quota_dashboard,
+    list_mcp_recent_denies,
     list_mcp_sessions,
     log_mcp_audit,
     mcp_client_context,
@@ -187,6 +191,10 @@ def _validate_mcp_protocol_header(request: Request) -> None:
 def _resource_scope(uri: str) -> str:
     if uri.startswith("kb://"):
         return "resource:kb"
+    if uri.startswith("support://"):
+        return "resource:support"
+    if uri.startswith("eval://"):
+        return "resource:eval"
     if uri == "jobs://recent":
         return "resource:jobs"
     if uri == "audit://recent":
@@ -352,6 +360,185 @@ async def _kb_sources_payload(kb_id: int, auth: AuthContext) -> dict[str, Any]:
     }
 
 
+async def _kb_source_health_payload(kb_id: int, auth: AuthContext) -> dict[str, Any]:
+    kb = await _resolve_mcp_kb(kb_id, auth)
+    rows = await fetch_all(
+        """
+        SELECT
+            kf.id AS kb_file_id,
+            kf.status AS kb_status,
+            kf.chunk_count,
+            kf.last_ingest_at,
+            kf.stale_detected_at,
+            uf.id AS file_id,
+            uf.original_name,
+            uf.status AS file_status,
+            uf.error_message,
+            uf.ingested_at,
+            uf.pages_or_rows
+        FROM kb_files kf
+        JOIN uploaded_files uf ON uf.id = kf.file_id
+        WHERE kf.kb_id = ?
+        ORDER BY
+            CASE
+                WHEN kf.status = 'failed' OR uf.status = 'failed' THEN 0
+                WHEN COALESCE(kf.chunk_count, 0) = 0 THEN 1
+                WHEN kf.stale_detected_at IS NOT NULL THEN 2
+                ELSE 3
+            END,
+            uf.original_name ASC
+        LIMIT 100
+        """,
+        (kb.id,),
+    )
+    items = []
+    for row in rows:
+        status = "healthy"
+        reasons: list[str] = []
+        if row.get("kb_status") == "failed" or row.get("file_status") == "failed":
+            status = "failed"
+            reasons.append("failed_ingest")
+        if int(row.get("chunk_count") or 0) == 0:
+            status = "needs_attention" if status == "healthy" else status
+            reasons.append("zero_chunks")
+        if row.get("stale_detected_at"):
+            status = "stale" if status == "healthy" else status
+            reasons.append("stale_source")
+        items.append(
+            {
+                "kb_file_id": row.get("kb_file_id"),
+                "file_id": row.get("file_id"),
+                "filename": row.get("original_name"),
+                "status": status,
+                "kb_status": row.get("kb_status"),
+                "file_status": row.get("file_status"),
+                "chunk_count": int(row.get("chunk_count") or 0),
+                "pages_or_rows": row.get("pages_or_rows"),
+                "last_ingest_at": row.get("last_ingest_at") or row.get("ingested_at"),
+                "stale_detected_at": row.get("stale_detected_at"),
+                "error_message": row.get("error_message"),
+                "reasons": reasons,
+            }
+        )
+    return {
+        "scope": "kb",
+        "kb_id": kb.id,
+        "kb_key": kb.key,
+        "total": len(items),
+        "attention_count": sum(1 for item in items if item["status"] != "healthy"),
+        "items": items,
+    }
+
+
+def _ticket_scope_matches(row: dict[str, Any], auth: AuthContext) -> bool:
+    if auth.tenant_id and row.get("tenant_id") not in (None, auth.tenant_id):
+        return False
+    if auth.org_id and row.get("org_id") not in (None, auth.org_id):
+        return False
+    return True
+
+
+async def _support_tickets_recent_payload(auth: AuthContext) -> dict[str, Any]:
+    where, params = _scope_clause(auth)
+    rows = await fetch_all(
+        f"""
+        SELECT id, ticket_code, issue_type, status, workflow_status, priority,
+               assigned_user_id, tenant_id, org_id, kb_id, kb_key,
+               intent, sla_due_at, sla_breached_at, created_at, updated_at
+        FROM support_tickets
+        {where}
+        ORDER BY
+            CASE priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 WHEN 'P3' THEN 3 ELSE 4 END,
+            COALESCE(sla_due_at, updated_at) ASC,
+            id DESC
+        LIMIT 25
+        """,
+        params,
+    )
+    return {
+        "total": len(rows),
+        "items": [
+            {
+                "id": row.get("id"),
+                "ticket_code": row.get("ticket_code"),
+                "issue_type": row.get("issue_type"),
+                "status": row.get("status"),
+                "workflow_status": row.get("workflow_status"),
+                "priority": row.get("priority"),
+                "assigned_user_id": row.get("assigned_user_id"),
+                "kb_id": row.get("kb_id"),
+                "kb_key": row.get("kb_key"),
+                "intent": row.get("intent"),
+                "sla_due_at": row.get("sla_due_at"),
+                "sla_breached_at": row.get("sla_breached_at"),
+                "created_at": row.get("created_at"),
+                "updated_at": row.get("updated_at"),
+            }
+            for row in rows
+        ],
+    }
+
+
+async def _support_ticket_timeline_payload(ticket_id: int, auth: AuthContext) -> dict[str, Any]:
+    row = await fetch_one("SELECT tenant_id, org_id FROM support_tickets WHERE id = ?", (int(ticket_id),))
+    if not row:
+        raise KeyError(f"Unknown support ticket resource: {ticket_id}")
+    if not _ticket_scope_matches(row, auth):
+        raise ToolAuthorizationError("MCP support ticket scope mismatch")
+    return build_case_timeline(int(ticket_id))
+
+
+async def _eval_runs_recent_payload(auth: AuthContext) -> dict[str, Any]:
+    where, params = _scope_clause(auth)
+    rows = await fetch_all(
+        f"""
+        SELECT id, name, status, source, kb_id, kb_key, period_days, sample_size,
+               pass_count, warn_count, fail_count, avg_score, gate_status,
+               created_by_user_id, created_at, completed_at
+        FROM agent_eval_runs
+        {where}
+        ORDER BY created_at DESC, id DESC
+        LIMIT 20
+        """,
+        params,
+    )
+    return {
+        "total": len(rows),
+        "items": [
+            {
+                "id": row.get("id"),
+                "name": row.get("name"),
+                "status": row.get("status"),
+                "source": row.get("source"),
+                "kb_id": row.get("kb_id"),
+                "kb_key": row.get("kb_key"),
+                "period_days": row.get("period_days"),
+                "sample_size": row.get("sample_size"),
+                "pass_count": row.get("pass_count"),
+                "warn_count": row.get("warn_count"),
+                "fail_count": row.get("fail_count"),
+                "avg_score": row.get("avg_score"),
+                "gate_status": row.get("gate_status"),
+                "created_by_user_id": row.get("created_by_user_id"),
+                "created_at": row.get("created_at"),
+                "completed_at": row.get("completed_at"),
+            }
+            for row in rows
+        ],
+    }
+
+
+async def _eval_run_detail_payload(run_id: int, auth: AuthContext) -> dict[str, Any]:
+    row = await fetch_one("SELECT tenant_id, org_id FROM agent_eval_runs WHERE id = ?", (int(run_id),))
+    if not row:
+        raise KeyError(f"Unknown eval run resource: {run_id}")
+    if auth.tenant_id and row.get("tenant_id") not in (None, auth.tenant_id):
+        raise ToolAuthorizationError("MCP eval run scope mismatch")
+    if auth.org_id and row.get("org_id") not in (None, auth.org_id):
+        raise ToolAuthorizationError("MCP eval run scope mismatch")
+    return get_agent_eval_run(int(run_id), limit=50)
+
+
 def _scope_clause(auth: AuthContext) -> tuple[str, tuple[Any, ...]]:
     clauses: list[str] = []
     params: list[Any] = []
@@ -436,12 +623,15 @@ async def _list_resources(auth: AuthContext | None = None) -> list[dict[str, Any
         _resource("kb://list", "Knowledge Bases", "List Knowledge Bases visible to admin operations."),
         _resource("jobs://recent", "Recent Background Jobs", "Recent background job queue state."),
         _resource("audit://recent", "Recent Audit Logs", "Recent tool and authorization audit entries."),
+        _resource("support://tickets/recent", "Recent Support Tickets", "Recent support tickets scoped to the caller."),
+        _resource("eval://runs/recent", "Recent Evaluation Runs", "Recent agent evaluation runs scoped to the caller."),
     ]
     for item in payload["items"]:
         kb_id = item["id"]
         label = item.get("key") or str(kb_id)
         resources.append(_resource(f"kb://{kb_id}/stats", f"KB {label} Stats", "KB ingest and vector statistics."))
         resources.append(_resource(f"kb://{kb_id}/sources", f"KB {label} Sources", "KB source distribution by ingested file."))
+        resources.append(_resource(f"kb://{kb_id}/source-health", f"KB {label} Source Health", "KB source quality, stale, failed, and zero-chunk status."))
     return resources
 
 
@@ -449,6 +639,9 @@ def _list_resource_templates() -> list[dict[str, Any]]:
     return [
         _resource_template("kb://{kb_id}/stats", "KB Stats", "KB ingest and vector statistics by KB ID."),
         _resource_template("kb://{kb_id}/sources", "KB Sources", "KB source distribution by KB ID."),
+        _resource_template("kb://{kb_id}/source-health", "KB Source Health", "KB source quality, stale, failed, and zero-chunk status by KB ID."),
+        _resource_template("support://tickets/{ticket_id}/timeline", "Support Ticket Timeline", "Support ticket timeline and case context by ticket ID."),
+        _resource_template("eval://runs/{run_id}", "Evaluation Run Detail", "Agent evaluation run detail and failed cases by run ID."),
     ]
 
 
@@ -505,6 +698,8 @@ async def build_mcp_status() -> dict[str, Any]:
             ],
             "high_risk_allowed_tools": sorted(settings.mcp_high_risk_tool_names),
             "manifest_signature": sign_tool_manifest(manifest_tools),
+            "quota_dashboard": list_mcp_quota_dashboard(),
+            "recent_denies": list_mcp_recent_denies(limit=20),
         },
         "tools": {
             "registered_count": len(definitions),
@@ -525,7 +720,10 @@ async def build_mcp_status() -> dict[str, Any]:
             "resources": True,
             "resource_templates": True,
             "risk_preview": True,
+            "tool_dry_run": True,
             "session_audit": True,
+            "quota_dashboard": True,
+            "deny_audit": True,
         },
         "sessions": {
             "recent": list_mcp_sessions(limit=20),
@@ -544,6 +742,10 @@ async def _read_resource(uri: str, auth: AuthContext) -> dict[str, Any]:
         )
     if uri == "audit://recent":
         return _json_resource_content(uri, await _audit_recent_payload(auth))
+    if uri == "support://tickets/recent":
+        return _json_resource_content(uri, await _support_tickets_recent_payload(auth))
+    if uri == "eval://runs/recent":
+        return _json_resource_content(uri, await _eval_runs_recent_payload(auth))
     if parsed.scheme == "kb" and parsed.netloc:
         try:
             kb_id = int(parsed.netloc)
@@ -553,6 +755,24 @@ async def _read_resource(uri: str, auth: AuthContext) -> dict[str, Any]:
             return _json_resource_content(uri, await _kb_stats_payload(kb_id, auth))
         if parsed.path == "/sources":
             return _json_resource_content(uri, await _kb_sources_payload(kb_id, auth))
+        if parsed.path == "/source-health":
+            return _json_resource_content(uri, await _kb_source_health_payload(kb_id, auth))
+    if parsed.scheme == "support" and parsed.netloc == "tickets" and parsed.path.endswith("/timeline"):
+        parts = [part for part in parsed.path.split("/") if part]
+        if len(parts) == 2 and parts[1] == "timeline":
+            try:
+                ticket_id = int(parts[0])
+            except ValueError as err:
+                raise KeyError(f"Invalid support ticket resource URI: {uri}") from err
+            return _json_resource_content(uri, await _support_ticket_timeline_payload(ticket_id, auth))
+    if parsed.scheme == "eval" and parsed.netloc == "runs" and parsed.path:
+        run_id_text = parsed.path.strip("/")
+        if run_id_text and run_id_text != "recent":
+            try:
+                run_id = int(run_id_text)
+            except ValueError as err:
+                raise KeyError(f"Invalid eval run resource URI: {uri}") from err
+            return _json_resource_content(uri, await _eval_run_detail_payload(run_id, auth))
     raise KeyError(f"Unknown MCP resource: {uri}")
 
 
@@ -644,6 +864,71 @@ async def _handle_method(message: dict[str, Any], request: Request) -> dict[str,
                 span.set_attribute("mcp.tool.allowed", bool(result.get("allowed")))
                 span.set_attribute("mcp.tool.risk_level", result.get("risk_level"))
                 return None if is_notification else _success(request_id, result)
+
+            if method == "tools/dryRun":
+                name = params.get("name")
+                arguments = params.get("arguments") or {}
+                if not isinstance(name, str) or not name.strip():
+                    return None if is_notification else _error(request_id, INVALID_PARAMS, "tools/dryRun requires params.name")
+                if not isinstance(arguments, dict):
+                    return None if is_notification else _error(request_id, INVALID_PARAMS, "params.arguments must be an object")
+                span.set_attribute("mcp.tool.name", name)
+                if not _is_exposed_tool(name):
+                    return None if is_notification else _error(
+                        request_id,
+                        TOOL_ERROR,
+                        "Tool is not exposed through MCP",
+                        {"reason": "tool_not_exposed"},
+                    )
+                definition = tool_registry.get(name).summary()
+                auth = get_request_auth(request)
+                client = mcp_client_context(request)
+                decision = decide_tool_exposure(definition, auth=auth, client=client)
+                quota = preview_tool_risk(definition, auth=auth, client=client)["quota"]
+                dry_run_result: dict[str, Any] = {
+                    "tool_name": name,
+                    "allowed": decision.allowed,
+                    "decision_reason": decision.reason,
+                    "would_execute": False,
+                    "valid": False,
+                    "required_scopes": sorted(decision.required_scopes),
+                    "granted_scopes": sorted(decision.granted_scopes),
+                    "quota": quota,
+                    "risk_level": definition.auth_policy.get("risk_level"),
+                    "scope": definition.auth_policy.get("scope"),
+                }
+                audit_decision = "deny"
+                audit_reason = decision.reason
+                if decision.allowed:
+                    validation = tool_registry.dry_run(
+                        name,
+                        arguments,
+                        request_context=_request_context(request, params),
+                    )
+                    dry_run_result.update(validation.model_dump())
+                    audit_decision = "allow" if validation.valid else "deny"
+                    audit_reason = "tool_dry_run_valid" if validation.valid else "tool_dry_run_invalid"
+                    if validation.valid and quota.get("enabled") and int(quota.get("remaining") or 0) <= 0:
+                        dry_run_result["allowed"] = False
+                        dry_run_result["would_execute"] = False
+                        dry_run_result["decision_reason"] = "tool_quota_exceeded"
+                        audit_decision = "deny"
+                        audit_reason = "tool_quota_exceeded"
+                span.set_attribute("mcp.decision", audit_decision)
+                span.set_attribute("mcp.reason", audit_reason)
+                log_mcp_audit(
+                    request_id=str(request_id) if request_id is not None else None,
+                    auth=auth,
+                    client=client,
+                    method=method,
+                    tool_name=name,
+                    required_scopes=decision.required_scopes,
+                    risk_level=definition.auth_policy.get("risk_level"),
+                    tool_scope=definition.auth_policy.get("scope"),
+                    decision=audit_decision,
+                    reason=audit_reason,
+                )
+                return None if is_notification else _success(request_id, dry_run_result)
 
             if method == "tools/call":
                 name = params.get("name")

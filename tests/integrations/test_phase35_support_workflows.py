@@ -6,7 +6,7 @@ import app.main as main
 from app.database import execute_sync, fetch_one_sync, utcnow_iso
 from app.models import RequestContext
 from app.support_ticket_service import create_support_ticket
-from tests.conftest import admin_headers, configure_test_env, poll_background_job, run
+from tests.conftest import admin_headers, auth_headers, configure_test_env, poll_background_job, run
 
 
 def _create_ticket(message: str, *, issue_type: str = "other") -> int:
@@ -19,6 +19,49 @@ def _create_ticket(message: str, *, issue_type: str = "other") -> int:
     row = fetch_one_sync("SELECT id FROM support_tickets WHERE ticket_code = ?", (ticket["ticket_code"],))
     assert row
     return int(row["id"])
+
+
+def test_user_ticket_created_from_chat_answer_records_source_context(tmp_path, monkeypatch):
+    configure_test_env(tmp_path, monkeypatch)
+
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/api/support-tickets",
+            headers=auth_headers(user_id="employee-1", roles=["employee"], channel="web"),
+            json={
+                "issue_type": "question",
+                "message": "The assistant answer was not enough.",
+                "kb_id": 1,
+                "kb_key": "default",
+                "source_chat_request_id": "chat-req-123",
+                "source_session_id": "session-abc",
+                "source_question": "What is the return policy?",
+                "source_answer": "Returns are available for standard orders.",
+                "source_citations": [
+                    {
+                        "filename": "policy.csv",
+                        "chunk_id": "chunk-1",
+                        "content_preview": "Returns are available for standard orders.",
+                    }
+                ],
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["ticket_code"].startswith("TCK-")
+    assert payload["note_count"] == 1
+    note = fetch_one_sync(
+        "SELECT note_type, visibility, body, metadata_json FROM support_ticket_notes WHERE ticket_id = ?",
+        (payload["id"],),
+    )
+    assert note
+    assert note["note_type"] == "source_chat"
+    assert note["visibility"] == "internal"
+    assert "What is the return policy?" in note["body"]
+    assert "policy.csv" in note["body"]
+    assert '"request_id": "chat-req-123"' in note["metadata_json"]
+    assert '"citation_count": 1' in note["metadata_json"]
 
 
 def test_support_workflow_resolves_low_risk_order_case(tmp_path, monkeypatch):
@@ -181,6 +224,65 @@ def test_support_case_ai_draft_reply_fills_reviewable_draft(tmp_path, monkeypatc
     assert payload["used_llm"] is False
     assert "retrieval_query" in payload
     assert "citations" in payload
+    assert payload["customer_reply"] == payload["draft_reply"]
+    assert "review_packet" in payload
+    assert "internal_risk" in payload["review_packet"]
+    assert "evidence_used" in payload["review_packet"]
+
+
+def test_support_ticket_next_action_and_canned_more_info(tmp_path, monkeypatch):
+    configure_test_env(tmp_path, monkeypatch)
+    ticket_id = _create_ticket("I need help accessing my account.", issue_type="account")
+
+    with TestClient(main.app) as client:
+        before = client.get(f"/api/admin/support-tickets/{ticket_id}", headers=admin_headers())
+        canned = client.post(
+            f"/api/admin/support-tickets/{ticket_id}/canned-action",
+            json={
+                "action": "ask_more_info",
+                "reply_body": "Please share the email address and the error message you see.",
+                "note": "Need account identifiers before troubleshooting.",
+            },
+            headers=admin_headers(),
+        )
+        notes = client.get(f"/api/admin/support-tickets/{ticket_id}/notes", headers=admin_headers())
+
+    assert before.status_code == 200, before.text
+    assert before.json()["next_action"]["key"] == "assign_owner"
+    assert canned.status_code == 200, canned.text
+    payload = canned.json()
+    assert payload["action"] == "ask_more_info"
+    assert payload["ticket"]["workflow_status"] == "waiting_customer"
+    assert payload["note"]["visibility"] == "public"
+    assert payload["pending_action"] is None
+    assert any(item["note_type"] == "public_more_info_request" for item in notes.json()["items"])
+
+
+def test_high_risk_canned_refund_creates_pending_approval(tmp_path, monkeypatch):
+    configure_test_env(tmp_path, monkeypatch)
+    ticket_id = _create_ticket("Please refund order DH99999.", issue_type="refund")
+
+    with TestClient(main.app) as client:
+        response = client.post(
+            f"/api/admin/support-tickets/{ticket_id}/canned-action",
+            json={
+                "action": "refund_requires_approval",
+                "reply_body": "We are reviewing your refund request.",
+                "note": "Refund requested; approval required.",
+            },
+            headers=admin_headers(),
+        )
+        actions = client.get("/api/admin/pending-actions?limit=10", headers=admin_headers())
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["ticket"]["workflow_status"] == "waiting_approval"
+    assert payload["pending_action"]["action_type"] == "support_case_review"
+    assert payload["pending_action"]["risk_level"] == "high"
+    assert payload["pending_action"]["payload"]["canned_action"] == "refund_requires_approval"
+    assert payload["next_action"]["key"] == "approval_review"
+    assert actions.status_code == 200, actions.text
+    assert any(item["payload"].get("ticket_id") == ticket_id for item in actions.json()["items"])
 
 
 def test_support_sla_monitor_escalates_overdue_ticket(tmp_path, monkeypatch):

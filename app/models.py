@@ -561,6 +561,19 @@ class AnalyticsDashboardOutput(BaseModel):
     pending_status: list[AnalyticsBreakdownItem] = Field(default_factory=list)
 
 
+class AiOpsReplayInput(BaseModel):
+    mode: str = Field(default="retrieval_only", max_length=40)
+    top_k: int = Field(default=5, ge=1, le=20)
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def _normalize_replay_mode(cls, value):
+        normalized = (_normalize_optional_text(value) or "retrieval_only").lower()
+        if normalized != "retrieval_only":
+            raise ValueError("mode must be 'retrieval_only'")
+        return normalized
+
+
 class KnowledgeGapClusterItem(BaseModel):
     cluster_key: str
     representative_query: str
@@ -572,7 +585,12 @@ class KnowledgeGapClusterItem(BaseModel):
     avg_score: float | None = None
     last_seen_at: str
     first_seen_at: str
-    status: str = "open"
+    status: str = "new"
+    owner_user_id: str | None = None
+    priority: str = "P2"
+    due_date: str | None = None
+    overdue: bool = False
+    status_reason: str | None = None
     suggested_action: str | None = None
     sample_queries: list[str] = Field(default_factory=list)
 
@@ -585,14 +603,37 @@ class ListKnowledgeGapClustersOutput(BaseModel):
 
 
 class UpdateKnowledgeGapStatusInput(BaseModel):
-    status: str = Field(..., min_length=1, max_length=40)
+    status: str | None = Field(default=None, min_length=1, max_length=40)
+    owner_user_id: str | None = Field(default=None, max_length=120)
+    priority: str | None = Field(default=None, max_length=10)
+    due_date: str | None = Field(default=None, max_length=40)
+    status_reason: str | None = Field(default=None, max_length=500)
 
     @field_validator("status", mode="before")
     @classmethod
     def _normalize_gap_status(cls, value):
+        if value is None:
+            return None
         normalized = (_normalize_optional_text(value) or "").lower()
-        if normalized not in {"open", "suggested", "resolved", "ignored"}:
-            raise ValueError("status must be one of: open, suggested, resolved, ignored")
+        aliases = {"open": "new", "suggested": "patch_pending", "resolved": "fixed"}
+        normalized = aliases.get(normalized, normalized)
+        if normalized not in {"new", "triaged", "source_needed", "patch_pending", "fixed", "ignored"}:
+            raise ValueError("status must be one of: new, triaged, source_needed, patch_pending, fixed, ignored")
+        return normalized
+
+    @field_validator("owner_user_id", "due_date", "status_reason", mode="before")
+    @classmethod
+    def _normalize_optional_review_text(cls, value):
+        return _normalize_optional_text(value)
+
+    @field_validator("priority", mode="before")
+    @classmethod
+    def _normalize_gap_priority(cls, value):
+        if value is None:
+            return None
+        normalized = (_normalize_optional_text(value) or "").upper()
+        if normalized not in {"P0", "P1", "P2", "P3"}:
+            raise ValueError("priority must be one of: P0, P1, P2, P3")
         return normalized
 
 

@@ -131,6 +131,7 @@ class SupportTicketItem(BaseModel):
     workflow_updated_at: str | None = None
     note_count: int = 0
     pending_action_count: int = 0
+    next_action: dict[str, Any] = Field(default_factory=dict)
 
 
 class ListSupportTicketsOutput(BaseModel):
@@ -144,6 +145,12 @@ class CreateSupportTicketInput(BaseModel):
     contact: str | None = Field(default=None, max_length=200)
     kb_id: int | None = Field(default=None, ge=1)
     kb_key: str | None = Field(default=None, min_length=1, max_length=80)
+    source_chat_request_id: str | None = Field(default=None, max_length=80)
+    source_chat_log_id: int | None = Field(default=None, ge=1)
+    source_session_id: str | None = Field(default=None, max_length=160)
+    source_question: str | None = Field(default=None, max_length=3000)
+    source_answer: str | None = Field(default=None, max_length=3000)
+    source_citations: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SupportTicketNoteItem(BaseModel):
@@ -168,6 +175,29 @@ class AddTicketNoteInput(BaseModel):
     note_type: str = Field(default="internal", max_length=60)
     visibility: str = Field(default="internal", max_length=60)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SupportCannedActionInput(BaseModel):
+    action: Literal[
+        "ask_more_info",
+        "escalate_to_team",
+        "resolve_with_kb",
+        "refund_requires_approval",
+        "cancel_requires_approval",
+    ]
+    reply_body: str | None = Field(default=None, max_length=4000)
+    note: str | None = Field(default=None, max_length=1000)
+    assigned_team: str | None = Field(default=None, max_length=120)
+    assigned_user_id: str | None = Field(default=None, max_length=120)
+
+
+class SupportCannedActionOutput(BaseModel):
+    ticket: SupportTicketItem
+    action: str
+    message: str
+    note: SupportTicketNoteItem | None = None
+    pending_action: dict[str, Any] | None = None
+    next_action: dict[str, Any] = Field(default_factory=dict)
 
 
 class AssignTicketInput(BaseModel):

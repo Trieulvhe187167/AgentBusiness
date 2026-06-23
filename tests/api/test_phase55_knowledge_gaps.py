@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 import app.main as main
 from app.background_jobs import enqueue_background_job, run_due_background_jobs_once
 from app.config import settings
-from app.database import fetch_all_sync
+from app.database import execute_sync, fetch_all_sync
 from app.knowledge_gaps import create_knowledge_gap_report, record_knowledge_gap
 from app.models import AuthContext, RequestContext
 from tests.conftest import admin_headers, auth_headers, configure_test_env, run
@@ -130,18 +130,29 @@ def test_knowledge_gap_endpoint_updates_cluster_status(tmp_path, monkeypatch):
         updated = client.patch(
             f"/api/admin/knowledge-gaps/{cluster_key}?kb_id=1",
             headers=admin_headers(),
-            json={"status": "resolved"},
+            json={
+                "status": "triaged",
+                "owner_user_id": "knowledge-owner",
+                "priority": "P1",
+                "due_date": "2026-06-22",
+                "status_reason": "Needs source owner review.",
+            },
         )
         open_after = client.get("/api/admin/knowledge-gaps?days=7&kb_id=1", headers=admin_headers())
-        resolved_after = client.get(
-            "/api/admin/knowledge-gaps?days=7&kb_id=1&status=resolved",
+        triaged_after = client.get(
+            "/api/admin/knowledge-gaps?days=7&kb_id=1&status=triaged",
             headers=admin_headers(),
         )
 
     assert updated.status_code == 200, updated.text
     assert open_after.json()["total"] == 0
-    assert resolved_after.json()["total"] == 1
-    assert resolved_after.json()["items"][0]["status"] == "resolved"
+    assert triaged_after.json()["total"] == 1
+    item = triaged_after.json()["items"][0]
+    assert item["status"] == "triaged"
+    assert item["owner_user_id"] == "knowledge-owner"
+    assert item["priority"] == "P1"
+    assert item["due_date"] == "2026-06-22"
+    assert item["status_reason"] == "Needs source owner review."
 
 
 def test_knowledge_gap_suggest_faq_creates_pending_action(tmp_path, monkeypatch):
@@ -186,6 +197,87 @@ def test_knowledge_gap_suggest_faq_creates_pending_action(tmp_path, monkeypatch)
     assert duplicate.json()["created"] is False
     assert duplicate.json()["pending_action"]["id"] == action["id"]
     assert suggested.json()["total"] == 1
+
+
+def test_negative_feedback_adds_knowledge_review_queue_item(tmp_path, monkeypatch):
+    configure_test_env(tmp_path, monkeypatch)
+    chat_id = execute_sync(
+        """
+        INSERT INTO chat_logs (
+            request_id, session_id, user_id, roles_json, channel, kb_id, kb_key,
+            user_message, mode, top_score, answer_text, citations_json, created_at
+        ) VALUES (
+            'req-feedback-gap', 'session-feedback-gap', 'employee-1', '["employee"]',
+            'chat', 1, 'default', 'Can I return through the mobile app?',
+            'answer', 0.82, 'Use the normal return policy.', '[]', datetime('now')
+        )
+        """
+    )
+
+    with TestClient(main.app) as client:
+        feedback = client.post(
+            "/api/feedback/chat",
+            headers=auth_headers(user_id="employee-1", roles=["employee"], channel="chat"),
+            json={
+                "chat_log_id": chat_id,
+                "rating": "down",
+                "reason_code": "wrong_source",
+                "comment": "The cited policy does not mention the mobile app.",
+            },
+        )
+        gaps = client.get(
+            "/api/admin/knowledge-gaps?days=7&kb_id=1&status=new",
+            headers=admin_headers(),
+        )
+
+    assert feedback.status_code == 200, feedback.text
+    assert gaps.status_code == 200, gaps.text
+    assert gaps.json()["total"] == 1
+    item = gaps.json()["items"][0]
+    assert item["representative_query"] == "Can I return through the mobile app?"
+    assert item["priority"] == "P1"
+    assert item["status"] == "new"
+    assert "wrong_source" in item["status_reason"]
+
+
+def test_quality_debt_endpoint_counts_active_gaps_and_stale_docs(tmp_path, monkeypatch):
+    configure_test_env(tmp_path, monkeypatch)
+    context = {"kb_id": 1, "kb_key": "default", "auth": {}}
+    record_knowledge_gap(
+        chat_log_id=None,
+        query="Missing warranty policy?",
+        mode="fallback",
+        top_score=0.05,
+        session_id="session-quality-debt",
+        context={**context, "priority": "P0", "due_date": "2020-01-01"},
+    )
+    file_id = execute_sync(
+        """
+        INSERT INTO uploaded_files (filename, original_name, file_type, file_size, file_hash, status, created_at)
+        VALUES ('stale.csv', 'stale.csv', '.csv', 10, 'hash-stale', 'failed', datetime('now'))
+        """
+    )
+    execute_sync(
+        """
+        INSERT INTO kb_files (kb_id, file_id, status, chunk_count, stale_reason, stale_detected_at, attached_at)
+        VALUES (1, ?, 'failed', 0, 'File is not currently ingested.', datetime('now'), datetime('now'))
+        """,
+        (file_id,),
+    )
+
+    with TestClient(main.app) as client:
+        response = client.get(
+            "/api/admin/knowledge-gaps/quality-debt?days=30&kb_id=1",
+            headers=admin_headers(),
+        )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["active_gap_count"] == 1
+    assert payload["overdue_gap_count"] == 1
+    assert payload["stale_document_count"] == 1
+    assert payload["failed_ingest_count"] == 1
+    assert payload["zero_chunk_count"] == 1
 
 
 def test_knowledge_gap_endpoint_requires_analytics_role(tmp_path, monkeypatch):

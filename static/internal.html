@@ -68,6 +68,10 @@
     .ticket-grid div { border:1px solid var(--line); border-radius:10px; padding:8px; background:#fff; }
     .ticket-grid small { display:block; color:var(--muted); margin-bottom:2px; }
     .ticket-message { white-space:pre-wrap; line-height:1.5; }
+    .ticket-timeline { display:flex; flex-direction:column; gap:8px; margin-top:8px; }
+    .timeline-item { border-left:3px solid var(--brand); padding:4px 0 4px 10px; }
+    .timeline-item strong { display:block; color:var(--ink); }
+    .timeline-item small { color:var(--muted); }
     .reply-list { display:flex; flex-direction:column; gap:8px; margin-top:8px; }
     .reply-item { border:1px solid var(--line); border-radius:12px; background:#fff; padding:10px; }
     .reply-item p { white-space:pre-wrap; line-height:1.5; }
@@ -239,6 +243,10 @@
     function shortText(value, limit = 90) {
       const text = String(value || '').replace(/\s+/g, ' ').trim();
       return text.length > limit ? `${text.slice(0, limit - 1)}...` : text;
+    }
+
+    function humanize(value) {
+      return String(value || '-').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
     }
 
     function setButtonLoading(button, loading, label = 'Working...') {
@@ -413,6 +421,69 @@
       }
     }
 
+    function plainTicketStatus(status) {
+      const key = String(status || '').toLowerCase();
+      const labels = {
+        open: 'Dang cho tiep nhan',
+        new: 'Moi tao',
+        classified: 'Da phan loai',
+        enriched: 'Dang bo sung ngu canh',
+        planned: 'Da co huong xu ly',
+        waiting_customer: 'Can ban bo sung thong tin',
+        waiting_approval: 'Dang cho phe duyet',
+        escalated: 'Da chuyen chuyen vien',
+        resolved: 'Da xu ly',
+        closed: 'Da dong',
+        failed: 'Can kiem tra lai',
+      };
+      return labels[key] || humanize(status || '-');
+    }
+
+    function slaText(ticket) {
+      const status = String(ticket.workflow_status || ticket.status || '').toLowerCase();
+      if (ticket.sla_breached_at) return 'Qua han SLA, support dang uu tien xu ly.';
+      if (['resolved', 'closed'].includes(status)) return 'Khong con SLA dang cho.';
+      if (ticket.sla_due_at) return `Can phan hoi truoc ${formatDateTime(ticket.sla_due_at)}.`;
+      if (status === 'waiting_approval') return 'Dang cho phe duyet truoc khi gui phan hoi.';
+      if (status === 'waiting_customer') return 'Dang cho ban bo sung thong tin.';
+      return 'Support team dang xu ly.';
+    }
+
+    function timelineItems(ticket, notes) {
+      const items = [
+        { title: 'Ticket created', detail: ticket.message || '', at: ticket.created_at },
+      ];
+      const status = ticket.workflow_status || ticket.status;
+      if (ticket.intent || status) {
+        items.push({
+          title: `Current state: ${plainTicketStatus(status)}`,
+          detail: [ticket.intent ? `Intent: ${ticket.intent}` : '', ticket.priority ? `Priority: ${ticket.priority}` : ''].filter(Boolean).join(' | '),
+          at: ticket.workflow_updated_at || ticket.updated_at,
+        });
+      }
+      for (const note of notes.slice().reverse()) {
+        items.push({
+          title: note.note_type === 'public_reply' ? 'Support replied' : humanize(note.note_type || 'Update'),
+          detail: note.body || '',
+          at: note.created_at,
+        });
+      }
+      if (ticket.resolution_summary) {
+        items.push({ title: 'Resolution summary', detail: ticket.resolution_summary, at: ticket.updated_at });
+      }
+      return items;
+    }
+
+    function renderTimeline(ticket, notes) {
+      return timelineItems(ticket, notes).map((item) => `
+        <div class="timeline-item">
+          <strong>${escapeHtml(item.title)}</strong>
+          <small>${escapeHtml(formatDateTime(item.at))}</small>
+          ${item.detail ? `<p class="muted">${escapeHtml(shortText(item.detail, 220))}</p>` : ''}
+        </div>
+      `).join('');
+    }
+
     function ticketRows(items) {
       if (!items.length) return emptyRow(4, 'No tickets found.', 'Create a support ticket when you need human follow-up.');
       return items.map((item) => `
@@ -422,7 +493,7 @@
             <br><small class="muted">${escapeHtml(item.issue_type)}</small>
             <br><small class="muted">${escapeHtml(shortText(item.message || ''))}</small>
           </td>
-          <td><span class="status ${escapeHtml(item.workflow_status || item.status)}">${escapeHtml(item.workflow_status || item.status)}</span><br><small class="muted">${escapeHtml(item.priority || '-')}</small></td>
+          <td><span class="status ${escapeHtml(item.workflow_status || item.status)}">${escapeHtml(plainTicketStatus(item.workflow_status || item.status))}</span><br><small class="muted">${escapeHtml(item.priority || '-')}</small></td>
           <td>${escapeHtml(formatDateTime(item.updated_at || item.created_at))}</td>
           <td><button class="mini-btn" data-ticket-view="${item.id}">View</button></td>
         </tr>
@@ -432,6 +503,7 @@
     function renderTicketDetail(ticket, notes = []) {
       const status = ticket.workflow_status || ticket.status || '-';
       const isClosed = status === 'closed';
+      const plainStatus = plainTicketStatus(status);
       const repliesHtml = notes.length ? notes.map((note) => `
         <div class="reply-item">
           <p>${escapeHtml(note.body || '')}</p>
@@ -456,12 +528,13 @@
       document.getElementById('ticketDetail').innerHTML = `
         <h3>${escapeHtml(ticket.ticket_code || `Ticket ${ticket.id}`)}</h3>
         <div class="ticket-grid">
-          <div><small>Status</small><span class="status ${escapeHtml(status)}">${escapeHtml(status)}</span></div>
+          <div><small>Status</small><span class="status ${escapeHtml(status)}">${escapeHtml(plainStatus)}</span></div>
           <div><small>Priority</small><strong>${escapeHtml(ticket.priority || '-')}</strong></div>
           <div><small>Type</small><strong>${escapeHtml(ticket.issue_type || '-')}</strong></div>
           <div><small>Contact</small><strong>${escapeHtml(ticket.contact || '-')}</strong></div>
           <div><small>Created</small><strong>${escapeHtml(formatDateTime(ticket.created_at))}</strong></div>
           <div><small>Updated</small><strong>${escapeHtml(formatDateTime(ticket.updated_at))}</strong></div>
+          <div><small>SLA</small><strong>${escapeHtml(slaText(ticket))}</strong></div>
         </div>
         <div class="ticket-detail" style="box-shadow:none; margin-top:8px;">
           <h3>Request</h3>
@@ -469,7 +542,11 @@
         </div>
         <div class="ticket-detail" style="box-shadow:none; margin-top:8px;">
           <h3>Support Status</h3>
-          <p class="muted">${ticket.resolution_summary ? escapeHtml(ticket.resolution_summary) : 'Support team is reviewing this ticket.'}</p>
+          <p class="muted">${ticket.resolution_summary ? escapeHtml(ticket.resolution_summary) : escapeHtml(slaText(ticket))}</p>
+        </div>
+        <div class="ticket-detail" style="box-shadow:none; margin-top:8px;">
+          <h3>Timeline</h3>
+          <div class="ticket-timeline">${renderTimeline(ticket, notes)}</div>
         </div>
         <div class="ticket-detail" style="box-shadow:none; margin-top:8px;">
           <h3>Support Replies</h3>

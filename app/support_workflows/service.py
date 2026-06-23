@@ -23,6 +23,8 @@ from app.support_workflows.schemas import (
     ListSupportTicketsOutput,
     PriorityAssessment,
     SlaMonitorResult,
+    SupportCannedActionInput,
+    SupportCannedActionOutput,
     SupportTicketItem,
     SupportTicketNoteItem,
     UpdateTicketStatusInput,
@@ -80,6 +82,70 @@ def _serialize_note(row: dict[str, Any]) -> dict[str, Any]:
     ).model_dump()
 
 
+def _next_action_for_ticket(row: dict[str, Any]) -> dict[str, Any]:
+    status = row.get("workflow_status") or row.get("status") or "new"
+    priority = row.get("priority") or "unclassified"
+    risk = row.get("risk_level") or "unknown"
+    pending_count = int(row.get("pending_action_count") or 0)
+    breached = bool(row.get("sla_breached_at"))
+    assigned = bool(row.get("assigned_team") or row.get("assigned_user_id"))
+    if breached:
+        return {
+            "key": "sla_breached",
+            "label": "Escalate SLA breach",
+            "description": "SLA is overdue. Assign an owner and send a customer-facing update.",
+            "severity": "critical",
+            "requires_approval": False,
+        }
+    if status == "waiting_approval" or pending_count:
+        return {
+            "key": "approval_review",
+            "label": "Review approval",
+            "description": "A support_case_review action is waiting in the approval queue.",
+            "severity": "warning",
+            "requires_approval": True,
+        }
+    if not assigned and status not in {"resolved", "closed"}:
+        return {
+            "key": "assign_owner",
+            "label": "Assign owner",
+            "description": "Assign a support owner before continuing the case.",
+            "severity": "warning" if priority in {"P0", "P1"} else "info",
+            "requires_approval": False,
+        }
+    if status in {"new", "open", "classified", "planned"}:
+        return {
+            "key": "draft_reply",
+            "label": "Generate draft reply",
+            "description": "Generate or review a customer-facing reply with evidence before sending.",
+            "severity": "warning" if risk in {"high", "critical"} else "info",
+            "requires_approval": risk in {"high", "critical"},
+        }
+    if status == "waiting_customer":
+        return {
+            "key": "wait_customer",
+            "label": "Wait for customer",
+            "description": "The last public reply is sent. Reopen when the employee responds.",
+            "severity": "info",
+            "requires_approval": False,
+        }
+    if status == "escalated":
+        return {
+            "key": "human_followup",
+            "label": "Human follow-up",
+            "description": "Escalation package is ready. Support owner should reply or resolve.",
+            "severity": "warning",
+            "requires_approval": risk in {"high", "critical"},
+        }
+    return {
+        "key": "none",
+        "label": "No next action",
+        "description": "This case is in a terminal or low-touch state.",
+        "severity": "info",
+        "requires_approval": False,
+    }
+
+
 def _serialize_ticket(row: dict[str, Any]) -> dict[str, Any]:
     return SupportTicketItem(
         id=int(row["id"]),
@@ -110,6 +176,7 @@ def _serialize_ticket(row: dict[str, Any]) -> dict[str, Any]:
         workflow_updated_at=row.get("workflow_updated_at"),
         note_count=int(row.get("note_count") or 0),
         pending_action_count=int(row.get("pending_action_count") or 0),
+        next_action=_next_action_for_ticket(row),
     ).model_dump()
 
 
@@ -306,6 +373,146 @@ def update_ticket_status(ticket_id: int, payload: UpdateTicketStatusInput, *, co
             context=context,
         )
     return get_support_ticket(ticket_id)
+
+
+def _default_public_reply(ticket: dict[str, Any], action: str) -> str:
+    if action == "ask_more_info":
+        return (
+            "Thank you for contacting support. Could you please share the missing details "
+            "so we can verify your request and respond accurately?"
+        )
+    if action == "resolve_with_kb":
+        return (
+            "Thank you for contacting support. Based on the available knowledge base information, "
+            "we have provided the relevant answer and will mark this case resolved. Reply here if you need more help."
+        )
+    return "Support has reviewed this case and will follow up with the next step."
+
+
+def _canned_approval_payload(ticket: dict[str, Any], payload: SupportCannedActionInput) -> dict[str, Any]:
+    action_label = "refund" if payload.action == "refund_requires_approval" else "cancellation"
+    return {
+        "ticket_id": int(ticket["id"]),
+        "ticket_code": ticket["ticket_code"],
+        "canned_action": payload.action,
+        "customer_impact": action_label,
+        "requested_reply": payload.reply_body,
+        "operator_note": payload.note,
+        "source": "support_workspace_canned_action",
+        "approval_reason": f"{action_label.title()} action requires human approval before execution.",
+    }
+
+
+def apply_canned_support_action(
+    ticket_id: int,
+    payload: SupportCannedActionInput,
+    *,
+    context: RequestContext,
+) -> dict[str, Any]:
+    ticket = _ticket_by_id(ticket_id)
+    action = payload.action
+    note: dict[str, Any] | None = None
+    pending_action: dict[str, Any] | None = None
+
+    if action == "ask_more_info":
+        body = payload.reply_body or _default_public_reply(ticket, action)
+        note = add_ticket_note(
+            ticket_id,
+            AddTicketNoteInput(
+                body=body,
+                note_type="public_more_info_request",
+                visibility="public",
+                metadata={"source": "canned_action", "action": action},
+            ),
+            context=context,
+        )
+        updated = update_ticket_status(
+            ticket_id,
+            UpdateTicketStatusInput(
+                status="waiting_customer",
+                note=payload.note or "Canned action: asked customer for more information.",
+            ),
+            context=context,
+        )
+        message = "Asked the employee for more information."
+    elif action == "resolve_with_kb":
+        body = payload.reply_body or _default_public_reply(ticket, action)
+        note = add_ticket_note(
+            ticket_id,
+            AddTicketNoteInput(
+                body=body,
+                note_type="public_resolution",
+                visibility="public",
+                metadata={"source": "canned_action", "action": action},
+            ),
+            context=context,
+        )
+        updated = update_ticket_status(
+            ticket_id,
+            UpdateTicketStatusInput(
+                status="resolved",
+                resolution_summary=body,
+                note=payload.note or "Canned action: resolved with KB-backed reply.",
+            ),
+            context=context,
+        )
+        message = "Sent a KB-backed resolution and marked the case resolved."
+    elif action == "escalate_to_team":
+        team = payload.assigned_team or ticket.get("assigned_team") or "support"
+        assigned_user_id = payload.assigned_user_id or ticket.get("assigned_user_id")
+        assign_ticket(
+            ticket_id,
+            AssignTicketInput(
+                assigned_team=team,
+                assigned_user_id=assigned_user_id,
+                note=payload.note or f"Canned action: escalated to {team}.",
+            ),
+            context=context,
+        )
+        updated_context = escalate_ticket(
+            ticket_id,
+            reason=payload.note or f"Canned action: escalate to {team}.",
+            context=context,
+        )
+        updated = updated_context["ticket"]
+        message = f"Escalated case to {team}."
+    elif action in {"refund_requires_approval", "cancel_requires_approval"}:
+        high_risk = "refund" if action == "refund_requires_approval" else "cancel"
+        pending_action = create_pending_action(
+            action_type="support_case_review",
+            risk_level="high",
+            title=f"Approve {high_risk} action for {ticket['ticket_code']}",
+            summary=f"{high_risk.title()} action requested from Support Workspace. Approval required before customer-impacting execution.",
+            payload=_canned_approval_payload(ticket, payload),
+            context=context,
+        )
+        add_ticket_note(
+            ticket_id,
+            AddTicketNoteInput(
+                body=payload.note or f"Canned action drafted: {high_risk} requires approval.",
+                note_type="approval_request",
+                visibility="internal",
+                metadata={"source": "canned_action", "action": action, "pending_action_id": pending_action.get("id")},
+            ),
+            context=context,
+        )
+        updated = update_ticket_status(
+            ticket_id,
+            UpdateTicketStatusInput(status="waiting_approval", note=f"{high_risk.title()} action is waiting for approval."),
+            context=context,
+        )
+        message = f"{high_risk.title()} approval action created."
+    else:
+        raise ValueError(f"Unsupported canned action: {action}")
+
+    return SupportCannedActionOutput(
+        ticket=SupportTicketItem(**updated),
+        action=action,
+        message=message,
+        note=SupportTicketNoteItem(**note) if note else None,
+        pending_action=pending_action,
+        next_action=updated.get("next_action") or {},
+    ).model_dump()
 
 
 def classify_ticket(ticket_id: int) -> CaseClassification:

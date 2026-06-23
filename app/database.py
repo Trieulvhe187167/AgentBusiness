@@ -1191,6 +1191,25 @@ CREATE INDEX IF NOT EXISTS idx_agent_run_steps_run_key
     ON agent_run_steps(agent_run_id, step_key, id DESC);
 """
 
+_PHASE62_KNOWLEDGE_GOVERNANCE_SCHEMA = """
+ALTER TABLE knowledge_gaps ADD COLUMN owner_user_id TEXT;
+ALTER TABLE knowledge_gaps ADD COLUMN priority TEXT NOT NULL DEFAULT 'P2';
+ALTER TABLE knowledge_gaps ADD COLUMN due_date TEXT;
+ALTER TABLE knowledge_gaps ADD COLUMN status_reason TEXT;
+CREATE INDEX IF NOT EXISTS idx_knowledge_gaps_owner_due
+    ON knowledge_gaps(owner_user_id, due_date);
+CREATE INDEX IF NOT EXISTS idx_knowledge_gaps_priority_status
+    ON knowledge_gaps(priority, status, updated_at DESC);
+
+UPDATE knowledge_gaps
+SET status = CASE status
+    WHEN 'open' THEN 'new'
+    WHEN 'suggested' THEN 'patch_pending'
+    WHEN 'resolved' THEN 'fixed'
+    ELSE status
+END;
+"""
+
 MIGRATIONS: list[tuple[str, str]] = [
     ("001_core_schema", _CORE_SCHEMA),
     ("002_knowledge_bases", _KB_SCHEMA),
@@ -1231,6 +1250,7 @@ MIGRATIONS: list[tuple[str, str]] = [
     ("037_phase58_llm_usage", _PHASE58_LLM_USAGE_SCHEMA),
     ("038_phase60_llm_judge_evaluations", _PHASE60_LLM_JUDGE_EVALUATIONS_SCHEMA),
     ("039_phase61_agent_run_idempotent_steps", _PHASE61_AGENT_RUN_IDEMPOTENT_STEPS_SCHEMA),
+    ("040_phase62_knowledge_governance", _PHASE62_KNOWLEDGE_GOVERNANCE_SCHEMA),
 ]
 
 

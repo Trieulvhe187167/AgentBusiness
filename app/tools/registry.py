@@ -101,6 +101,14 @@ class ToolExecutionResult(BaseModel):
     latency_ms: int
 
 
+class ToolDryRunResult(BaseModel):
+    tool_name: str
+    valid: bool
+    would_execute: bool
+    validated_arguments: dict[str, Any] | None = None
+    error: str | None = None
+
+
 @dataclass(slots=True)
 class ToolRegistry:
     _tools: dict[str, ToolSpec] = field(default_factory=dict)
@@ -124,6 +132,35 @@ class ToolRegistry:
 
     def list_openai_responses_tools(self) -> list[dict[str, Any]]:
         return [item.to_openai_responses_tool() for item in self.list_definitions()]
+
+    def dry_run(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None,
+        *,
+        request_context: RequestContext | dict[str, Any] | None = None,
+    ) -> ToolDryRunResult:
+        spec = self.get(name)
+        context = request_context if isinstance(request_context, RequestContext) else RequestContext.model_validate(
+            request_context or {"request_id": "tool-dry-run"}
+        )
+        raw_args = arguments or {}
+        try:
+            self._authorize(spec, context, raw_args)
+            validated_input = spec.input_model.model_validate(raw_args)
+        except Exception as err:
+            return ToolDryRunResult(
+                tool_name=name,
+                valid=False,
+                would_execute=False,
+                error=str(err),
+            )
+        return ToolDryRunResult(
+            tool_name=name,
+            valid=True,
+            would_execute=True,
+            validated_arguments=validated_input.model_dump(),
+        )
 
     async def execute(
         self,
