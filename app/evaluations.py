@@ -189,6 +189,9 @@ def _serialize_result(row: dict[str, Any]) -> AgentEvalResultItem:
         for item in _parse_json(row.get("checks_json"), [])
         if isinstance(item, dict)
     ]
+    retrieved_payload = _parse_json(row.get("retrieved_json"), [])
+    retrieved_items = retrieved_payload.get("items", []) if isinstance(retrieved_payload, dict) else retrieved_payload
+    trace = retrieved_payload.get("trace", {}) if isinstance(retrieved_payload, dict) else {}
     return AgentEvalResultItem(
         id=int(row["id"]),
         run_id=int(row["run_id"]),
@@ -209,7 +212,8 @@ def _serialize_result(row: dict[str, Any]) -> AgentEvalResultItem:
         chunk_match=row.get("chunk_match"),
         category_match=row.get("category_match"),
         matched_source_rank=row.get("matched_source_rank"),
-        retrieved=_parse_json(row.get("retrieved_json"), []),
+        retrieved=retrieved_items if isinstance(retrieved_items, list) else [],
+        trace=trace if isinstance(trace, dict) else {},
         citations=_parse_json(row.get("citations_json"), []),
         judge_provider=row.get("judge_provider"),
         judge_model=row.get("judge_model"),
@@ -644,17 +648,70 @@ def _citation_accuracy(
 
 
 def _retrieval_preview(items: list[dict[str, Any]], limit: int = 10) -> list[dict[str, Any]]:
-    return [
-        {
+    preview: list[dict[str, Any]] = []
+    for rank, item in enumerate(items[:limit], start=1):
+        row = {
             "rank": rank,
             "source_id": item.get("source_id") or item.get("file_id"),
             "chunk_id": item.get("chunk_id"),
             "filename": item.get("filename"),
             "category": item.get("category"),
             "similarity": round(float(item.get("similarity") or 0.0), 4),
+            "retrieval_score": round(float(item.get("retrieval_score", item.get("similarity", 0.0)) or 0.0), 4),
+            "final_score": round(float(item.get("final_score", item.get("similarity", 0.0)) or 0.0), 4),
         }
-        for rank, item in enumerate(items[:limit], start=1)
-    ]
+        for key in (
+            "bm25_score",
+            "reranker_score",
+            "reranker_provider",
+            "reranker_model",
+            "retrieval_mode",
+            "qdrant_query_mode",
+            "qdrant_fusion",
+            "source_diversified",
+        ):
+            if item.get(key) is not None:
+                value = item.get(key)
+                if isinstance(value, float):
+                    value = round(value, 4)
+                row[key] = value
+        preview.append(row)
+    return preview
+
+
+def _retrieval_trace_payload(
+    *,
+    question: str,
+    rag_result: dict[str, Any],
+    expected_source_file_ids: list[int],
+    expected_chunk_ids: list[str],
+    matched_source_rank: int | None,
+    recall_at_k: float | None,
+    citation_accuracy: float | None,
+) -> dict[str, Any]:
+    retrieved = rag_result.get("retrieved") or []
+    top = _retrieval_preview(retrieved, limit=10)
+    return {
+        "query": question,
+        "request_id": rag_result.get("request_id"),
+        "chat_log_id": rag_result.get("chat_log_id"),
+        "mode": rag_result.get("mode"),
+        "top_score": rag_result.get("top_score"),
+        "latency_ms": rag_result.get("latency_ms"),
+        "corrective_rag": rag_result.get("corrective_rag") or {},
+        "expected_source_file_ids": expected_source_file_ids,
+        "expected_chunk_ids": expected_chunk_ids,
+        "matched_source_rank": matched_source_rank,
+        "missing_expected_source": bool(expected_source_file_ids and matched_source_rank is None),
+        "recall_at_k": recall_at_k,
+        "citation_accuracy": citation_accuracy,
+        "top_retrieved": top,
+        "explain": {
+            "retrieval_failed": bool(expected_source_file_ids and matched_source_rank is None),
+            "citation_mismatch": citation_accuracy is not None and citation_accuracy < 0.8,
+            "corrective_rewrote_query": bool((rag_result.get("corrective_rag") or {}).get("query_rewritten")),
+        },
+    }
 
 
 def _percentile(values: list[float], percentile: float) -> float | None:
@@ -718,6 +775,7 @@ def _collect_rag_answer(question: str, *, kb_id: int, auth: AuthContext) -> dict
         "top_score": start_event.get("score"),
         "kb_key": start_event.get("kb_key"),
         "latency_ms": done_event.get("latency_ms"),
+        "corrective_rag": done_event.get("corrective_rag") or start_event.get("corrective_rag") or {},
     }
 
 
@@ -761,6 +819,15 @@ def _score_golden_item(
         row=row,
         rag_result=rag_result,
         expected_source_file_ids=expected_source_file_ids,
+    )
+    retrieval_trace = _retrieval_trace_payload(
+        question=str(row.get("question") or ""),
+        rag_result=rag_result,
+        expected_source_file_ids=expected_source_file_ids,
+        expected_chunk_ids=expected_chunk_ids,
+        matched_source_rank=matched_source_rank,
+        recall_at_k=recall_at_k,
+        citation_accuracy=citation_accuracy,
     )
 
     weighted: list[tuple[float, float]] = [(answer_similarity, 0.6)]
@@ -899,6 +966,7 @@ def _score_golden_item(
         "category_match": category_match,
         "matched_source_rank": matched_source_rank,
         "retrieved_preview": _retrieval_preview(rag_result["retrieved"]),
+        "retrieval_trace": retrieval_trace,
         "retrieved_count": len(rag_result["retrieved"]),
         **judge_result,
     }
@@ -996,9 +1064,33 @@ def _compare_golden_metrics(
     baseline: dict[str, Any] | None,
     max_metric_drop: float,
 ) -> tuple[int | None, str, dict[str, Any]]:
+    higher_is_better = {
+        "score_ratio",
+        "answer_similarity",
+        "recall_at_k",
+        "mrr",
+        "citation_accuracy",
+        "source_match",
+        "chunk_match",
+        "category_match",
+        "judge_score",
+        "judge_groundedness",
+        "judge_correctness",
+        "judge_completeness",
+        "judge_citation_support",
+    }
+    lower_is_better = {
+        "latency_p50_ms",
+        "latency_p95_ms",
+        "latency_avg_ms",
+        "judge_latency_ms",
+        "judge_hallucination_risk",
+    }
+    latency_budget_ratio = 1.25
     if baseline is None:
         return None, "baseline_missing", {
             "max_metric_drop": float(max_metric_drop),
+            "latency_budget_ratio": latency_budget_ratio,
             "regressions": [],
             "deltas": {},
         }
@@ -1014,19 +1106,28 @@ def _compare_golden_metrics(
         comparable_count += 1
         delta = round(float(current_value) - float(baseline_value), 4)
         deltas[name] = delta
-        if delta < -float(max_metric_drop):
+        regression_reason = ""
+        if name in higher_is_better and delta < -float(max_metric_drop):
+            regression_reason = f"dropped more than {max_metric_drop}"
+        elif name in lower_is_better and float(baseline_value) > 0:
+            ratio = float(current_value) / float(baseline_value)
+            if ratio > latency_budget_ratio:
+                regression_reason = f"increased above {latency_budget_ratio:.2f}x baseline"
+        if regression_reason:
             regressions.append(
                 {
                     "metric": name,
                     "baseline": round(float(baseline_value), 4),
                     "current": round(float(current_value), 4),
                     "delta": delta,
+                    "reason": regression_reason,
                 }
             )
 
     gate_status = "baseline_missing" if comparable_count == 0 else "failed" if regressions else "passed"
     return int(baseline["id"]), gate_status, {
         "max_metric_drop": float(max_metric_drop),
+        "latency_budget_ratio": latency_budget_ratio,
         "comparable_metric_count": comparable_count,
         "regressions": regressions,
         "deltas": deltas,
@@ -1233,7 +1334,13 @@ def _create_golden_eval_run(payload: CreateAgentEvalRunInput, *, auth: AuthConte
                 scored.get("chunk_match"),
                 scored.get("category_match"),
                 scored.get("matched_source_rank"),
-                json.dumps(scored.get("retrieved_preview") or [], ensure_ascii=False),
+                json.dumps(
+                    {
+                        "items": scored.get("retrieved_preview") or [],
+                        "trace": scored.get("retrieval_trace") or {},
+                    },
+                    ensure_ascii=False,
+                ),
                 json.dumps(scored.get("citations") or [], ensure_ascii=False),
                 scored.get("judge_provider"),
                 scored.get("judge_model"),

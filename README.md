@@ -198,6 +198,15 @@ RAG_EVAL_LLM_JUDGE_WEIGHT=0.35
 
 When enabled, judge results are stored alongside deterministic metrics and blended into the final result score by `RAG_EVAL_LLM_JUDGE_WEIGHT`. If the judge provider fails, the evaluation run still completes and records `judge_error` for that item.
 
+For RAG model/retrieval changes, use the Benchmark & Promotion Gate workflow in
+`docs/golden-eval-benchmark.md`. The supporting scripts are:
+
+- `scripts/seed_golden_dataset_from_db.py` to export review-ready golden candidates.
+- `scripts/prepare_golden_review_pack.py` to activate only reviewed/approved golden rows before upload.
+- `scripts/run_baseline_eval.py` to run baseline and candidate reports.
+- `scripts/rag_profile_manager.py` to generate env overlays and record promote/rollback decisions.
+- `scripts/compare_rag_eval_reports.py` to create the promotion summary across candidate reports.
+
 ### OpenAI Responses tool continuation
 
 OpenAI Responses can optionally run a full tool-result continuation loop:
@@ -283,6 +292,8 @@ authenticates the user and forwards trusted headers such as `X-Auth-User-Id`,
 - `docs/parser-support.md`
 - `docs/architecture.md`
 - `docs/vector-backends.md`
+- `docs/golden-eval-benchmark.md`
+- `docs/production-rag-profiles.md`
 - `docs/cache.md`
 - `docs/openai-responses.md`
 - `docs/schema.md`
