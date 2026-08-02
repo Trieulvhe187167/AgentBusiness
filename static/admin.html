@@ -167,6 +167,17 @@
         .rag-metric strong { display:block; color:var(--brand); font-size:20px; line-height:1.1; margin-bottom:4px; }
         .rag-metric span { display:block; color:var(--dim); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
         .rag-quality-actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+        .benchmark-gate-flow { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-bottom:12px; }
+        .benchmark-gate-step { border:1px solid var(--line); border-radius:12px; background:#fff; padding:10px; min-width:0; }
+        .benchmark-gate-step strong { display:block; margin:6px 0 3px; font-size:13px; }
+        .benchmark-gate-step small { display:block; color:var(--dim); font-size:11px; line-height:1.35; }
+        .benchmark-readiness-banner { border:1px solid var(--line); border-radius:12px; background:#fff; padding:10px 12px; margin:10px 0; font-weight:800; }
+        .benchmark-readiness-banner.ready { border-color:#b7dfca; background:#f0fbf5; color:var(--ok); }
+        .benchmark-readiness-banner.blocked { border-color:#e7c282; background:#fff8e9; color:var(--warn); }
+        .benchmark-gate-controls { display:grid; grid-template-columns:minmax(150px,1fr) minmax(140px,1fr) minmax(220px,2fr) auto; gap:8px; align-items:center; margin-bottom:10px; }
+        .benchmark-gate-controls input { min-width:0; }
+        .rag-quality-run-actions { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-start; margin-top:8px; }
+        .rag-quality-run-actions button { padding:5px 8px; font-size:12px; border-radius:8px; }
         .view { display:none; } .view.active { display:block; }
         .legacy-backfill { display:none !important; }
         .table { width:100%; border-collapse:separate; border-spacing:0; font-size:13px; }
@@ -212,7 +223,7 @@
         .drawer-kv span { display:block; color:var(--dim); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
         .drawer-kv strong { display:block; margin-top:4px; overflow-wrap:anywhere; }
         .drawer-actions { display:flex; flex-wrap:wrap; gap:8px; }
-        @media (max-width:1100px) { .container { padding:112px 18px 24px; } .header { height:auto; min-height:60px; flex-wrap:wrap; padding:10px 14px; } .brand { min-width:0; } .links { order:3; width:100%; margin:0; overflow:auto; } .role-shell { top:8px; right:12px; height:44px; } .role-shell-detail { display:none; } .tabs { display:none; } .mobile-module-switcher { display:block; } .span-8,.span-7,.span-6,.span-5,.span-4 { grid-column:span 12; } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } .support-shell,.knowledge-shell,.knowledge-progress-panel,.operations-shell,.analytics-hero,.rag-quality-hero,.webhook-form { grid-template-columns:1fr; } .knowledge-strip,.knowledge-flow,.knowledge-progress-grid,.analytics-insights,.rag-stack-grid,.rag-budget-grid,.rag-metric-grid,.case-kv,.readiness-list,.drive-form-grid,.drive-action-row { grid-template-columns:1fr; } .drive-form-grid .wide { grid-column:auto; } }
+        @media (max-width:1100px) { .container { padding:112px 18px 24px; } .header { height:auto; min-height:60px; flex-wrap:wrap; padding:10px 14px; } .brand { min-width:0; } .links { order:3; width:100%; margin:0; overflow:auto; } .role-shell { top:8px; right:12px; height:44px; } .role-shell-detail { display:none; } .tabs { display:none; } .mobile-module-switcher { display:block; } .span-8,.span-7,.span-6,.span-5,.span-4 { grid-column:span 12; } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } .support-shell,.knowledge-shell,.knowledge-progress-panel,.operations-shell,.analytics-hero,.rag-quality-hero,.webhook-form,.benchmark-gate-flow,.benchmark-gate-controls { grid-template-columns:1fr; } .knowledge-strip,.knowledge-flow,.knowledge-progress-grid,.analytics-insights,.rag-stack-grid,.rag-budget-grid,.rag-metric-grid,.case-kv,.readiness-list,.drive-form-grid,.drive-action-row { grid-template-columns:1fr; } .drive-form-grid .wide { grid-column:auto; } }
     </style>
 </head>
 <body>
@@ -1028,6 +1039,8 @@
                         </select>
                         <input id="evalLimit" type="number" min="1" max="500" value="50" title="Maximum chat logs to evaluate.">
                         <input id="evalAlertDrop" type="number" min="0" max="100" value="10" title="Golden eval alert threshold in score points.">
+                        <input id="evalBaselineRunId" type="number" min="1" placeholder="Baseline run ID" title="Optional golden baseline run ID for promotion gate comparison.">
+                        <input id="evalMaxMetricDrop" type="number" min="0" max="1" step="0.01" value="0.03" title="Maximum allowed drop for higher-is-better golden metrics.">
                         <label class="note" title="Use the configured LLM provider as an optional judge for golden dataset answer quality."><input id="evalLlmJudge" type="checkbox"> LLM judge</label>
                         <button class="btn-main" id="btnRunAgentEval" title="Create a new evaluation run from recent chat logs.">Run Evaluation</button>
                         <button class="btn-muted" id="btnRefreshAgentEvals" title="Reload evaluation runs.">Refresh Runs</button>
@@ -1241,6 +1254,49 @@
                             <tbody><tr><td colspan="4">No baseline comparison loaded.</td></tr></tbody>
                         </table>
                     </div>
+                </section>
+
+                <section class="card span-12">
+                    <div class="section-head">
+                        <h2>Benchmark Gate Readiness</h2>
+                        <p>Frontend view of the Sprint N+1 gate: enough active golden rows, reviewed rows, smoke rows, and baseline controls.</p>
+                    </div>
+                    <div class="benchmark-gate-flow">
+                        <div class="benchmark-gate-step">
+                            <span class="status queued" id="rqStepDatasetStatus">check</span>
+                            <strong>Review Set</strong>
+                            <small id="rqStepDatasetDetail">Load active golden rows.</small>
+                        </div>
+                        <div class="benchmark-gate-step">
+                            <span class="status queued" id="rqStepBaselineStatus">needed</span>
+                            <strong>Baseline</strong>
+                            <small id="rqStepBaselineDetail">Pick a stable baseline run.</small>
+                        </div>
+                        <div class="benchmark-gate-step">
+                            <span class="status queued" id="rqStepCandidateStatus">server</span>
+                            <strong>Candidate</strong>
+                            <small id="rqStepCandidateDetail">Current server config is evaluated.</small>
+                        </div>
+                        <div class="benchmark-gate-step">
+                            <span class="status queued" id="rqStepDecisionStatus">blocked</span>
+                            <strong>Decision</strong>
+                            <small id="rqStepDecisionDetail">Promotion waits for coverage.</small>
+                        </div>
+                    </div>
+                    <div class="stats" style="margin-bottom:10px;">
+                        <div class="stat"><div class="value" id="rqGoldenActiveCount">-</div><div class="label">Active Rows</div></div>
+                        <div class="stat"><div class="value" id="rqGoldenReviewedCount">-</div><div class="label">Reviewed Rows</div></div>
+                        <div class="stat"><div class="value" id="rqGoldenSmokeCount">-</div><div class="label">Smoke Rows</div></div>
+                        <div class="stat"><div class="value" id="rqGoldenTargetCount">80</div><div class="label">Target Rows</div></div>
+                    </div>
+                    <div class="benchmark-readiness-banner blocked" id="rqBenchmarkReadinessBanner">Promotion blocked until reviewed coverage reaches target.</div>
+                    <div class="benchmark-gate-controls">
+                        <input id="rqBaselineRunId" type="number" min="1" placeholder="Baseline run ID" title="Baseline run to compare the next golden evaluation against.">
+                        <input id="rqMaxMetricDrop" type="number" min="0" max="1" step="0.01" value="0.03" title="Allowed drop for higher-is-better metrics.">
+                        <input id="rqEvalName" placeholder="Candidate run name" title="Optional name for this benchmark run.">
+                        <button class="btn-main" id="btnRunBenchmarkGateEval" title="Run selected-KB golden eval with baseline comparison settings.">Run Gate Eval</button>
+                    </div>
+                    <div class="note" id="rqBenchmarkReadinessDetail">Load the RAG Quality cockpit to inspect golden coverage.</div>
                 </section>
 
                 <section class="card span-4">
@@ -2152,6 +2208,7 @@
         let agentEvalRuns = [];
         let selectedAgentEvalRun = null;
         let goldenDataset = [];
+        let goldenDatasetActive = [];
         let knowledgeGaps = [];
         let systemRuntime = null;
         let analyticsDashboard = null;
@@ -3954,6 +4011,56 @@
             `).join('');
         }
 
+        function goldenDatasetCoverage(items) {
+            const rows = Array.isArray(items) ? items : [];
+            const active = rows.filter((item) => item.active);
+            const hasTag = (item, tag) => (item.tags || []).map((value) => String(value).toLowerCase()).includes(tag);
+            const reviewed = active.filter((item) => ['reviewed', 'approved', 'golden_reviewed', 'source_verified'].some((tag) => hasTag(item, tag)));
+            const smoke = active.filter((item) => hasTag(item, 'smoke_auto_activated'));
+            const needsReview = rows.filter((item) => (item.tags || []).some((tag) => String(tag).startsWith('review_status:needs_review')));
+            return {
+                total: rows.length,
+                active: active.length,
+                reviewed: reviewed.length,
+                smoke: smoke.length,
+                needsReview: needsReview.length,
+                ready: active.length >= 80 && reviewed.length >= 80,
+            };
+        }
+
+        function renderBenchmarkGateReadiness() {
+            const coverage = goldenDatasetCoverage(goldenDatasetActive);
+            setTextIfExists('rqGoldenActiveCount', String(coverage.active));
+            setTextIfExists('rqGoldenReviewedCount', String(coverage.reviewed));
+            setTextIfExists('rqGoldenSmokeCount', String(coverage.smoke));
+            setTextIfExists('rqGoldenTargetCount', '80');
+            const activeGap = Math.max(0, 80 - coverage.active);
+            const reviewedGap = Math.max(0, 80 - coverage.reviewed);
+            const baselineId = Number(document.getElementById('rqBaselineRunId')?.value || '0');
+            const latestGoldenRun = agentEvalRuns.find((run) => run.source === 'golden_dataset') || null;
+            const detail = coverage.ready
+                ? `Ready for promotion gate: ${coverage.reviewed} reviewed active row(s).`
+                : `Not promotion-ready yet: ${coverage.active}/80 active, ${coverage.reviewed}/80 reviewed, ${coverage.smoke} smoke row(s), ${coverage.needsReview} row(s) still tagged needs_review.`;
+            setTextIfExists('rqBenchmarkReadinessDetail', detail);
+            setTextIfExists('rqBenchmarkReadinessBanner', coverage.ready
+                ? `Promotion gate ready. Use baseline ${baselineId || latestGoldenRun?.id || '-'} before comparing a candidate.`
+                : `Promotion blocked: add ${activeGap} active row(s) and ${reviewedGap} reviewed row(s) before embedding/profile changes count.`);
+            const banner = byId('rqBenchmarkReadinessBanner');
+            if (banner) banner.className = `benchmark-readiness-banner ${coverage.ready ? 'ready' : 'blocked'}`;
+            setStatusIfExists('rqStepDatasetStatus', coverage.ready ? 'ready' : 'blocked', coverage.ready ? 'done' : 'queued');
+            setTextIfExists('rqStepDatasetDetail', coverage.ready
+                ? `${coverage.reviewed} reviewed active row(s).`
+                : `${coverage.active}/80 active, ${coverage.reviewed}/80 reviewed.`);
+            setStatusIfExists('rqStepBaselineStatus', baselineId > 0 ? 'selected' : (latestGoldenRun ? 'latest' : 'needed'), baselineId > 0 || latestGoldenRun ? 'done' : 'queued');
+            setTextIfExists('rqStepBaselineDetail', baselineId > 0
+                ? `Baseline run ${baselineId}.`
+                : latestGoldenRun ? `Latest golden run ${latestGoldenRun.id} is available.` : 'No golden baseline run loaded.');
+            setStatusIfExists('rqStepCandidateStatus', 'server', 'active');
+            setTextIfExists('rqStepCandidateDetail', 'Current runtime profile is the candidate.');
+            setStatusIfExists('rqStepDecisionStatus', coverage.ready ? 'ready' : 'blocked', coverage.ready ? 'done' : 'queued');
+            setTextIfExists('rqStepDecisionDetail', coverage.ready ? 'Run gate eval and inspect regressions.' : 'Benchmark can run, promotion remains blocked.');
+        }
+
         function setStatusIfExists(id, text, status = 'queued') {
             const node = byId(id);
             if (!node) return;
@@ -3989,7 +4096,7 @@
             if (!items.length) return '<tr><td colspan="3">No evaluation runs found.</td></tr>';
             return items.slice(0, 8).map((item) => `
                 <tr>
-                    <td><strong>${escapeHtml(item.name || `Run ${item.id}`)}</strong><br><small class="note">${escapeHtml(item.source || '-')} | ${escapeHtml(item.created_at || '-')}</small></td>
+                    <td><strong>${escapeHtml(item.name || `Run ${item.id}`)}</strong><br><small class="note">${escapeHtml(item.source || '-')} | ${escapeHtml(item.created_at || '-')}</small><div class="rag-quality-run-actions"><button class="btn-muted" data-eval-run-view="${item.id}">View</button><button class="btn-ok" data-rq-baseline-run="${item.id}">Baseline</button></div></td>
                     <td><span class="status ${gateStatusClass(item.gate_status)}">${escapeHtml(item.gate_status || 'not_compared')}</span><br><small class="note">baseline ${item.baseline_run_id || '-'}</small></td>
                     <td><strong>${item.avg_score ?? '-'}</strong><br><small class="note">${item.sample_size || 0} sample(s)</small></td>
                 </tr>
@@ -4053,6 +4160,7 @@
             const latestResults = latestRun?.results || [];
             const failedOrWarn = latestResults.filter((item) => item.verdict !== 'pass');
             const analyticsSummary = analyticsDashboard?.summary || {};
+            const coverage = goldenDatasetCoverage(goldenDatasetActive);
 
             setTextIfExists('ragQualitySummary', system.timestamp
                 ? `Runtime ${system.timestamp} | ${activeKb?.name || 'No KB selected'} | ${analyticsDashboard?.period_days || '-'} day analytics window.`
@@ -4061,7 +4169,7 @@
             setTextIfExists('rqQualityScore', latestRun?.avg_score ?? '-');
             setStatusIfExists('rqGateStatus', latestRun?.gate_status || 'not loaded', gateStatusClass(latestRun?.gate_status));
             setTextIfExists('rqGateDetail', latestRun
-                ? `${latestRun.name || `Run ${latestRun.id}`} | ${latestRun.pass_count || 0} pass, ${latestRun.warn_count || 0} warn, ${latestRun.fail_count || 0} fail.`
+                ? `${coverage.ready ? 'Promotion-ready set' : 'Promotion blocked by coverage'} | ${latestRun.name || `Run ${latestRun.id}`} | ${latestRun.pass_count || 0} pass, ${latestRun.warn_count || 0} warn, ${latestRun.fail_count || 0} fail.`
                 : 'Run a golden or recent-chat evaluation to populate the quality gate.');
 
             const runtimeReady = Boolean(system.llm_loaded) && Boolean(system.embeddings_ready) && Boolean(system.vector_store_ready);
@@ -4069,7 +4177,7 @@
             setTextIfExists('rqRuntimeDetail', `LLM ${booleanStatusLabel(system.llm_loaded, 'loaded', 'not loaded')}, embeddings ${booleanStatusLabel(system.embeddings_ready, 'ready', 'not ready')}, vector store ${booleanStatusLabel(system.vector_store_ready, 'ready', 'not ready')}.`);
 
             setTextIfExists('rqEvalSample', latestRun ? String(latestRun.sample_size || 0) : '-');
-            setTextIfExists('rqEvalDetail', `${goldenDataset.length || 0} golden item(s), ${agentEvalRuns.length || 0} recent run(s).`);
+            setTextIfExists('rqEvalDetail', `${coverage.active || 0} active golden item(s), ${coverage.reviewed || 0} reviewed, ${agentEvalRuns.length || 0} recent run(s).`);
 
             setTextIfExists('rqLatencyBudget', formatMs(budget.retrieval_latency_budget_ms));
             setTextIfExists('rqLatencyDetail', `Average chat latency ${analyticsSummary.avg_latency_ms === null || analyticsSummary.avg_latency_ms === undefined ? '-' : `${Math.round(analyticsSummary.avg_latency_ms)} ms`}; cached input ${formatRate(analyticsSummary.llm_cached_input_rate)}.`);
@@ -4094,6 +4202,7 @@
             setTableBody('ragQualityRegressionTable', ragQualityRegressionRowsHtml(latestRun));
             setTableBody('ragQualityFailuresTable', agentEvalResultRowsHtml(failedOrWarn));
             setTableBody('ragQualityGoldenTable', goldenDatasetRowsHtml(goldenDataset.slice(0, 12)));
+            renderBenchmarkGateReadiness();
         }
 
         function renderAgentEvalRun(run) {
@@ -4125,11 +4234,15 @@
 
         async function refreshGoldenDataset() {
             const kbId = selectedKbId();
-            const query = kbId ? `?kb_id=${kbId}&limit=100` : '?limit=100';
+            const query = kbId ? `?kb_id=${kbId}&limit=500` : '?limit=500';
             const data = await fetchJson(`/api/admin/evaluations/golden-dataset${query}`);
             goldenDataset = data.items || [];
+            const activeQuery = kbId ? `?kb_id=${kbId}&active=true&limit=500` : '?active=true&limit=500';
+            const activeData = await fetchJson(`/api/admin/evaluations/golden-dataset${activeQuery}`);
+            goldenDatasetActive = activeData.items || [];
             setTableBody('goldenDatasetTable', goldenDatasetRowsHtml(goldenDataset));
-            document.getElementById('goldenDatasetSummary').textContent = `Loaded ${goldenDataset.length} golden item(s).`;
+            const coverage = goldenDatasetCoverage(goldenDatasetActive);
+            document.getElementById('goldenDatasetSummary').textContent = `Loaded ${goldenDataset.length} golden item(s). Active ${coverage.active}, reviewed ${coverage.reviewed}, smoke ${coverage.smoke}.`;
             renderRagQualityCockpit();
         }
 
@@ -4199,6 +4312,9 @@
             if (source === 'golden_dataset') {
                 payload.alert_drop_threshold = Number(document.getElementById('evalAlertDrop').value || '10');
                 payload.llm_judge = Boolean(document.getElementById('evalLlmJudge')?.checked);
+                const baselineRaw = Number(document.getElementById('evalBaselineRunId')?.value || '0');
+                if (Number.isInteger(baselineRaw) && baselineRaw > 0) payload.baseline_run_id = baselineRaw;
+                payload.max_metric_drop = Number(document.getElementById('evalMaxMetricDrop')?.value || '0.03');
             }
             if (selectedOnly && selectedKbId()) payload.kb_id = selectedKbId();
             const run = await fetchJson('/api/admin/evaluations/runs', {
@@ -4232,6 +4348,18 @@
             setValueIfExists('evalScope', selectedOnly ? 'selected' : 'global');
             setValueIfExists('evalDays', document.getElementById('ragQualityDays')?.value || '7');
             setValueIfExists('evalRunName', `Cockpit golden eval ${new Date().toISOString().slice(0, 16)}`);
+            await runAgentEvaluation();
+            await refreshRagQualityCockpitData();
+            activateTab('view-rag-quality');
+        }
+
+        async function runBenchmarkGateEvaluation() {
+            if (!selectedKbId()) return toast('Select a KB before running a benchmark gate evaluation.', false);
+            setValueIfExists('evalSource', 'golden_dataset');
+            setValueIfExists('evalScope', 'selected');
+            setValueIfExists('evalRunName', document.getElementById('rqEvalName')?.value.trim() || `Benchmark gate ${new Date().toISOString().slice(0, 16)}`);
+            setValueIfExists('evalBaselineRunId', document.getElementById('rqBaselineRunId')?.value || '');
+            setValueIfExists('evalMaxMetricDrop', document.getElementById('rqMaxMetricDrop')?.value || '0.03');
             await runAgentEvaluation();
             await refreshRagQualityCockpitData();
             activateTab('view-rag-quality');
@@ -6184,6 +6312,8 @@
         document.getElementById('btnRefreshAgentEvals').addEventListener('click', () => refreshAgentEvalRuns().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnRefreshRagQuality').addEventListener('click', () => refreshRagQualityCockpitData().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnRunCockpitGoldenEval').addEventListener('click', () => runCockpitGoldenEvaluation().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('btnRunBenchmarkGateEval').addEventListener('click', () => runBenchmarkGateEvaluation().catch((e) => toast(explainAuthError(e), false)));
+        document.getElementById('rqBaselineRunId').addEventListener('input', renderBenchmarkGateReadiness);
         document.getElementById('ragQualityDays').addEventListener('change', () => refreshRagQualityCockpitData().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('ragQualityScope').addEventListener('change', () => refreshRagQualityCockpitData().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnCreateGoldenItem').addEventListener('click', () => createGoldenDatasetItem().catch((e) => toast(explainAuthError(e), false)));
@@ -6194,6 +6324,15 @@
             const btn = e.target.closest('button');
             if (!btn?.dataset.evalRunView) return;
             viewAgentEvalRun(btn.dataset.evalRunView).catch((err) => toast(explainAuthError(err), false));
+        });
+        document.querySelector('#ragQualityRunsTable tbody').addEventListener('click', (e) => {
+            const viewBtn = e.target.closest('[data-eval-run-view]');
+            if (viewBtn) return viewAgentEvalRun(viewBtn.dataset.evalRunView).then(() => activateTab('view-rag-quality')).catch((err) => toast(explainAuthError(err), false));
+            const baselineBtn = e.target.closest('[data-rq-baseline-run]');
+            if (!baselineBtn) return;
+            setValueIfExists('rqBaselineRunId', baselineBtn.dataset.rqBaselineRun || '');
+            renderBenchmarkGateReadiness();
+            toast(`Baseline set to run ${baselineBtn.dataset.rqBaselineRun}`);
         });
         document.getElementById('btnRefreshSupportCases').addEventListener('click', () => refreshSupportCases().catch((e) => toast(explainAuthError(e), false)));
         document.getElementById('btnRunSlaMonitor').addEventListener('click', () => runSlaMonitor().catch((e) => toast(explainAuthError(e), false)));

@@ -190,6 +190,9 @@ def test_admin_can_manage_golden_dataset_and_run_regression_eval(tmp_path, monke
     assert result["answer_similarity"] > 0
     assert result["recall_at_k"] == 1.0
     assert result["citation_accuracy"] == 1.0
+    assert result["trace"]["matched_source_rank"] == 1
+    assert result["trace"]["missing_expected_source"] is False
+    assert result["retrieved"][0]["retrieval_score"] == 0.91
 
 
 def test_golden_eval_quality_drop_creates_notification(tmp_path, monkeypatch):
@@ -475,3 +478,60 @@ def test_golden_eval_gate_fails_when_metrics_regress(tmp_path, monkeypatch):
     )
     assert notification is not None
     assert notification["entity_id"] == str(payload["id"])
+
+
+def test_golden_eval_gate_treats_lower_latency_as_improvement():
+    baseline = {
+        "id": 10,
+        "metrics_json": json.dumps(
+            {
+                "answer_similarity": 0.8,
+                "recall_at_k": 0.7,
+                "latency_p50_ms": 50,
+                "latency_p95_ms": 100,
+                "latency_avg_ms": 70,
+            }
+        ),
+    }
+
+    baseline_run_id, gate_status, comparison = evaluations._compare_golden_metrics(
+        metrics={
+            "answer_similarity": 0.8,
+            "recall_at_k": 0.7,
+            "latency_p50_ms": 35,
+            "latency_p95_ms": 80,
+            "latency_avg_ms": 60,
+        },
+        baseline=baseline,
+        max_metric_drop=0.05,
+    )
+
+    assert baseline_run_id == 10
+    assert gate_status == "passed"
+    assert comparison["deltas"]["latency_p95_ms"] == -20
+    assert comparison["regressions"] == []
+
+
+def test_golden_eval_gate_fails_when_latency_exceeds_budget():
+    baseline = {
+        "id": 10,
+        "metrics_json": json.dumps({"answer_similarity": 0.8, "latency_p95_ms": 100}),
+    }
+
+    _, gate_status, comparison = evaluations._compare_golden_metrics(
+        metrics={"answer_similarity": 0.8, "latency_p95_ms": 140},
+        baseline=baseline,
+        max_metric_drop=0.05,
+    )
+
+    assert gate_status == "failed"
+    assert comparison["latency_budget_ratio"] == 1.25
+    assert comparison["regressions"] == [
+        {
+            "metric": "latency_p95_ms",
+            "baseline": 100.0,
+            "current": 140.0,
+            "delta": 40.0,
+            "reason": "increased above 1.25x baseline",
+        }
+    ]

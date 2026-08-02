@@ -77,6 +77,8 @@ def test_admin_analytics_dashboard_wires_backend_endpoint():
     assert "/api/admin/evaluations/runs" in html
     assert "Golden Dataset" in html
     assert "goldenDatasetTable" in html
+    assert "evalBaselineRunId" in html
+    assert "evalMaxMetricDrop" in html
     assert "function refreshGoldenDataset" in html
     assert "function createGoldenDatasetItem" in html
     assert "function uploadGoldenDatasetCsv" in html
@@ -85,6 +87,8 @@ def test_admin_analytics_dashboard_wires_backend_endpoint():
     assert "/api/admin/evaluations/golden-dataset/upload" in html
     assert 'value="golden_dataset"' in html
     assert "payload.alert_drop_threshold" in html
+    assert "payload.baseline_run_id" in html
+    assert "payload.max_metric_drop" in html
     assert "evalLlmJudge" in html
     assert "payload.llm_judge" in html
     assert "agent_eval_run" in html
@@ -139,18 +143,36 @@ def test_admin_rag_quality_cockpit_is_wired():
     assert "ragQualityMetricGrid" in html
     assert "Baseline Regression Gate" in html
     assert "ragQualityRegressionTable" in html
+    assert "Benchmark Gate Readiness" in html
+    assert "rqGoldenActiveCount" in html
+    assert "rqGoldenReviewedCount" in html
+    assert "rqGoldenSmokeCount" in html
+    assert "rqBaselineRunId" in html
+    assert "rqMaxMetricDrop" in html
+    assert "rqBenchmarkReadinessBanner" in html
+    assert "rqStepDatasetStatus" in html
+    assert "rqStepBaselineStatus" in html
+    assert "rqStepCandidateStatus" in html
+    assert "rqStepDecisionStatus" in html
+    assert "btnRunBenchmarkGateEval" in html
     assert "ragQualityRunsTable" in html
+    assert "data-rq-baseline-run" in html
+    assert "rag-quality-run-actions" in html
     assert "ragQualityFailuresTable" in html
     assert "ragQualityGoldenTable" in html
     assert "function renderRagQualityCockpit" in html
+    assert "function goldenDatasetCoverage" in html
+    assert "function renderBenchmarkGateReadiness" in html
     assert "function renderRagQualityMetrics" in html
     assert "function ragQualityRegressionRowsHtml" in html
     assert "function refreshRagQualityCockpitData" in html
     assert "function runCockpitGoldenEvaluation" in html
+    assert "function runBenchmarkGateEvaluation" in html
     assert "/api/system?kb_id=${selectedKbId()}" in html
     assert "/api/admin/analytics?${params.toString()}" in html
     assert "/api/admin/evaluations/runs?limit=20" in html
     assert "/api/admin/evaluations/golden-dataset${query}" in html
+    assert "document.querySelector('#ragQualityRunsTable tbody').addEventListener" in html
 
 
 def test_admin_dev_identity_is_collapsible_and_debug_gated():

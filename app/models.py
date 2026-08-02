@@ -699,6 +699,7 @@ class AgentEvalResultItem(BaseModel):
     category_match: float | None = None
     matched_source_rank: int | None = None
     retrieved: list[dict[str, Any]] = Field(default_factory=list)
+    trace: dict[str, Any] = Field(default_factory=dict)
     citations: list[dict[str, Any]] = Field(default_factory=list)
     judge_provider: str | None = None
     judge_model: str | None = None

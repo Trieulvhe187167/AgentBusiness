@@ -133,6 +133,11 @@ Recommended rollout:
 4. Compare `recall_at_k`, `mrr`, `citation_accuracy`, `latency_p50_ms`, and `latency_p95_ms`.
 5. Only then enable source diversification and neural reranking, one at a time.
 
+Use `scripts/rag_profile_manager.py` and `docs/production-rag-profiles.md`
+to generate env overlays, benchmark each profile against the golden baseline,
+and record promote/rollback decisions. This keeps Qdrant/reranker rollout tied
+to measured evidence instead of one-off `.env` edits.
+
 `/api/debug/retrieval` includes `retrieval_mode`, `qdrant_score`, `qdrant_query_mode`, `qdrant_fusion`, `qdrant_prefetch_k`, reranker scores, and `source_diversified` so threshold calibration can inspect what happened for each result.
 
 References:
