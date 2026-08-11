@@ -300,6 +300,63 @@ def test_prepare_golden_review_pack_smoke_mode_can_activate_evidence_backed_rows
     assert report["active_rows"] == 1
 
 
+def test_prepare_golden_review_pack_allows_reviewed_negative_without_source():
+    rows = [
+        {
+            "kb_id": "1",
+            "question": "What should the agent do when the policy is unavailable?",
+            "expected_answer": "State that the policy was not found and escalate to support.",
+            "expected_answers": "",
+            "expected_source_file_id": "",
+            "expected_source_file_ids": "",
+            "expected_chunk_ids": "",
+            "expected_categories": "negative",
+            "expected_keywords": "policy,unavailable",
+            "tags": "reviewed,negative",
+            "active": "false",
+        }
+    ]
+
+    prepared, report = review_pack.prepare_rows(
+        rows,
+        activate_reviewed_only=True,
+        activate_evidence_backed=False,
+    )
+
+    assert prepared[0]["active"] == "true"
+    assert "review_reason:needs_source" not in prepared[0]["tags"]
+    assert report["active_rows"] == 1
+
+
+def test_prepare_golden_review_pack_does_not_smoke_activate_unreviewed_negative_without_source():
+    rows = [
+        {
+            "kb_id": "1",
+            "question": "What should the agent do when the policy is unavailable?",
+            "expected_answer": "State that the policy was not found and escalate to support.",
+            "expected_answers": "",
+            "expected_source_file_id": "",
+            "expected_source_file_ids": "",
+            "expected_chunk_ids": "",
+            "expected_categories": "negative",
+            "expected_keywords": "policy,unavailable",
+            "tags": "negative",
+            "active": "false",
+        }
+    ]
+
+    prepared, report = review_pack.prepare_rows(
+        rows,
+        activate_reviewed_only=False,
+        activate_evidence_backed=True,
+    )
+
+    assert prepared[0]["active"] == "false"
+    assert "review_reason:needs_source" in prepared[0]["tags"]
+    assert "review_reason:needs_reviewed_tag" in prepared[0]["tags"]
+    assert report["active_rows"] == 0
+
+
 def test_golden_coverage_requires_reviewed_representative_buckets():
     items = []
     categories = ["policy_vi", "policy_en", "exact_id", "citation", "negative", "followup"]

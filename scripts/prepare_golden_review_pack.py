@@ -31,6 +31,7 @@ FIELDNAMES = [
 ]
 
 REVIEWED_TAGS = {"reviewed", "approved", "golden_reviewed", "source_verified"}
+NEGATIVE_TAGS = {"negative", "no_answer", "unknown", "out_of_scope"}
 TODO_PREFIX = "TODO:"
 BROKEN_PLACEHOLDERS = ("[phone]", "[secret]", "[email]")
 
@@ -87,6 +88,20 @@ def _has_source(row: dict[str, str]) -> bool:
     return bool(str(row.get("expected_source_file_id") or "").strip() or str(row.get("expected_source_file_ids") or "").strip())
 
 
+def _is_reviewed_negative_case(row: dict[str, str]) -> bool:
+    values = {item.lower() for item in _tags(row)}
+    values.update(
+        item.strip().lower()
+        for item in str(row.get("expected_categories") or "").split(",")
+        if item.strip()
+    )
+    return _has_reviewed_tag(row) and bool(values & NEGATIVE_TAGS)
+
+
+def _has_required_source(row: dict[str, str]) -> bool:
+    return _has_source(row) or _is_reviewed_negative_case(row)
+
+
 def _chunk_ids(row: dict[str, str]) -> list[str]:
     raw = str(row.get("expected_chunk_ids") or "").strip()
     if not raw:
@@ -111,7 +126,7 @@ def review_status(row: dict[str, str]) -> tuple[str, list[str]]:
     reasons: list[str] = []
     if not _answer_is_reviewable(row):
         reasons.append("needs_answer")
-    if not _has_source(row):
+    if not _has_required_source(row):
         reasons.append("needs_source")
     if str(row.get("expected_chunk_ids") or "").strip() and not _chunk_ids_are_clean(row):
         reasons.append("invalid_chunk_id")
@@ -136,7 +151,11 @@ def prepare_rows(
     for row in rows:
         item = {key: str(row.get(key) or "").strip() for key in FIELDNAMES}
         status, reasons = review_status(item)
-        evidence_backed = _answer_is_reviewable(item) and _has_source(item) and _chunk_ids_are_clean(item)
+        evidence_backed = (
+            _answer_is_reviewable(item)
+            and _has_required_source(item)
+            and (_is_reviewed_negative_case(item) or _chunk_ids_are_clean(item))
+        )
         should_activate = False
         if activate_reviewed_only:
             should_activate = status == "reviewed"

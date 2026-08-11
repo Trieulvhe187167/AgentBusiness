@@ -476,6 +476,12 @@ def test_internal_user_portal_is_wired():
     assert "currentEvent === 'token'" in html
     assert "data.text || data.token" in html
     assert "currentEvent === 'start'" in html
+    assert 'id="portalTenantId"' in html
+    assert 'id="portalOrgId"' in html
+    assert "headers.set('X-Tenant-Id', identity.tenantId)" in html
+    assert "headers.set('X-Org-Id', identity.orgId)" in html
+    assert "tenantId: document.getElementById('portalTenantId').value.trim()" in html
+    assert "orgId: document.getElementById('portalOrgId').value.trim()" in html
 
 
 def test_modal_loading_empty_state_cleanup_is_wired():

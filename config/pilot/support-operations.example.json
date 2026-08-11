@@ -1,0 +1,71 @@
+{
+  "pilot_id": "support-operations-v1",
+  "use_case": "support_operations",
+  "mode": "shadow_then_draft",
+  "knowledge_base": {
+    "kb_id": null,
+    "required_access_level": "internal",
+    "tenant_id": "replace-with-tenant-id",
+    "org_id": "replace-with-org-id"
+  },
+  "owners": {
+    "business_owner": "replace-with-business-owner",
+    "knowledge_owner": "replace-with-knowledge-owner",
+    "approval_owner": "replace-with-approval-owner",
+    "technical_owner": "replace-with-technical-owner"
+  },
+  "data_sources": [
+    {
+      "name": "approved_knowledge_base",
+      "required": true,
+      "classification": "internal",
+      "retention_days": 365
+    },
+    {
+      "name": "support_email",
+      "required": false,
+      "classification": "confidential",
+      "retention_days": 90
+    },
+    {
+      "name": "order_or_ticket_api",
+      "required": true,
+      "classification": "confidential",
+      "retention_days": 30
+    }
+  ],
+  "tool_policy": {
+    "read": [
+      "search_kb",
+      "get_order_status",
+      "list_customer_tickets"
+    ],
+    "draft": [
+      "create_support_ticket",
+      "add_ticket_internal_note"
+    ],
+    "approval_required": [
+      "send_email_reply",
+      "update_ticket_status",
+      "assign_ticket"
+    ],
+    "forbidden": [
+      "refund_payment",
+      "delete_customer_data",
+      "change_user_roles",
+      "execute_generated_sql"
+    ]
+  },
+  "golden_dataset": {
+    "minimum_reviewed_active": 80,
+    "target_reviewed_active": 120,
+    "required_buckets": [
+      "vi",
+      "en",
+      "exact",
+      "citation",
+      "negative",
+      "followup"
+    ]
+  }
+}

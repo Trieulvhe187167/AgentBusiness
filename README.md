@@ -206,6 +206,12 @@ For RAG model/retrieval changes, use the Benchmark & Promotion Gate workflow in
 - `scripts/run_baseline_eval.py` to run baseline and candidate reports.
 - `scripts/rag_profile_manager.py` to generate env overlays and record promote/rollback decisions.
 - `scripts/compare_rag_eval_reports.py` to create the promotion summary across candidate reports.
+- `scripts/pilot_dataset_manager.py` to create a privacy-safe owner review queue and finalize only approved evidence.
+- `scripts/pilot_data_readiness.py` to audit enterprise-pilot KB, evidence, coverage, PII shape, and support outcome readiness.
+
+For an enterprise Support Operations pilot, follow
+`docs/enterprise-pilot-data-playbook.md`. Generated queues and readiness reports
+stay under `data/` and must not be committed.
 
 ### OpenAI Responses tool continuation
 

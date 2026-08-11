@@ -39,7 +39,7 @@
     .status.open,.status.new,.status.queued,.status.waiting_approval { background:#fff1d7; color:var(--warn); }
     .status.resolved,.status.closed,.status.done { background:#ddf4e7; color:var(--ok); }
     .status.escalated,.status.failed { background:#f9dfd9; color:var(--bad); }
-    .portal-identity { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+    .portal-identity { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:8px; }
     .messages { height:560px; overflow:auto; border:1px solid var(--line); border-radius:16px; background:#fffdfa; padding:14px; display:flex; flex-direction:column; gap:12px; }
     .msg { display:flex; gap:9px; align-items:flex-start; }
     .msg.user { flex-direction:row-reverse; }
@@ -106,6 +106,8 @@
           <input id="portalUserId" placeholder="employee-1">
           <input id="portalRoles" placeholder="employee">
           <input id="portalChannel" placeholder="portal">
+          <input id="portalTenantId" placeholder="Tenant ID (e.g. tenant-nep-thanh)">
+          <input id="portalOrgId" placeholder="Org ID (e.g. org-nep-thanh)">
         </div>
         <div class="row">
           <button class="btn-muted" id="btnSavePortalIdentity">Save Identity</button>
@@ -190,6 +192,8 @@
         userId: raw.userId || 'employee-1',
         roles: raw.roles || 'employee',
         channel: raw.channel || 'portal',
+        tenantId: raw.tenantId || '',
+        orgId: raw.orgId || '',
       };
     }
 
@@ -199,6 +203,8 @@
       if (identity.userId) headers.set('X-User-Id', identity.userId);
       if (identity.roles) headers.set('X-Roles', identity.roles);
       headers.set('X-Channel', identity.channel || 'portal');
+      if (identity.tenantId) headers.set('X-Tenant-Id', identity.tenantId);
+      if (identity.orgId) headers.set('X-Org-Id', identity.orgId);
       return headers;
     }
 
@@ -302,6 +308,8 @@
         document.getElementById('portalUserId').value = identity.userId;
         document.getElementById('portalRoles').value = identity.roles;
         document.getElementById('portalChannel').value = identity.channel;
+        document.getElementById('portalTenantId').value = identity.tenantId;
+        document.getElementById('portalOrgId').value = identity.orgId;
       }
     }
 
@@ -627,6 +635,8 @@
         userId: document.getElementById('portalUserId').value.trim() || 'employee-1',
         roles: document.getElementById('portalRoles').value.trim() || 'employee',
         channel: document.getElementById('portalChannel').value.trim() || 'portal',
+        tenantId: document.getElementById('portalTenantId').value.trim(),
+        orgId: document.getElementById('portalOrgId').value.trim(),
       }));
       await bootstrap();
       toast('Identity saved');
