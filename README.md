@@ -1,8 +1,84 @@
-﻿# Local RAG Knowledge Base Chatbot
+# AgentBusiness — Enterprise RAG & AI Agent Platform
 
-A FastAPI-based local RAG app for document upload, KB-scoped ingestion, retrieval, and chat.
+An AI assistant platform for internal business knowledge and support operations, built with **FastAPI**.
+Employees ask questions in natural language and get answers grounded in company documents **with source citations**;
+an **AI agent** can also call business tools (support tickets, email, order lookup, Google Drive sync) under
+role-based authorization, audit logging, and **human approval for risky actions**.
 
-The repo also contains an advanced agent runtime for backend tool execution, support tickets, and external business integrations. That advanced path is real, but it is not the first thing new users should run.
+> Start with the simple local mode below. The agent runtime (tool calling, model server, integrations) is optional.
+
+## Screenshots
+
+| RAG answer with source citations | Agent routes the request and calls a tool |
+| --- | --- |
+| ![RAG chat with citations](docs/images/chat-rag-citations.png) | ![Agent tool call trace](docs/images/chat-agent-tool-call.png) |
+
+| Knowledge workspace (files, ingest, quality) | RAG quality & golden-set evaluation |
+| --- | --- |
+| ![Admin knowledge workspace](docs/images/admin-knowledge.png) | ![RAG quality cockpit](docs/images/admin-rag-quality.png) |
+
+| MCP server: tools with risk levels and scopes | Operations: scheduled sync jobs and audit |
+| --- | --- |
+| ![MCP tools](docs/images/admin-mcp-tools.png) | ![Operations workspace](docs/images/admin-operations.png) |
+
+## Key capabilities
+
+**RAG knowledge assistant**
+- Multi-format ingestion: PDF (with table extraction and OCR fallback), DOCX, XLSX/XLS, CSV, HTML, Markdown, JSON, images.
+- Multiple Knowledge Bases with access levels, file versioning (diff and rollback), and Google Drive sync.
+- Vector backends: NumPy (local), ChromaDB, or Qdrant hybrid (dense + BM25 sparse with RRF fusion), plus reranking.
+- Answers include source citations; the system falls back to extractive answers when no LLM is configured.
+
+**AI agent and automation**
+- Agent router decides between RAG answer, clarifying question, or tool call, and shows each step in an *Agent Trace* panel.
+- Tool registry with 20 business tools (support tickets, email inbox and replies, order status, KB stats, Google Drive sync), each with a risk level and permission scope.
+- Human-in-the-loop safety: high-risk actions such as sending an email reply create a **pending action** that an admin must approve before it runs.
+- Durable workflow engine and agent-run ledger checkpointed to SQLite, so runs can be inspected, retried, or resumed.
+- Exposes tools and resources through an **MCP (Model Context Protocol) server** with auth, origin checks, tool scopes, and deny audit.
+- Scheduled background jobs: support email sync, SLA monitoring, Drive sync, weekly knowledge-gap reports.
+
+**Quality, security and operations**
+- Golden-dataset evaluation (answer similarity, Recall@K, MRR, citation accuracy), optional LLM-as-judge, and a benchmark promotion gate that blocks regressions.
+- Role-based access control, JWT or trusted-gateway auth, rate limiting, and audit logs for tool calls and admin actions.
+- LLM providers: Ollama, any OpenAI-compatible server (for example vLLM with Qwen), OpenAI (Responses API with tool loop), Gemini.
+- 300+ automated tests (pytest), Docker Compose deployment, GitHub Actions CI.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    U[User / Website] --> C[Chat UI / API]
+    C --> R{Agent router}
+    R -->|question| RAG[Retriever + reranker]
+    RAG --> V[(Vector store<br/>NumPy / Chroma / Qdrant)]
+    RAG --> L[LLM provider]
+    R -->|action| T[Tool registry]
+    T -->|low risk| X[Business systems<br/>tickets, orders, email, Drive]
+    T -->|high risk| P[Pending approval] --> A[Admin approves] --> X
+    T --> AU[(Audit log)]
+    M[MCP clients] --> MCP[MCP server] --> T
+    D[Documents / Drive] --> I[Ingest: parse, OCR, chunk, embed] --> V
+```
+
+## Quick demo (about 5 minutes)
+
+1. Install and start the app (MVP mode, no LLM required):
+
+   ```powershell
+   python -m venv .venv
+   .\.venv\Scripts\activate
+   pip install -r requirements-core.txt
+   Copy-Item .env.example .env
+   python -m uvicorn app.main:app --host 127.0.0.1 --port 8080
+   ```
+
+2. Open `http://127.0.0.1:8080/admin`, go to **Knowledge**, upload a few documents (PDF, DOCX, XLSX…) and click **Ingest Stale**.
+3. Open `http://127.0.0.1:8080/chat?kb=default` and ask a question about your documents. Citations appear in the right panel.
+4. To try the agent, set an LLM provider in `.env` (for example Ollama: `RAG_LLM_PROVIDER=ollama`, `RAG_LLM_MODEL=llama3.2`), restart, and type:
+   *"Create a support ticket: I cannot log in to the student portal. Contact: student@example.com"*. Open the **Agent Trace** tab to see the tool call.
+5. Explore **RAG Quality**, **Operations** and **MCP Server** in the admin UI. API docs are at `http://127.0.0.1:8080/docs`.
+
+The sections below describe every run mode and configuration option in detail.
 
 ## What should I run first?
 
